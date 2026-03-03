@@ -315,7 +315,8 @@ async fn test_mcp_call_tool_with_no_args() -> Result<()> {
 // Test: Asynchronous Tool Execution
 // ============================================================================
 
-/// Test calling an asynchronous tool returns operation ID
+/// Test calling an asynchronous tool returns either operation ID or inline result
+/// (automatic async may return the result directly if the command completes fast enough)
 #[tokio::test]
 async fn test_mcp_call_async_tool_returns_id() -> Result<()> {
     init_test_logging();
@@ -341,22 +342,28 @@ async fn test_mcp_call_async_tool_returns_id() -> Result<()> {
 
     let result = client.call_tool(params).await?;
 
-    // Async tools should return successfully (with operation ID)
+    // Async tools should return successfully
     assert!(
         !result.is_error.unwrap_or(false),
         "Async tool call should succeed"
     );
 
-    // Output should contain operation ID reference
+    // Output should either contain:
+    // 1. Operation ID (if automatic async timeout elapsed), or
+    // 2. Actual output (if command completed within automatic async window)
     let all_text: String = result
         .content
         .iter()
         .filter_map(|c| c.as_text().map(|t| t.text.clone()))
         .collect();
 
+    let has_async_id =
+        all_text.contains("op_") || all_text.contains("operation") || all_text.contains("started");
+    let has_actual_output = all_text.contains("async test");
+
     assert!(
-        all_text.contains("op_") || all_text.contains("operation") || all_text.contains("started"),
-        "Async call should indicate operation started. Got: {}",
+        has_async_id || has_actual_output,
+        "Async call should indicate operation started or return inline result. Got: {}",
         all_text
     );
 

@@ -669,7 +669,7 @@ async fn test_async_execution_mode() -> Result<()> {
     let result = client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Async should return operation ID
+    // Async should return operation ID or inline result (automatic async)
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
@@ -677,6 +677,9 @@ async fn test_async_execution_mode() -> Result<()> {
             text_content.text.contains("op_")
                 || text_content.text.contains("Asynchronous")
                 || text_content.text.contains("operation")
+                || text_content.text.contains("async test"),
+            "Should contain op ID or inline result. Got: {}",
+            text_content.text
         );
     }
 

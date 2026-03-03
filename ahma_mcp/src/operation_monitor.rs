@@ -406,7 +406,7 @@ impl OperationMonitor {
     }
 
     /// Look up an operation in the completion history.
-    async fn check_completion_history(&self, id: &str) -> Option<Operation> {
+    pub async fn check_completion_history_pub(&self, id: &str) -> Option<Operation> {
         let history = self.completion_history.read().await;
         history.get(id).cloned()
     }
@@ -414,7 +414,10 @@ impl OperationMonitor {
     /// Get the notifier for an active operation, setting first_wait_time if needed.
     /// Returns `Some(notifier)` if the operation is active, `None` if it doesn't exist.
     /// Returns the operation directly via `Err(op)` if it's already terminal.
-    async fn get_notifier_or_terminal(&self, id: &str) -> Result<Option<Arc<Notify>>, Operation> {
+    pub async fn get_notifier_or_terminal_pub(
+        &self,
+        id: &str,
+    ) -> Result<Option<Arc<Notify>>, Operation> {
         let mut ops = self.operations.write().await;
         let Some(op) = ops.get_mut(id) else {
             return Ok(None);
@@ -433,9 +436,9 @@ impl OperationMonitor {
 
     /// Retry checking completion history after notification, handling the small
     /// race window where the notifier fires before history is updated.
-    async fn wait_for_history_propagation(&self, id: &str) -> Option<Operation> {
+    pub async fn wait_for_history_propagation_pub(&self, id: &str) -> Option<Operation> {
         for attempt in 0..10 {
-            if let Some(op) = self.check_completion_history(id).await {
+            if let Some(op) = self.check_completion_history_pub(id).await {
                 return Some(op);
             }
             if attempt < 9 {
@@ -458,18 +461,18 @@ impl OperationMonitor {
     pub async fn wait_for_operation(&self, id: &str) -> Option<Operation> {
         let timeout = Duration::from_secs(300);
 
-        if let Some(op) = self.check_completion_history(id).await {
+        if let Some(op) = self.check_completion_history_pub(id).await {
             return Some(op);
         }
 
-        let notifier = match self.get_notifier_or_terminal(id).await {
+        let notifier = match self.get_notifier_or_terminal_pub(id).await {
             Err(terminal_op) => return Some(terminal_op),
             Ok(None) => return None,
             Ok(Some(n)) => n,
         };
 
         match tokio::time::timeout(timeout, notifier.notified()).await {
-            Ok(_) => self.wait_for_history_propagation(id).await,
+            Ok(_) => self.wait_for_history_propagation_pub(id).await,
             Err(_) => {
                 tracing::warn!("Wait for operation {} timed out.", id);
                 None

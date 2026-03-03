@@ -259,19 +259,25 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
 
     let result = client.call_tool(params).await?;
 
-    // Should return immediately with operation IDs
+    // Should return with operation IDs or inline results (automatic async)
     assert!(!result.content.is_empty());
-    let mut found_id = false;
+    let mut found_expected = false;
     for content in &result.content {
         if let Some(text_content) = content.as_text()
             && (text_content.text.contains("operation")
                 || text_content.text.contains("op_")
-                || text_content.text.contains("started"))
+                || text_content.text.contains("started")
+                || text_content.text.contains("async1")
+                || text_content.text.contains("async2")
+                || text_content.text.contains("completed"))
         {
-            found_id = true;
+            found_expected = true;
         }
     }
-    assert!(found_id, "Async sequence should return operation IDs");
+    assert!(
+        found_expected,
+        "Async sequence should return operation IDs or inline results"
+    );
 
     // Wait for operations to complete
     let _ = wait_for_condition(

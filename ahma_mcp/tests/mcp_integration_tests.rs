@@ -86,13 +86,18 @@ async fn test_async_notification_delivery() -> Result<()> {
 
     let result = client.call_tool(call_params).await?;
 
-    // The async tool should return immediately with operation info
+    // The async tool should return immediately with operation info, or complete inline
     assert!(!result.content.is_empty());
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
-        // Should contain operation ID and status info
-        assert!(text_content.text.contains("id") || text_content.text.contains("started"));
+        // Should contain operation ID and status info (if executing async)
+        // Or be empty if it completed inline due to automatic async behavior
+        assert!(
+            text_content.text.contains("id")
+                || text_content.text.contains("started")
+                || text_content.text.is_empty() // Success output for 'sleep 1'
+        );
     }
 
     // 2. Use the await tool to check that async operations can be tracked - no timeout parameter needed

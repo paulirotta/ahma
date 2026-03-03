@@ -66,7 +66,7 @@ If you are an AI agent interacting with this repository:
 ## Key Features
 
 - **Kernel-Level Sandboxing**: Security by default. Hard kernel boundaries prevent accessing any files outside the workspace, regardless of how an AI constructs its commands.
-- **Asynchronous By Default with Sync Override**: Operations run asynchronously by default, allowing the LLM to continue work while awaiting results. Use `--sync` flag or set `"synchronous": true` in tool config for operations that must complete before proceeding. Supports multiple concurrent long-running operations (builds, tests).
+- **Asynchronous By Default with Sync Override**: Operations run asynchronously by default, allowing the LLM to continue work while awaiting results. **Automatic async** reduces round-trips for fast commands: if an async operation completes within 5 seconds, its result is returned inline without requiring a separate `await` call. Use `--sync` flag or set `"synchronous": true` in tool config for operations that must complete before proceeding. Supports multiple concurrent long-running operations (builds, tests).
 - **Easy Tool Definition**: Add any command-line tool to your AI's arsenal by creating a single JSON file. No recompilation needed.
 - **Multi-Step Workflows (Preferred)**: Run multi-command pipelines via `sandboxed_shell` (e.g., `cargo fmt --all && cargo clippy --all-targets && cargo test`).
 

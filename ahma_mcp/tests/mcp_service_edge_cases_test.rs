@@ -194,12 +194,12 @@ async fn test_cancel_with_reason() -> Result<()> {
         .build()
         .await?;
 
-    // First start a long running operation
+    // First start a long running operation (must exceed AUTOMATIC_ASYNC_TIMEOUT_SECS)
     let start_params = CallToolRequestParams {
         name: Cow::Borrowed("sandboxed_shell"),
         arguments: Some(
             json!({
-                "command": "sleep 5",
+                "command": "sleep 30",
                 "execution_mode": "AsyncResultPush"
             })
             .as_object()
@@ -222,7 +222,7 @@ async fn test_cancel_with_reason() -> Result<()> {
         .split("ID: ")
         .nth(1)
         .and_then(|s| s.split_whitespace().next())
-        .ok_or_else(|| anyhow::anyhow!("Could not extract op ID"))?;
+        .ok_or_else(|| anyhow::anyhow!("Could not extract op ID from: {}", start_text))?;
 
     // Cancel it with a reason
     let cancel_params = CallToolRequestParams {
@@ -341,7 +341,12 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
         .iter()
         .filter_map(|c| c.as_text().map(|t| t.text.clone()))
         .collect();
-    assert!(async_text.contains("ID: op_")); // Async SHOULD return op ID
+    // With automatic async, fast echo may return inline result instead of op ID
+    assert!(
+        async_text.contains("ID: op_") || async_text.contains("async"),
+        "Async should return op ID or inline result. Got: {}",
+        async_text
+    );
 
     // 3. Invalid mode (should fallback to Async)
     let invalid_params = CallToolRequestParams {
@@ -364,7 +369,12 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
         .iter()
         .filter_map(|c| c.as_text().map(|t| t.text.clone()))
         .collect();
-    assert!(invalid_text.contains("ID: op_")); // Fallback is Async
+    // With automatic async, fast echo may return inline result instead of op ID
+    assert!(
+        invalid_text.contains("ID: op_") || invalid_text.contains("fallback"),
+        "Fallback async should return op ID or inline result. Got: {}",
+        invalid_text
+    );
 
     client.cancel().await?;
     Ok(())

@@ -318,16 +318,16 @@ impl MtdfValidator {
             ];
 
             for kw in async_keywords {
-                if let Ok(re) = regex::Regex::new(kw) {
-                    if re.is_match(&desc_lower) {
-                        errors.push(SchemaValidationError {
-                            error_type: ValidationErrorType::LogicalInconsistency,
-                            field_path: format!("{}.description", path),
-                            message: "Description mentions async behavior but subcommand is forced synchronous (either directly or inherited from tool)".to_string(),
-                            suggestion: Some("Either set synchronous to false on this subcommand or update description to reflect synchronous behavior".to_string()),
-                        });
-                        break;
-                    }
+                if let Ok(re) = regex::Regex::new(kw)
+                    && re.is_match(&desc_lower)
+                {
+                    errors.push(SchemaValidationError {
+                        error_type: ValidationErrorType::LogicalInconsistency,
+                        field_path: format!("{}.description", path),
+                        message: "Description mentions async behavior but subcommand is forced synchronous (either directly or inherited from tool)".to_string(),
+                        suggestion: Some("Either set synchronous to false on this subcommand or update description to reflect synchronous behavior".to_string()),
+                    });
+                    break;
                 }
             }
         }

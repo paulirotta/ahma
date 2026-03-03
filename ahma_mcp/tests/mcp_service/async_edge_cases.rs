@@ -330,7 +330,10 @@ async fn test_async_operation_with_real_execution() -> Result<()> {
     {
         let text = &text_content.text;
         assert!(
-            text.contains("id") || text.contains("started") || text.contains("job_id"),
+            text.contains("id")
+                || text.contains("started")
+                || text.contains("job_id")
+                || text.contains("test async execution"),
             "Async operation should return operation tracking info, got: {}",
             text
         );

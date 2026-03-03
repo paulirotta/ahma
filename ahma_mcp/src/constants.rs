@@ -76,6 +76,12 @@ pub const STATUS_POLLING_HINT_TEMPLATE: &str = "**STATUS POLLING ANTI-PATTERN DE
 /// - In any scenario where temporal separation prevents race conditions
 pub const SEQUENCE_STEP_DELAY_MS: u64 = 100;
 
+/// Maximum time (in seconds) to wait for an async operation to complete before
+/// returning an async operation ID. If the operation finishes within this window,
+/// its result is returned inline, saving the LLM an extra `await` round-trip.
+/// This "automatic async" behavior reduces context chatter for fast commands.
+pub const AUTOMATIC_ASYNC_TIMEOUT_SECS: u64 = 5;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +122,24 @@ mod tests {
         assert_eq!(
             SEQUENCE_STEP_DELAY_MS, 100,
             "Delay should be 100ms as specified"
+        );
+    }
+
+    #[test]
+    fn automatic_async_timeout_is_reasonable() {
+        init_test_logging();
+        const _: () = assert!(
+            AUTOMATIC_ASYNC_TIMEOUT_SECS >= 1,
+            "Automatic async timeout too short - won't catch fast commands"
+        );
+        const _: () = assert!(
+            AUTOMATIC_ASYNC_TIMEOUT_SECS <= 30,
+            "Automatic async timeout too long - defeats purpose of async"
+        );
+
+        assert_eq!(
+            AUTOMATIC_ASYNC_TIMEOUT_SECS, 5,
+            "Automatic async timeout should be 5 seconds as documented"
         );
     }
 }

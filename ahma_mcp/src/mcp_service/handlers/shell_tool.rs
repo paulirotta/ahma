@@ -324,6 +324,14 @@ impl AhmaMcpService {
 
         match job_id {
             Ok(id) => {
+                // Automatic async: wait briefly for fast commands to complete
+                if let Some(result) =
+                    super::common::try_automatic_async_completion(&self.operation_monitor, &id)
+                        .await
+                {
+                    return Ok(result);
+                }
+
                 let hint = crate::tool_hints::preview(&id, "sandboxed_shell");
                 let message = format!("Asynchronous operation started with ID: {}{}", id, hint);
                 Ok(CallToolResult::success(vec![Content::text(message)]))

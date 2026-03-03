@@ -873,6 +873,16 @@ impl ServerHandler for AhmaMcpService {
 
                     match job_id {
                         Ok(id) => {
+                            // Automatic async: wait briefly for fast commands to complete
+                            if let Some(result) = handlers::common::try_automatic_async_completion(
+                                &self.operation_monitor,
+                                &id,
+                            )
+                            .await
+                            {
+                                return Ok(result);
+                            }
+
                             // Include tool hints to guide AI on handling async operations
                             let hint = crate::tool_hints::preview(&id, tool_name);
                             let message =
