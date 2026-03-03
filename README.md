@@ -233,6 +233,15 @@ If a client does not provide roots/list, you **must** configure an explicit scop
 
 **Security Note**: HTTP mode is for local development only. Do not expose to untrusted networks.
 
+| Feature | STDIO Mode | HTTP Mode |
+|---|---|---|
+| Sandbox scope | Set by IDE via `cwd` in mcp.json | Set per session via `roots/list` |
+| Per-project isolation | Automatic (IDE spawns per workspace) | Automatic (per session) |
+| Configuration | `mcp.json` in IDE | CLI args or env vars |
+| Use case | Standard IDE integration | Debugging, advanced setups |
+
+For most users, **STDIO mode is recommended** because the IDE handles sandbox configuration automatically.
+
 Send JSON-RPC requests to `http://localhost:3000/mcp`:
 
 ```bash
