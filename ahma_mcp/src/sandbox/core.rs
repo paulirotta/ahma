@@ -149,9 +149,10 @@ impl Sandbox {
     }
 
     fn is_path_allowed(&self, canonical: &Path, scopes_guard: &[PathBuf]) -> bool {
+        let canonical_stripped = strip_extended_prefix(canonical);
         scopes_guard
             .iter()
-            .any(|scope| canonical.starts_with(scope))
+            .any(|scope| canonical_stripped.starts_with(strip_extended_prefix(scope)))
     }
 
     fn check_security_policies(&self, original_path: &Path, canonical: &Path) -> Result<()> {
@@ -171,4 +172,18 @@ impl Sandbox {
         }
         Ok(())
     }
+}
+
+/// Strip the Windows extended-length path prefix (`\\?\`) if present.
+/// Returns an owned `PathBuf`; on non-Windows this is always a clone.
+///
+/// Windows `std::fs::canonicalize` may add or omit `\\?\` depending on
+/// the input form.  Stripping before `starts_with` comparisons lets paths
+/// referring to the same location compare equal.
+fn strip_extended_prefix(path: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    if let Some(stripped) = path.as_os_str().to_string_lossy().strip_prefix(r"\\?\") {
+        return PathBuf::from(stripped);
+    }
+    path.to_path_buf()
 }
