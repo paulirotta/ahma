@@ -512,12 +512,33 @@ async fn test_sandboxed_shell_execution_with_assertions() {
         return;
     }
 
+    // Platform-specific commands:
+    //   - PowerShell `pwd` (Get-Location) emits a table with "Path\n----\n..." headers
+    //     and canonicalize() adds a `\\?\` prefix. Use `(Get-Location).Path` for a
+    //     plain string and strip the extended-length prefix before comparison.
+    //   - PowerShell `echo` with single quotes works, but `Write-Output` is safer.
+    //   - `ls -la` is Unix-only; PowerShell's `Get-ChildItem` is the equivalent.
+
+    // Build the expected directory name (last path component) for a prefix-agnostic check.
+    // On Windows, canonicalize() returns `\\?\C:\Users\...` but the shell reports
+    // `C:\Users\...`; comparing just the directory name avoids the mismatch.
+    let expected_dir_name = project_dir
+        .file_name()
+        .expect("temp dir should have a name")
+        .to_string_lossy()
+        .to_string();
+
     // Test 1: pwd returns the working directory
+    #[cfg(target_os = "windows")]
+    let pwd_command = "(Get-Location).Path";
+    #[cfg(not(target_os = "windows"))]
+    let pwd_command = "pwd";
+
     let result = client
         .call_tool(
             "sandboxed_shell",
             json!({
-                "command": "pwd",
+                "command": pwd_command,
                 "working_directory": project_dir.to_string_lossy()
             }),
         )
@@ -531,18 +552,20 @@ async fn test_sandboxed_shell_execution_with_assertions() {
 
     if let Some(output) = &result.output {
         assert!(
-            output.contains(project_dir.to_string_lossy().as_ref()),
-            "pwd should return working directory path: got '{}'",
+            output.contains(&expected_dir_name),
+            "pwd should return working directory containing '{}': got '{}'",
+            expected_dir_name,
             output
         );
     }
 
     // Test 2: echo returns expected output
+    // Use double quotes so the string is treated identically by both bash and pwsh.
     let result = client
         .call_tool(
             "sandboxed_shell",
             json!({
-                "command": "echo 'MCP tool execution works'",
+                "command": "echo \"MCP tool execution works\"",
                 "working_directory": project_dir.to_string_lossy()
             }),
         )
@@ -562,12 +585,17 @@ async fn test_sandboxed_shell_execution_with_assertions() {
         );
     }
 
-    // Test 3: ls can see files in sandbox
+    // Test 3: directory listing can see files in sandbox
+    #[cfg(target_os = "windows")]
+    let ls_command = "Get-ChildItem";
+    #[cfg(not(target_os = "windows"))]
+    let ls_command = "ls -la";
+
     let result = client
         .call_tool(
             "sandboxed_shell",
             json!({
-                "command": "ls -la",
+                "command": ls_command,
                 "working_directory": project_dir.to_string_lossy()
             }),
         )
