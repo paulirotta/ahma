@@ -131,6 +131,7 @@ pub fn normalize_path_lexically(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::path_helpers::{test_abs, test_root};
     use std::path::PathBuf;
 
     // -----------------------------------------------------------------------
@@ -139,12 +140,12 @@ mod tests {
 
     #[test]
     fn test_is_filesystem_root_unix_root() {
-        assert!(is_filesystem_root(Path::new("/")));
+        assert!(is_filesystem_root(&test_root()));
     }
 
     #[test]
     fn test_is_filesystem_root_unix_subdir() {
-        assert!(!is_filesystem_root(Path::new("/home/user")));
+        assert!(!is_filesystem_root(&test_abs(&["home", "user"])));
     }
 
     #[test]
@@ -186,23 +187,23 @@ mod tests {
     #[test]
     fn test_normalize_extra_dotdot_cannot_escape_unix_root() {
         // Excess `..` beyond root must never collapse the RootDir sentinel.
-        let result = normalize_path_lexically(Path::new("/a/../../.."));
-        assert_eq!(result, PathBuf::from("/"));
+        let result = normalize_path_lexically(&test_abs(&["a", "..", "..", ".."]));
+        assert_eq!(result, test_root());
     }
 
     #[test]
     fn test_normalize_removes_current_dir() {
         assert_eq!(
-            normalize_path_lexically(Path::new("/a/./b")),
-            PathBuf::from("/a/b"),
+            normalize_path_lexically(&test_abs(&["a", ".", "b"])),
+            test_abs(&["a", "b"]),
         );
     }
 
     #[test]
     fn test_normalize_removes_parent_dir() {
         assert_eq!(
-            normalize_path_lexically(Path::new("/a/b/../c")),
-            PathBuf::from("/a/c"),
+            normalize_path_lexically(&test_abs(&["a", "b", "..", "c"])),
+            test_abs(&["a", "c"]),
         );
     }
 
@@ -236,12 +237,8 @@ mod tests {
 
     #[test]
     fn test_canonicalize_rejects_unix_root_in_strict_mode() {
-        let err = canonicalize_scopes(
-            vec![PathBuf::from("/")],
-            SandboxMode::Strict,
-            "test context",
-        )
-        .unwrap_err();
+        let err = canonicalize_scopes(vec![test_root()], SandboxMode::Strict, "test context")
+            .unwrap_err();
         assert!(
             err.to_string().contains("not a valid sandbox scope"),
             "unexpected error: {err}"

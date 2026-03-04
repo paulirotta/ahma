@@ -88,6 +88,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::path_helpers::{test_abs, test_root};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -164,46 +165,49 @@ mod tests {
 
     #[test]
     fn test_normalize_path_removes_dot() {
-        let path = Path::new("/a/./b/./c");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("/a/b/c"));
+        let path = test_abs(&["a", ".", "b", ".", "c"]);
+        let normalized = normalize_path(&path);
+        assert_eq!(normalized, test_abs(&["a", "b", "c"]));
     }
 
     #[test]
     fn test_normalize_path_removes_dotdot() {
-        let path = Path::new("/a/b/../c");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("/a/c"));
+        let path = test_abs(&["a", "b", "..", "c"]);
+        let normalized = normalize_path(&path);
+        assert_eq!(normalized, test_abs(&["a", "c"]));
     }
 
     #[test]
     fn test_normalize_path_multiple_dotdots() {
-        let path = Path::new("/a/b/c/../../d");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("/a/d"));
+        let path = test_abs(&["a", "b", "c", "..", "..", "d"]);
+        let normalized = normalize_path(&path);
+        assert_eq!(normalized, test_abs(&["a", "d"]));
     }
 
     #[test]
     fn test_normalize_path_root_reset() {
-        // Path with multiple root components - later root resets
-        let path = Path::new("/a/b");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("/a/b"));
+        // A plain absolute path should be returned unchanged.
+        let path = test_abs(&["a", "b"]);
+        let normalized = normalize_path(&path);
+        assert_eq!(normalized, test_abs(&["a", "b"]));
     }
 
     #[test]
     fn test_normalize_path_empty_after_dotdot() {
-        let path = Path::new("/a/../..");
-        let normalized = normalize_path(path);
+        let path = test_abs(&["a", "..", ".."]);
+        let normalized = normalize_path(&path);
         // Should result in just root — the RootDir sentinel is never popped.
-        assert_eq!(normalized, PathBuf::from("/"));
+        assert_eq!(normalized, test_root());
     }
 
     #[test]
     fn test_normalize_path_many_dotdots_cannot_escape_root() {
-        // No matter how many `..` are chained, we must not go above `/`.
-        let normalized = normalize_path(Path::new("/a/b/c/../../../../../../../.."));
-        assert_eq!(normalized, PathBuf::from("/"));
+        // No matter how many `..` are chained, we must not go above the root.
+        let path = test_abs(&[
+            "a", "b", "c", "..", "..", "..", "..", "..", "..", "..", "..",
+        ]);
+        let normalized = normalize_path(&path);
+        assert_eq!(normalized, test_root());
     }
 
     #[cfg(windows)]
