@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.9.0.schema.json
+PackageIdentifier: paulirotta.Ahma
+PackageVersion: 0.5.0
+PackageLocale: en-US
+Publisher: Paul Irotta
+PublisherUrl: https://github.com/paulirotta
+PublisherSupportUrl: https://github.com/paulirotta/ahma/issues
+PackageName: Ahma MCP
+PackageUrl: https://github.com/paulirotta/ahma
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/paulirotta/ahma/blob/main/MIT_LICENSE.txt
+ShortDescription: >-
+  Universal MCP server — turn any CLI tool into an AI agent tool
+  with one JSON file, with kernel-enforced sandboxing.
+Description: >-
+  Ahma (Finnish for wolverine) is a high-performance Model Context Protocol
+  (MCP) server that adapts any command-line tool for AI agent use. Create
+  agents from your CLI tools with one JSON file. Built security-first with
+  kernel-level file-system sandboxing on Linux/macOS; Windows AppContainer
+  backend in development.
+
+  Includes ahma_mcp (the MCP server) and ahma_simplify (code complexity
+  analysis with AI fix suggestions).
+Moniker: ahma
+Tags:
+  - mcp
+  - ai
+  - agents
+  - llm
+  - cli
+  - rust
+  - developer-tools
+ReleaseNotesUrl: https://github.com/paulirotta/ahma/releases/tag/latest
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

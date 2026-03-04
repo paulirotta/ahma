@@ -349,6 +349,51 @@ When running inside another sandbox (Cursor, VS Code, Docker):
 - Outer sandbox still provides security
 - Use `--no-sandbox` to suppress detection warnings
 
+### Windows Platform Development
+
+> **Status**: Runtime (PowerShell shell pool, path model) is `in-progress`.
+> Sandbox backend (`ahma_mcp/src/sandbox/windows.rs`) is `not-started` — fails closed until implemented.
+
+#### Key rules for Windows-targeted changes
+
+- **Never use `#[cfg(unix)]` or `#[cfg(target_family = "unix")]` without a Windows arm.**  
+  Every conditional must handle all three platforms: Linux, macOS, Windows.
+- **Root path checks** in `sandbox/scopes.rs` use `is_filesystem_root()` — never compare  
+  directly to `Path::new("/")` because `C:\` and UNC roots have different representations.
+- **Shell invocations** must go through `is_shell_program_invocation()` (in `adapter/mod.rs`)  
+  and `shell_binary()` / `shell_args()` (in `shell_pool.rs`) — do not hard-code `bash` or `/bin/sh`.
+- **Path separators**: always use `std::path::MAIN_SEPARATOR` or `Path`/`PathBuf` APIs.  
+  String-based separator assumptions (`"/"`, `"\\"`) break cross-platform.
+- **`expand_home`**: tilde expansion handles both `~/` and `~\` — test both when modifying.
+- **Temp files**: use `std::env::temp_dir()` (cross-platform) rather than `/tmp`.
+
+#### Windows sandbox implementation checklist
+
+Before marking `Windows Sandbox backend` → `tests-pass` in SPEC.md, all of the following
+must be satisfied (see R6.3 in SPEC.md for the full acceptance criteria):
+
+- [ ] `check_windows_sandbox_available()` returns `Ok(())` when AppContainer backend is ready
+- [x] `enforce_windows_sandbox(roots)` — **done**: Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` applied at startup; non-fatal if already inside a job
+- [ ] Write outside scope is OS-blocked at kernel level (AppContainer; tested by integration test)
+- [ ] `tools/call` before sandbox lock returns HTTP 409 / JSON-RPC `-32001`
+- [x] Filesystem root scopes (`C:\`, UNC) are rejected by `canonicalize_scopes` — **done**: `is_filesystem_root()` handles all Win/Unix root forms
+- [ ] All sandbox gating integration tests pass on `windows-latest` CI runner
+
+#### Running against Windows CI locally (cross-check)
+
+If you have a Windows machine or VM, you can validate cross-platform patches by running:
+```powershell
+cargo check --workspace
+cargo clippy --workspace
+cargo nextest run --workspace
+cargo nextest run --workspace -- --ignored
+```
+
+On macOS/Linux you can catch obvious Windows-compile errors without a VM:
+```bash
+cargo check --workspace --target x86_64-pc-windows-msvc  # requires Windows cross toolchain
+```
+
 ### Validation
 - All tool configurations are validated against the MTDF JSON schema at startup
 - Invalid configs are rejected with clear error messages
@@ -403,5 +448,5 @@ ahma_mcp --debug --log-to-stderr cargo_test --working-directory .
 
 ---
 
-**Last Updated**: 2025-12-21
+**Last Updated**: 2026-03-04
 **For Questions**: Open an issue on GitHub or check existing documentation in `docs/`

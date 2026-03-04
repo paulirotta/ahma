@@ -414,6 +414,7 @@ async fn test_uri_parsing_edge_cases() {
     let default_scope = PathBuf::from("/tmp/uri_test");
     let session_manager = create_test_session_manager(Some(default_scope.clone()));
 
+    #[cfg(not(target_os = "windows"))]
     let test_cases = vec![
         // Standard file URI
         (
@@ -429,6 +430,26 @@ async fn test_uri_parsing_edge_cases() {
         ),
         // Root path
         ("file:///", PathBuf::from("/")),
+    ];
+
+    #[cfg(target_os = "windows")]
+    let test_cases = vec![
+        (
+            "file:///C:/Users/test/project",
+            PathBuf::from(r"C:/Users/test/project"),
+        ),
+        (
+            "file://localhost/C:/Users/test/project",
+            PathBuf::from(r"C:/Users/test/project"),
+        ),
+        (
+            "file://server/share/path",
+            PathBuf::from(r"//server/share/path"),
+        ),
+        (
+            "file:///C:/path/with%20space",
+            PathBuf::from(r"C:/path/with space"),
+        ),
     ];
 
     for (uri, expected) in test_cases {

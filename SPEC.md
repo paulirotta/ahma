@@ -8,10 +8,13 @@
 |-----------|--------|-------|
 | Core Tool Execution | tests-pass | `ahma_mcp` adapter executes CLI tools via MTDF JSON |
 | Async-First Operations | tests-pass | Operations return `id`, push results via MCP notifications |
-| Shell Pool | tests-pass | Pre-warmed zsh shells for 5-20ms command startup latency |
+| Shell Pool | tests-pass | Pre-warmed bash/PowerShell shells for 5-20ms command startup latency |
 | Linux Sandbox (Landlock) | tests-pass | Kernel-level FS sandboxing on Linux 5.13+ |
 | macOS Sandbox (Seatbelt) | tests-pass | Kernel-level FS sandboxing via `sandbox-exec` |
 | Nested Sandbox Detection | tests-pass | Detects Cursor/VS Code/Docker outer sandboxes |
+| Windows Runtime (PowerShell) | in-progress | `pwsh`-first shell pool; cross-platform path security + file URI; parity tests green |
+| Windows Sandbox backend | in-progress | Job Object kill-on-close enforcement done; AppContainer path security not-started (strict mode fails closed) |
+| Windows Pre-built Releases | in-progress | `x86_64-pc-windows-msvc`; `.zip` CI artifacts; `install.ps1`; winget manifests + `job-publish-winget` CI job |
 | STDIO Mode | tests-pass | Direct MCP server over stdio for IDE integration |
 | HTTP Bridge Mode | tests-pass | HTTP/SSE proxy for web clients |
 | Session Isolation (HTTP) | tests-pass | Per-session sandbox scope via MCP `roots/list` |
@@ -61,7 +64,7 @@ _"Create agents from your command line tools with one JSON file, then watch them
 | `adapter` | Primary engine for executing external CLI tools (sync/async) |
 | `mcp_service` | Implements `rmcp::ServerHandler` - handles `tools/list`, `tools/call`, etc. |
 | `operation_monitor` | Tracks background operations (progress, timeout, cancellation) |
-| `shell_pool` | Pre-warmed zsh processes for 5-20ms command startup latency |
+| `shell_pool` | Pre-warmed bash/PowerShell shells for 5-20ms command startup latency |
 | `sandbox` | Kernel-level sandboxing (Landlock on Linux, Seatbelt on macOS) |
 | `config` | MTDF (Multi-Tool Definition Format) configuration models |
 | `callback_system` | Event notification system for async operations |
@@ -95,7 +98,7 @@ These tools are always available regardless of JSON configuration:
                   │
                   ▼
             ┌───────────────┐
-            │  ShellPool    │ ──▶ Pre-warmed zsh processes
+            │  ShellPool    │ ──▶ Pre-warmed bash/PowerShell shells
             └───────────────┘
 ```
 
@@ -201,6 +204,56 @@ The sandbox scope defines the root directory boundary. AI has **full read/write 
 - **R6.2.2**: Profile uses `(deny default)` with allowed writes **strictly limited** to the sandbox scope and necessary temp paths.
 - **R6.2.3**: **Read Limitation**: Due to macOS Seatbelt mechanism and system tool requirements, read access is generally allowed globally on macOS. The security guarantee is **write isolation**.
 - **R6.2.4**: **CRITICAL**: `/var` is symlink to `/private/var` on macOS; profiles **must** use real paths.
+
+#### R6.3: Windows (AppContainer / Job Objects) — _in-progress_
+
+> **Security gate**: Windows GA release requires this section to reach `tests-pass` status.
+> Until it does, strict mode **must** fail closed (`SandboxError::PrerequisiteFailed`) so the
+> server never runs unsandboxed without explicit `--no-sandbox` opt-out.
+>
+> **Current status**: Job Object enforcement (`enforce_windows_sandbox`) is **implemented**
+> and wired into server startup.  AppContainer path security remains `not-started`.
+
+##### Architecture decision
+
+The planned implementation uses two mechanisms in order of preference:
+
+1. **AppContainer** (Windows 8+) — lowest-privilege user-space sandbox.
+   An `AppContainer` SID will be given read+execute on the Windows system directory and
+   full access only to the workspace root. This is the primary containment mechanism.
+2. **Job Objects with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`** — applied unconditionally at
+   server startup via `enforce_windows_sandbox`.  Ensures all child processes are killed
+   when the server exits.  Does **not** restrict file-system access by path; AppContainer
+   is required for R6.3.3.
+
+##### Acceptance criteria (required before GA)
+
+- **R6.3.1**: `check_windows_sandbox_available()` returns `Ok(())` when the AppContainer
+  backend is confirmed ready on Windows 8+. _Status: not-started._
+- **R6.3.2**: `enforce_windows_sandbox(roots)` applies Job Object containment at server
+  startup, ensuring child processes are killed on server exit. Signature mirrors
+  `enforce_landlock_sandbox` (`&[PathBuf]`). _Status: **done** — Job Object with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` applied; non-fatal if already inside a job._
+- **R6.3.3**: Write attempts outside the sandbox scope **must** be blocked at the OS level.
+  Proof: a test must show that `tools/call` inside the scope succeeds while a write to a
+  path outside the scope fails with a permission error.
+- **R6.3.4**: `tools/call` issued before sandbox lock (state != `Locked`) **must** return
+  HTTP 409 / JSON-RPC `-32001` on Windows, identical to Linux/macOS behavior.
+- **R6.3.5**: Filesystem root scopes (`C:\`, `D:\`, UNC `\\server\share`) **must** be
+  rejected by `canonicalize_scopes` with `SandboxError::PrerequisiteFailed`, identical to
+  Unix `/` rejection.
+- **R6.3.6**: PowerShell Core (`pwsh`) **must** be documented as a runtime requirement;
+  the server should emit a clear startup error if `pwsh` is absent.
+- **R6.3.7**: All existing integration tests that exercise sandbox gating logic **must**
+  pass on Windows CI with no `#[ignore]` waivers.
+
+##### Windows path model
+
+- Sandbox scope paths use native Windows absolute paths (e.g., `C:\Users\name\project`).
+- File URIs from MCP clients are parsed by `SessionManager::parse_file_uri_to_path` which
+  handles `file:///C:/...` (drive letter) and `file://server/share/path` (UNC) forms.
+- `normalize_path_lexically` never pops a `Prefix` or `RootDir` component (enforced by
+  `scopes.rs`).
 
 ### R7: Nested Sandbox Detection
 

@@ -62,27 +62,27 @@ pub async fn validate_path(path: &Path, root: &Path) -> Result<PathBuf> {
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
-    let mut stack = Vec::new();
+    // Collect and resolve components in a fully cross-platform way.
+    // Using Vec<Component> + collect() lets Rust handle Prefix/RootDir correctly
+    // on both Windows (drive letters, UNC) and Unix.
+    let mut out: Vec<std::path::Component> = Vec::new();
 
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                stack.pop();
+                // Only pop a Normal segment; never remove a root/prefix.
+                if matches!(out.last(), Some(Component::Normal(_))) {
+                    out.pop();
+                }
             }
-            Component::Normal(c) => stack.push(c),
-            Component::RootDir => {
-                stack.clear();
-            }
-            _ => {}
+            c => out.push(c),
         }
     }
 
-    let mut result = PathBuf::from("/");
-    for c in stack {
-        result.push(c);
-    }
-    result
+    // Reconstruct a PathBuf from the resolved components.
+    // This correctly handles Unix `/`, Windows `C:\`, and UNC `\\server\share`.
+    out.iter().collect()
 }
 
 #[cfg(test)]
@@ -195,7 +195,29 @@ mod tests {
     fn test_normalize_path_empty_after_dotdot() {
         let path = Path::new("/a/../..");
         let normalized = normalize_path(path);
-        // Should result in just root
+        // Should result in just root — the RootDir sentinel is never popped.
         assert_eq!(normalized, PathBuf::from("/"));
+    }
+
+    #[test]
+    fn test_normalize_path_many_dotdots_cannot_escape_root() {
+        // No matter how many `..` are chained, we must not go above `/`.
+        let normalized = normalize_path(Path::new("/a/b/c/../../../../../../../.."));
+        assert_eq!(normalized, PathBuf::from("/"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_normalize_path_windows_drive() {
+        let normalized = normalize_path(Path::new("C:\\Users\\test\\.\\..\\docs"));
+        assert_eq!(normalized, PathBuf::from("C:\\Users\\docs"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_normalize_path_windows_dotdot_cannot_escape_drive_root() {
+        let normalized = normalize_path(Path::new("C:\\a\\..\\..\\..\\escape"));
+        // `..` cannot pop RootDir or Prefix, so we end up at C:\ + Normal("escape")
+        assert_eq!(normalized, PathBuf::from("C:\\escape"));
     }
 }

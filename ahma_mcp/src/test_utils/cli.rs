@@ -29,7 +29,15 @@ pub fn get_binary_path(_package: &str, binary: &str) -> PathBuf {
         })
         .unwrap_or_else(|_| workspace.join("target"));
 
-    target_dir.join("debug").join(binary)
+    // On Windows, executables have a `.exe` extension; std::env::consts::EXE_EXTENSION
+    // is "exe" on Windows and "" on Unix, so appending it is always safe.
+    let mut name = binary.to_string();
+    if !std::env::consts::EXE_EXTENSION.is_empty() {
+        name.push('.');
+        name.push_str(std::env::consts::EXE_EXTENSION);
+    }
+
+    target_dir.join("debug").join(name)
 }
 
 /// Get or build a binary, caching the result.

@@ -334,7 +334,11 @@ impl Adapter {
             .map(Duration::from_secs)
             .unwrap_or_else(|| self.shell_pool.config().command_timeout);
 
-        // Create sandboxed command
+        // Create sandboxed command.
+        // `create_shell_command` is only needed for raw /bin/sh invocations where
+        // the caller has NOT already added the -c flag via a subcommand config.
+        // For bash/pwsh the preparer already embeds -c/-Command; always use
+        // create_command so the sandbox wrapper is applied without double-wrapping.
         let mut cmd = if program == "/bin/sh" {
             let full_command = args_vec.join(" ");
             self.sandbox
@@ -578,10 +582,18 @@ impl Adapter {
 
             let start_time = Instant::now();
 
-            // Build sandboxed process command
+            // Build sandboxed process command.
+            // `create_shell_command` injects -c (Unix) or -NoProfile … -Command (Windows).
+            // Only use it for raw /bin/sh invocations where no -c flag was pre-added.
+            // For bash/pwsh the preparer already adds the flag; create_command applies
+            // the sandbox wrapper without double-wrapping.
             let wd_path = std::path::PathBuf::from(&wd_clone);
-            let proc_cmd_result =
-                sandbox.create_command(&program_with_subcommand, &args_vec, &wd_path);
+            let proc_cmd_result = if program_with_subcommand == "/bin/sh" {
+                let full_command = args_vec.join(" ");
+                sandbox.create_shell_command(&program_with_subcommand, &full_command, &wd_path)
+            } else {
+                sandbox.create_command(&program_with_subcommand, &args_vec, &wd_path)
+            };
 
             let mut proc_cmd: tokio::process::Command = match proc_cmd_result {
                 Ok(cmd) => cmd,

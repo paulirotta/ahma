@@ -31,8 +31,8 @@ pub const BUNDLES: &[BundleInfo] = &[
     BundleInfo {
         name: "fileutils",
         config_tool_name: "file-tools",
-        description: "Unix file operations — ls, cp, mv, rm, grep, sed, find, diff",
-        ai_hint: "Need to search, copy, move, delete, or diff files? Activate 'fileutils' for ls, cp, mv, rm, grep, sed, find, and diff.",
+        description: "File operations — ls/dir, cp, mv, rm, grep, find, diff",
+        ai_hint: "Need to search, copy, move, delete, or diff files? Activate 'fileutils' for ls, cp, mv, rm, grep, find, and diff.",
     },
     BundleInfo {
         name: "github",

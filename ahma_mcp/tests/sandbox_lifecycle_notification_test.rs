@@ -11,13 +11,24 @@ fn test_sandbox_lifecycle_notifications() {
     let tools_dir = temp_dir.path().join("tools");
     std::fs::create_dir(&tools_dir).unwrap();
 
-    let mut child = Command::new(&binary)
-        .arg("--mode")
+    let mut cmd = Command::new(&binary);
+    cmd.arg("--mode")
         .arg("stdio")
         .arg("--sandbox-scope")
         .arg(temp_dir.path())
         .arg("--tools-dir")
-        .arg(&tools_dir)
+        .arg(&tools_dir);
+
+    // When running inside a nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker),
+    // set AHMA_NO_SANDBOX so the child process can start; app-level path checks still apply.
+    #[cfg(target_os = "macos")]
+    if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
+    #[cfg(windows)]
+    cmd.env("AHMA_NO_SANDBOX", "1");
+
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -3,6 +3,7 @@ use crate::AhmaMcpService;
 use crate::callback_system::CallbackSender;
 use crate::client_type::McpClientType;
 use crate::mcp_callback::McpCallbackSender;
+use crate::shell_pool::platform_shell_program;
 use rmcp::{
     model::{CallToolRequestParams, CallToolResult, Content, ErrorData as McpError},
     service::{RequestContext, RoleServer},
@@ -229,7 +230,11 @@ impl AhmaMcpService {
         let id = format!("op_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
         let progress_token = context.meta.get_progress_token();
         let client_type = McpClientType::from_peer(&context.peer);
-        let description = format!("Execute /bin/bash in {}", working_directory);
+        let description = format!(
+            "Execute {} in {}",
+            platform_shell_program(),
+            working_directory
+        );
 
         if let Some(token) = progress_token.clone() {
             let callback =
@@ -237,7 +242,7 @@ impl AhmaMcpService {
             let _ = callback
                 .send_progress(crate::callback_system::ProgressUpdate::Started {
                     id: id.clone(),
-                    command: "/bin/bash".to_string(),
+                    command: platform_shell_program().to_string(),
                     description: description.clone(),
                 })
                 .await;
@@ -246,7 +251,7 @@ impl AhmaMcpService {
         let result = self
             .adapter
             .execute_sync_in_dir(
-                "/bin/bash",
+                platform_shell_program(),
                 Some(adapter_args),
                 working_directory,
                 timeout,
@@ -264,7 +269,7 @@ impl AhmaMcpService {
             let _ = callback
                 .send_progress(crate::callback_system::ProgressUpdate::FinalResult {
                     id: id.clone(),
-                    command: "/bin/bash".to_string(),
+                    command: platform_shell_program().to_string(),
                     description,
                     working_directory: working_directory.to_string(),
                     success,
@@ -309,7 +314,7 @@ impl AhmaMcpService {
             .adapter
             .execute_async_in_dir_with_options(
                 "sandboxed_shell",
-                "/bin/bash",
+                platform_shell_program(),
                 working_directory,
                 crate::adapter::AsyncExecOptions {
                     id: Some(id),

@@ -194,7 +194,15 @@ fn apply_tool_probe_logic(
                 .cloned()
                 .filter(|segment| !segment.is_empty())
                 .unwrap_or_else(|| config.name.clone());
-            *command = vec!["/usr/bin/env".to_string(), "which".to_string(), base];
+            // `where` on Windows; `/usr/bin/env which` on Unix
+            #[cfg(target_os = "windows")]
+            {
+                *command = vec!["where".to_string(), base];
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                *command = vec!["/usr/bin/env".to_string(), "which".to_string(), base];
+            }
         }
     }
 }

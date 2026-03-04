@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+#
+# NOTE: InstallerSha256 is a placeholder — replaced at publish time by
+# scripts/publish-winget.sh using the SHA256 from the GitHub release assets.
+PackageIdentifier: paulirotta.Ahma
+PackageVersion: 0.5.0
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: "10.0.0.0"
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: ahma_mcp.exe
+    PortableCommandAlias: ahma_mcp
+  - RelativeFilePath: ahma_simplify.exe
+    PortableCommandAlias: ahma_simplify
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/paulirotta/ahma/releases/download/latest/ahma-release-windows-x86_64.zip
+    InstallerSha256: <SHA256_PLACEHOLDER>
+InstallModes:
+  - silent
+  - silentWithProgress
+InstallerSwitches:
+  Custom: ""
+Commands:
+  - ahma_mcp
+  - ahma_simplify
+ReleaseNotesUrl: https://github.com/paulirotta/ahma/releases/tag/latest
+ManifestType: installer
+ManifestVersion: 1.9.0

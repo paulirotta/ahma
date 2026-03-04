@@ -157,11 +157,15 @@ pub fn parse_mcp_config(path: &PathBuf, server_name: Option<&str>) -> Result<Leg
     Ok((name, command, args, env))
 }
 
-/// Expand ~ to home directory
+/// Expand `~` prefix to the home directory.
+///
+/// Handles both Unix (`~/`) and Windows (`~\`) separator styles so that
+/// tool configs authored on one platform work correctly on the other.
+/// Bare `~` without a following separator is left unchanged.
 pub fn expand_home(path: &str) -> String {
-    if path.starts_with("~/")
-        && let Some(home) = dirs::home_dir()
-    {
+    // Accept `~/` (Unix) or `~\` (Windows) — but NOT bare `~` alone.
+    let is_tilde_prefix = path.starts_with("~/") || path.starts_with("~\\");
+    if is_tilde_prefix && let Some(home) = dirs::home_dir() {
         return path.replacen("~", home.to_str().unwrap_or("~"), 1);
     }
     path.to_string()
@@ -442,6 +446,16 @@ mod tests {
     fn test_expand_home_single_tilde() {
         // Single tilde without slash should not expand
         assert_eq!(expand_home("~"), "~");
+    }
+
+    #[test]
+    fn test_expand_home_windows_backslash() {
+        // ~\ (Windows-style) should expand if a home dir is available.
+        if dirs::home_dir().is_some() {
+            let expanded = expand_home("~\\test");
+            assert!(!expanded.starts_with("~\\"));
+            assert!(expanded.ends_with("\\test") || expanded.ends_with("/test"));
+        }
     }
 
     #[test]

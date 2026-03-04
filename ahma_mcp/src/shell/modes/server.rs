@@ -234,7 +234,7 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
-            "ACTIVE"
+            "UNSUPPORTED"
         }
     };
 

@@ -31,24 +31,33 @@ MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor,
 
 ## Supported OS
 
-Linux and MacOS are supported. Windows is not supported. Raspberry Pi is supported with `--no-sandbox` until the kernel is updated to support Landlock (kernel ≥ 5.13).
+Linux and macOS are fully supported with kernel-level sandboxing. **Windows x64 support is in active development** — the runtime (PowerShell-first shell pool, file URI parsing) is implemented but the Windows sandbox backend is not yet complete. Windows builds fail closed in strict mode until the sandbox backend ships.
+
+Raspberry Pi is supported with `--no-sandbox` until the kernel is updated to support Landlock (kernel ≥ 5.13).
+
+**Windows requirements (when available):** PowerShell 7+ (`pwsh`) must be installed — download from https://aka.ms/powershell
 
 ## Installation Script
 
-The installation script will:
-1. Detects your OS and architecture
-2. Downloads the latest release from GitHub
-3. Installs `ahma_mcp` and `ahma_simplify` to `~/.local/bin`
+The installation script detects your OS and architecture, downloads the latest release from GitHub, and installs `ahma_mcp` and `ahma_simplify` to your local bin directory.
 
-**Supported platforms:** Linux x86_64, Linux ARM64, Linux ARMv7 (Raspberry Pi 2/3), macOS ARM64 (Apple Silicon). Musl builds are available for x86_64 and ARM64 (auto-detected on Alpine/musl systems, or set `AHMA_PREFER_MUSL=1`).
+**Supported platforms:** Linux x86_64, Linux ARM64, Linux ARMv7 (Raspberry Pi 2/3), macOS ARM64 (Apple Silicon), Windows x86_64 (in-progress). Musl builds are available for Linux x86_64 and ARM64 (auto-detected on Alpine/musl systems, or set `AHMA_PREFER_MUSL=1`). Windows releases are distributed as `.zip` archives.
 
-Ensure `~/.local/bin` is in your `PATH`.
+**Linux / macOS** — installs to `~/.local/bin`:
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
 ```
 
+**Windows (PowerShell 5.1+)** — installs to `$HOME\.local\bin`:
+
+```powershell
+irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
+```
+
 ## Source Installation
+
+**Linux / macOS:**
 
 ```bash
 git clone https://github.com/paulirotta/ahma.git
@@ -56,6 +65,15 @@ cd ahma
 cargo build --release
 mv target/release/ahma_mcp /usr/local/bin/
 mv target/release/ahma_simplify /usr/local/bin/
+```
+
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/paulirotta/ahma.git
+cd ahma
+cargo build --release
+Copy-Item target\release\ahma_mcp.exe, target\release\ahma_simplify.exe "$HOME\.local\bin\"
 ```
 
 ## Concepts

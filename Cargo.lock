@@ -105,6 +105,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

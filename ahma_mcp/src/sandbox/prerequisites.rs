@@ -14,9 +14,16 @@ pub fn check_sandbox_prerequisites() -> Result<(), SandboxError> {
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        Err(SandboxError::UnsupportedOs(
-            std::env::consts::OS.to_string(),
-        ))
+        #[cfg(target_os = "windows")]
+        {
+            super::windows::check_windows_sandbox_available()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err(SandboxError::UnsupportedOs(
+                std::env::consts::OS.to_string(),
+            ))
+        }
     }
 }
 

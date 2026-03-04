@@ -488,7 +488,11 @@ pub async fn load_tool_configs(
         ToolConfig {
             name: "sandboxed_shell".to_string(),
             description: "Execute shell commands within a secure sandbox".to_string(),
-            command: "bash -c".to_string(),
+            command: if cfg!(target_os = "windows") {
+                "pwsh -Command".to_string()
+            } else {
+                "bash -c".to_string()
+            },
             enabled: true,
             subcommand: Some(vec![SubcommandConfig {
                 name: "default".to_string(),
