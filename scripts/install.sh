@@ -1,26 +1,64 @@
 #!/bin/bash
 # One-liner installer for ahma_mcp and ahma_simplify
 # Usage: curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
+#
+# Supported platforms:
+#   - Linux x86_64 (glibc and musl)
+#   - Linux ARM64/aarch64 (glibc and musl)
+#   - Linux ARMv7 (Raspberry Pi 2/3)
+#   - macOS ARM64 (Apple Silicon)
+#
+# Environment variables:
+#   AHMA_PREFER_MUSL=1  - Force musl binary on Linux (more portable, no glibc dependency)
 
 set -euo pipefail
 
 # Detect OS and Architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
+LIBC=""
+
+# Detect libc type on Linux
+detect_libc() {
+    if [ "$OS" != "linux" ]; then
+        return
+    fi
+    
+    # Check if we're on a musl-based system (Alpine, Void, etc.)
+    if command -v ldd >/dev/null 2>&1; then
+        if ldd --version 2>&1 | grep -qi musl; then
+            LIBC="musl"
+            return
+        fi
+    fi
+    
+    # Check for Alpine specifically
+    if [ -f /etc/alpine-release ]; then
+        LIBC="musl"
+        return
+    fi
+    
+    # Default to glibc
+    LIBC="glibc"
+}
 
 # Map architecture names
 case "$ARCH" in
     x86_64) ARCH="x86_64" ;;
     arm64|aarch64) ARCH="arm64" ;;
+    armv7l|armv7) ARCH="armv7" ;;
     *)
         echo "Error: Unsupported architecture: $ARCH"
+        echo "Supported: x86_64, arm64/aarch64, armv7"
         exit 1
         ;;
 esac
 
-# Map OS names
+# Map OS names and validate combinations
 case "$OS" in
-    linux) ;;
+    linux)
+        detect_libc
+        ;;
     darwin)
         if [ "$ARCH" = "x86_64" ]; then
             echo "Error: macOS Intel (x86_64) is no longer supported. Prebuilt binaries are only available for Apple Silicon (arm64)."
@@ -30,13 +68,34 @@ case "$OS" in
         ;;
     *)
         echo "Error: Unsupported operating system: $OS"
+        echo "Supported: linux, darwin (macOS)"
         exit 1
         ;;
 esac
 
-# Construct platform identifier (e.g., darwin-arm64, linux-x86_64)
-# Note: macOS is 'darwin', Linux is 'linux'
-PLATFORM="${OS}-${ARCH}"
+# Construct platform identifier
+# Format: {os}-{arch}[-musl]
+if [ "$OS" = "linux" ]; then
+    # Use musl if detected or explicitly requested
+    if [ "${AHMA_PREFER_MUSL:-}" = "1" ] || [ "$LIBC" = "musl" ]; then
+        if [ "$ARCH" = "armv7" ]; then
+            # armv7 only has glibc build
+            PLATFORM="linux-armv7"
+            echo "Note: ARMv7 only has glibc build available"
+        else
+            PLATFORM="linux-${ARCH}-musl"
+        fi
+    else
+        if [ "$ARCH" = "armv7" ]; then
+            PLATFORM="linux-armv7"
+        else
+            PLATFORM="linux-${ARCH}"
+        fi
+    fi
+else
+    PLATFORM="${OS}-${ARCH}"
+fi
+
 INSTALL_DIR="$HOME/.local/bin"
 
 echo "Installing Ahma MCP for ${PLATFORM}..."

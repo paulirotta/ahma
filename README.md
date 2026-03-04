@@ -40,6 +40,8 @@ The installation script will:
 2. Downloads the latest release from GitHub
 3. Installs `ahma_mcp` and `ahma_simplify` to `~/.local/bin`
 
+**Supported platforms:** Linux x86_64, Linux ARM64, Linux ARMv7 (Raspberry Pi 2/3), macOS ARM64 (Apple Silicon). Musl builds are available for x86_64 and ARM64 (auto-detected on Alpine/musl systems, or set `AHMA_PREFER_MUSL=1`).
+
 Ensure `~/.local/bin` is in your `PATH`.
 
 ```bash
