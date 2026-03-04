@@ -15,10 +15,27 @@ pub fn parse_file_uri(uri: &str) -> Option<PathBuf> {
 
 /// Encode a filesystem path as a file:// URI.
 pub fn encode_file_uri(path: &Path) -> String {
-    let path_str = path.to_string_lossy();
-    let mut out = String::with_capacity(path_str.len() + 7);
+    let mut path_str = path.to_string_lossy().into_owned();
+
+    // Strip Windows extended prefix
+    if path_str.starts_with(r"\\?\") {
+        path_str = path_str[4..].to_string();
+    }
+
+    // Convert backslashes to forward slashes
+    path_str = path_str.replace('\\', "/");
+
+    let mut out = String::with_capacity(path_str.len() + 8);
     out.push_str("file://");
-    for &b in path_str.as_bytes() {
+
+    #[cfg(target_os = "windows")]
+    if path_str.chars().nth(1) == Some(':') {
+        // Windows drive paths typically have a leading slash in URIs
+        out.push('/');
+    }
+
+    for b in path_str.as_bytes() {
+        let b = *b;
         let keep = matches!(
             b,
             b'a'..=b'z'

@@ -21,16 +21,19 @@ pub fn normalize_option_type(option_type: &str) -> &'static str {
     }
 }
 
-/// Builds the items schema using an explicit ItemsSpec.
 fn items_schema_from_spec(spec: &crate::config::ItemsSpec) -> Map<String, Value> {
     let mut schema = Map::new();
     schema.insert("type".into(), Value::String(spec.item_type.clone()));
-    if let Some(f) = &spec.format {
-        schema.insert("format".into(), Value::String(f.clone()));
-    }
-    if let Some(d) = &spec.description {
-        schema.insert("description".into(), Value::String(d.clone()));
-    }
+    schema.extend(
+        spec.format
+            .as_ref()
+            .map(|f| ("format".into(), Value::String(f.clone()))),
+    );
+    schema.extend(
+        spec.description
+            .as_ref()
+            .map(|d| ("description".into(), Value::String(d.clone()))),
+    );
     schema
 }
 
@@ -77,12 +80,18 @@ fn build_arg_schema(arg: &CommandOption) -> Map<String, Value> {
     let mut schema = Map::new();
     let param_type = normalize_option_type(&arg.option_type);
     schema.insert("type".to_string(), Value::String(param_type.to_string()));
-    if let Some(desc) = &arg.description {
-        schema.insert("description".to_string(), Value::String(desc.clone()));
-    }
-    if let Some(format) = &arg.format {
-        schema.insert("format".to_string(), Value::String(format.clone()));
-    }
+
+    schema.extend(
+        arg.description
+            .as_ref()
+            .map(|d| ("description".to_string(), Value::String(d.clone()))),
+    );
+    schema.extend(
+        arg.format
+            .as_ref()
+            .map(|f| ("format".to_string(), Value::String(f.clone()))),
+    );
+
     if param_type == "array" {
         schema.insert("items".to_string(), Value::Object(build_items_schema(arg)));
     }
@@ -136,10 +145,11 @@ fn push_subcommand_or_recurse<'a>(
     current_path: String,
     leaves: &mut Vec<(String, &'a SubcommandConfig)>,
 ) {
-    if let Some(nested_subcommands) = &sub.subcommand {
-        collect_leaf_subcommands(nested_subcommands, &current_path, leaves);
-    } else {
-        leaves.push((current_path, sub));
+    match &sub.subcommand {
+        Some(nested_subcommands) => {
+            collect_leaf_subcommands(nested_subcommands, &current_path, leaves)
+        }
+        None => leaves.push((current_path, sub)),
     }
 }
 
@@ -167,19 +177,16 @@ pub fn generate_schema_for_tool_config(
     // Suppress unused guidance warning - guidance is used for tool descriptions, not schemas
     let _ = guidance;
 
-    // Case 1: Single default subcommand. No `subcommand` parameter needed.
-    if leaf_subcommands.len() == 1 && leaf_subcommands[0].0 == "default" {
-        return Arc::new(generate_single_command_schema(
+    match leaf_subcommands.as_slice() {
+        [(name, cfg)] if name == "default" => Arc::new(generate_single_command_schema(
             tool_config,
-            &leaf_subcommands[0],
-        ));
+            &(name.clone(), *cfg),
+        )),
+        _ => Arc::new(generate_multi_command_schema(
+            tool_config,
+            &leaf_subcommands,
+        )),
     }
-
-    // Case 2: Multiple subcommands. Use `subcommand` enum and `oneOf`.
-    Arc::new(generate_multi_command_schema(
-        tool_config,
-        &leaf_subcommands,
-    ))
 }
 
 fn add_working_directory_property(properties: &mut Map<String, Value>) {

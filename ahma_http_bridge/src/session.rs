@@ -433,6 +433,8 @@ pub struct SessionManager {
 impl SessionManager {
     #[cfg(target_os = "windows")]
     fn is_windows_drive_path(path: &str) -> bool {
+        let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+        let path = path.strip_prefix(r"\\?\/").unwrap_or(path);
         let bytes = path.as_bytes();
         bytes.len() >= 3
             && bytes[0].is_ascii_alphabetic()

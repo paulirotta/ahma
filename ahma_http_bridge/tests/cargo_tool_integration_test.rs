@@ -106,57 +106,69 @@ fn verify_project_compiles(project_dir: &std::path::Path) -> bool {
     output.status.success()
 }
 
-// =============================================================================
-// Test: Cargo Check with Assertions
-// =============================================================================
+struct CargoTestContext {
+    project_dir: TempDir,
+    client: McpTestClient,
+    _server: common::server::TestServerInstance,
+}
 
-#[tokio::test]
-async fn test_cargo_check_with_assertions() {
-    // Create a test project FIRST (before server/client init)
-    // The project path becomes the sandbox root
+async fn setup_cargo_test() -> Option<CargoTestContext> {
     let project = create_test_cargo_project();
 
-    // Verify project is valid before testing
     assert!(
         verify_project_compiles(project.path()),
         "Test project should compile before we test it"
     );
 
-    // Skip if we can't spawn a server
     let server = match spawn_test_server().await {
         Ok(s) => s,
         Err(e) => {
             eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
+            return None;
         }
     };
 
     let mut client = McpTestClient::with_url(&server.base_url());
 
-    // Initialize MCP handshake WITH the project path as a root
-    // This tells the server the sandbox scope for this session
     if client
         .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
         .await
         .is_err()
     {
         eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
+        return None;
     }
 
-    // Skip if cargo tool is not available (may not be in CI environment)
     if !is_cargo_tool_available(&client).await {
         eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
+        return None;
     }
 
+    Some(CargoTestContext {
+        project_dir: project,
+        client,
+        _server: server,
+    })
+}
+
+// =============================================================================
+// Test: Cargo Check with Assertions
+// =============================================================================
+
+#[tokio::test]
+async fn test_cargo_check_with_assertions() {
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
+    };
+
     // Call cargo with subcommand check, working_directory pointing to our test project
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "check",
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;
@@ -197,44 +209,18 @@ async fn test_cargo_check_with_assertions() {
 
 #[tokio::test]
 async fn test_cargo_clippy_basic_with_assertions() {
-    let project = create_test_cargo_project();
-    assert!(
-        verify_project_compiles(project.path()),
-        "Test project should compile"
-    );
-
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
-        }
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
     };
 
-    let mut client = McpTestClient::with_url(&server.base_url());
-
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
-    }
-
-    // Skip if cargo tool is not available (may not be in CI environment)
-    if !is_cargo_tool_available(&client).await {
-        eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
-    }
-
     // Call cargo clippy without the --tests flag
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "clippy",
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;
@@ -267,45 +253,19 @@ async fn test_cargo_clippy_basic_with_assertions() {
 
 #[tokio::test]
 async fn test_cargo_clippy_with_tests_flag_assertions() {
-    let project = create_test_cargo_project();
-    assert!(
-        verify_project_compiles(project.path()),
-        "Test project should compile"
-    );
-
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
-        }
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
     };
 
-    let mut client = McpTestClient::with_url(&server.base_url());
-
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
-    }
-
-    // Skip if cargo tool is not available (may not be in CI environment)
-    if !is_cargo_tool_available(&client).await {
-        eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
-    }
-
     // Call cargo clippy WITH the --tests flag (this is what was failing!)
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "clippy",
                 "tests": true,
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;
@@ -350,43 +310,17 @@ async fn test_cargo_clippy_with_tests_flag_assertions() {
 
 #[tokio::test]
 async fn test_cargo_build_with_assertions() {
-    let project = create_test_cargo_project();
-    assert!(
-        verify_project_compiles(project.path()),
-        "Test project should compile"
-    );
-
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
-        }
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
     };
 
-    let mut client = McpTestClient::with_url(&server.base_url());
-
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
-    }
-
-    // Skip if cargo tool is not available (may not be in CI environment)
-    if !is_cargo_tool_available(&client).await {
-        eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
-    }
-
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "build",
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;
@@ -415,43 +349,17 @@ async fn test_cargo_build_with_assertions() {
 
 #[tokio::test]
 async fn test_cargo_test_with_assertions() {
-    let project = create_test_cargo_project();
-    assert!(
-        verify_project_compiles(project.path()),
-        "Test project should compile"
-    );
-
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
-        }
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
     };
 
-    let mut client = McpTestClient::with_url(&server.base_url());
-
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
-    }
-
-    // Skip if cargo tool is not available (may not be in CI environment)
-    if !is_cargo_tool_available(&client).await {
-        eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
-    }
-
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "test",
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;
@@ -490,43 +398,17 @@ async fn test_cargo_test_with_assertions() {
 
 #[tokio::test]
 async fn test_cargo_fmt_with_assertions() {
-    let project = create_test_cargo_project();
-    assert!(
-        verify_project_compiles(project.path()),
-        "Test project should compile"
-    );
-
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING️  Skipping test - failed to spawn server: {}", e);
-            return;
-        }
+    let Some(ctx) = setup_cargo_test().await else {
+        return;
     };
 
-    let mut client = McpTestClient::with_url(&server.base_url());
-
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return;
-    }
-
-    // Skip if cargo tool is not available (may not be in CI environment)
-    if !is_cargo_tool_available(&client).await {
-        eprintln!("WARNING️  Skipping test - cargo tool not available");
-        return;
-    }
-
-    let result = client
+    let result = ctx
+        .client
         .call_tool(
             "cargo",
             json!({
                 "subcommand": "fmt",
-                "working_directory": project.path().to_string_lossy()
+                "working_directory": ctx.project_dir.path().to_string_lossy()
             }),
         )
         .await;

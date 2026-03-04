@@ -90,20 +90,43 @@ pub async fn handle_session_isolated_request(
     )
 }
 
-/// Handles initialization requests by creating a new session.
-async fn handle_initialize(session_manager: &SessionManager, payload: &Value) -> Response {
-    debug!("Processing initialize request (no session ID)");
-
+fn validate_initialize_payload(payload: &Value) -> Option<Response> {
     if payload
         .get("params")
         .and_then(|p| p.get("protocolVersion"))
         .and_then(|v| v.as_str())
         .is_none()
     {
-        return error_response(
+        Some(error_response(
             -32602,
             "Invalid initialize params: missing params.protocolVersion",
-        );
+        ))
+    } else {
+        None
+    }
+}
+
+async fn handle_initialize_error(
+    session_manager: &SessionManager,
+    session_id: &str,
+    error: crate::error::BridgeError,
+) -> Response {
+    error!(session_id = %session_id, "Failed to send initialize request: {}", error);
+    let _ = session_manager
+        .terminate_session(
+            session_id,
+            crate::session::SessionTerminationReason::ProcessCrashed,
+        )
+        .await;
+    error_response(-32603, &format!("Failed to initialize session: {}", error))
+}
+
+/// Handles initialization requests by creating a new session.
+async fn handle_initialize(session_manager: &SessionManager, payload: &Value) -> Response {
+    debug!("Processing initialize request (no session ID)");
+
+    if let Some(err_response) = validate_initialize_payload(payload) {
+        return err_response;
     }
 
     info!("Creating new session for initialize request");
@@ -125,16 +148,36 @@ async fn handle_initialize(session_manager: &SessionManager, payload: &Value) ->
         .await
     {
         Ok(response) => with_session_header(json_response(response), &new_session_id),
-        Err(e) => {
-            error!(session_id = %new_session_id, "Failed to send initialize request: {}", e);
-            let _ = session_manager
-                .terminate_session(
-                    &new_session_id,
-                    crate::session::SessionTerminationReason::ProcessCrashed,
-                )
-                .await;
-            error_response(-32603, &format!("Failed to initialize session: {}", e))
-        }
+        Err(e) => handle_initialize_error(session_manager, &new_session_id, e).await,
+    }
+}
+
+fn check_session_exists(session_manager: &SessionManager, session_id: &str) -> Option<Response> {
+    if !session_manager.session_exists(session_id) {
+        warn!(session_id = %session_id, "Request for non-existent or terminated session");
+        Some(error_response_with_status(
+            StatusCode::FORBIDDEN,
+            -32600,
+            "Session not found or terminated",
+        ))
+    } else {
+        None
+    }
+}
+
+async fn handle_roots_changed_request(
+    session_manager: &SessionManager,
+    session_id: &str,
+) -> Option<Response> {
+    if let Err(e) = session_manager.handle_roots_changed(session_id).await {
+        error!(session_id = %session_id, "Roots change rejected: {}", e);
+        Some(error_response_with_status(
+            StatusCode::FORBIDDEN,
+            -32600,
+            "Session terminated: roots change not allowed",
+        ))
+    } else {
+        None
     }
 }
 
@@ -145,31 +188,19 @@ async fn handle_existing_session_request(
     method: Option<&str>,
     payload: &Value,
 ) -> Response {
-    if !session_manager.session_exists(session_id) {
-        warn!(session_id = %session_id, "Request for non-existent or terminated session");
-        return error_response_with_status(
-            StatusCode::FORBIDDEN,
-            -32600,
-            "Session not found or terminated",
-        );
+    if let Some(response) = check_session_exists(session_manager, session_id) {
+        return response;
     }
 
     if method == Some("notifications/roots/list_changed")
-        && let Err(e) = session_manager.handle_roots_changed(session_id).await
-    {
-        error!(session_id = %session_id, "Roots change rejected: {}", e);
-        return error_response_with_status(
-            StatusCode::FORBIDDEN,
-            -32600,
-            "Session terminated: roots change not allowed",
-        );
-    }
+        && let Some(response) = handle_roots_changed_request(session_manager, session_id).await {
+            return response;
+        }
 
     if method == Some("tools/call")
-        && let Some(response) = check_sandbox_lock(session_manager, session_id)
-    {
-        return response;
-    }
+        && let Some(response) = check_sandbox_lock(session_manager, session_id) {
+            return response;
+        }
 
     let is_initialized_notification = method == Some("notifications/initialized");
     if is_initialized_notification {
@@ -231,6 +262,34 @@ fn is_client_response(method: Option<&str>, payload: &Value) -> bool {
         && (payload.get("result").is_some() || payload.get("error").is_some())
 }
 
+fn build_handshake_timeout_response(
+    session_manager: &SessionManager,
+    session_id: &str,
+    elapsed_secs: u64,
+    sse_connected: bool,
+    mcp_initialized: bool,
+) -> Response {
+    let error_msg = handshake_timeout_message(
+        elapsed_secs,
+        sse_connected,
+        mcp_initialized,
+        session_manager.requires_client_roots(),
+    );
+    error!(session_id = %session_id, "Handshake timeout: SSE={}, initialized={}", sse_connected, mcp_initialized);
+    with_session_header(
+        error_response_with_status(StatusCode::GATEWAY_TIMEOUT, -32002, &error_msg),
+        session_id,
+    )
+}
+
+fn get_conflict_message(requires_client_roots: bool) -> &'static str {
+    if requires_client_roots {
+        "Sandbox initializing from client roots. This server requires roots/list from client; configure --sandbox-scope for clients without roots support."
+    } else {
+        "Sandbox initializing from client roots or explicit fallback scope - retry tools/call after handshake completes"
+    }
+}
+
 /// Checks if the sandbox is locked for `tools/call` requests.
 fn check_sandbox_lock(session_manager: &SessionManager, session_id: &str) -> Option<Response> {
     let session = session_manager.get_session(session_id)?;
@@ -243,27 +302,21 @@ fn check_sandbox_lock(session_manager: &SessionManager, session_id: &str) -> Opt
     debug!(session_id = %session_id, sse_connected, mcp_initialized, sandbox_locked = false, "tools/call blocked - sandbox not yet locked");
 
     if let Some(elapsed_secs) = session.is_handshake_timed_out() {
-        let error_msg = handshake_timeout_message(
+        return Some(build_handshake_timeout_response(
+            session_manager,
+            session_id,
             elapsed_secs,
             sse_connected,
             mcp_initialized,
-            session_manager.requires_client_roots(),
-        );
-        error!(session_id = %session_id, "Handshake timeout: SSE={}, initialized={}", sse_connected, mcp_initialized);
-        return Some(with_session_header(
-            error_response_with_status(StatusCode::GATEWAY_TIMEOUT, -32002, &error_msg),
-            session_id,
         ));
     }
 
-    let conflict_message = if session_manager.requires_client_roots() {
-        "Sandbox initializing from client roots. This server requires roots/list from client; configure --sandbox-scope for clients without roots support."
-    } else {
-        "Sandbox initializing from client roots or explicit fallback scope - retry tools/call after handshake completes"
-    };
-
     Some(with_session_header(
-        error_response_with_status(StatusCode::CONFLICT, -32001, conflict_message),
+        error_response_with_status(
+            StatusCode::CONFLICT,
+            -32001,
+            get_conflict_message(session_manager.requires_client_roots()),
+        ),
         session_id,
     ))
 }
