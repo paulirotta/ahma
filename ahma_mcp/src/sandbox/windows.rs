@@ -161,7 +161,7 @@ pub fn enforce_windows_sandbox(_roots: &[PathBuf]) -> Result<(), SandboxError> {
 
         // Intentionally keep the handle open for process lifetime so the
         // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE trigger fires at exit.
-        std::mem::forget(job);
+        let _ = job;
         tracing::info!("Windows Job Object enforcement active (kill-on-close)");
         Ok(())
     }

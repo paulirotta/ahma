@@ -37,6 +37,7 @@ fn build_subcommand(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn build_nested_subcommand(
     name: &str,
     nested: Vec<SubcommandConfig>,

@@ -490,13 +490,16 @@ impl SessionManager {
             return None;
         }
 
-        // For unix-like paths, we only accept absolute paths.
-        if !rest.starts_with('/') {
-            return None;
-        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // For unix-like paths, we only accept absolute paths.
+            if !rest.starts_with('/') {
+                return None;
+            }
 
-        let decoded = Self::percent_decode_utf8(rest)?;
-        Some(PathBuf::from(decoded))
+            let decoded = Self::percent_decode_utf8(rest)?;
+            Some(PathBuf::from(decoded))
+        }
     }
 
     fn percent_decode_utf8(input: &str) -> Option<String> {

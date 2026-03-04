@@ -588,7 +588,7 @@ jobs:
 
   job-release-binaries:
     name: Release Binaries (${{ matrix.platform }})
-    needs: [job-coverage]
+    needs: [job-cargo-test]
     # Run only after coverage succeeds on main branch pushes
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     defaults:

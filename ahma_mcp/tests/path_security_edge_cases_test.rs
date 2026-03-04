@@ -6,7 +6,9 @@ use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::{fs, path::Path};
+use std::fs;
+#[cfg(unix)]
+use std::path::Path;
 
 #[tokio::test]
 async fn test_path_validation_nested_parent_segments() {

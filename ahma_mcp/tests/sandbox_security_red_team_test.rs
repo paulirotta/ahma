@@ -15,6 +15,7 @@ use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
+#[cfg(not(target_os = "windows"))]
 use std::fs;
 use tempfile::TempDir;
 

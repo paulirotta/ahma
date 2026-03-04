@@ -147,9 +147,11 @@ mod tests {
     async fn test_validate_path_symlink_escape_blocked() -> Result<()> {
         let temp = TempDir::new()?;
         let root = temp.path();
+        #[cfg(unix)]
         let outside = temp.path().parent().unwrap();
 
         // Create a symlink inside root pointing outside
+        #[cfg(unix)]
         let link_path = root.join("escape_link");
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside, &link_path)?;

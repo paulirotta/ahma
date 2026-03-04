@@ -23,6 +23,7 @@ async fn test_toctou_symlink_swap_detection() -> Result<()> {
 
     let link_path = sandbox_root.join("active_link");
     let safe_target = sandbox_root.join("safe_dir");
+    #[cfg(unix)]
     let unsafe_target = outside_root;
 
     fs::create_dir(&safe_target)?;

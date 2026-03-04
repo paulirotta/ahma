@@ -1,6 +1,7 @@
 #[cfg(target_os = "macos")]
 use ahma_mcp::sandbox::test_sandbox_exec_available;
 use ahma_mcp::sandbox::{Sandbox, SandboxMode, check_sandbox_prerequisites};
+#[cfg(unix)]
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -97,6 +98,7 @@ fn test_validate_path_symlink_traversal() {
     std::fs::create_dir(&safe_dir).unwrap();
 
     // Create a symlink pointing OUTSIDE
+    #[cfg(unix)]
     let outside_target = std::env::temp_dir();
     let symlink = safe_dir.join("shortcut_out");
 
