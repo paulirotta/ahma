@@ -38,4 +38,4 @@ pub use prerequisites::{
 pub use scopes::normalize_path_lexically;
 pub use types::{SandboxMode, ScopesGuard};
 #[cfg(target_os = "windows")]
-pub use windows::enforce_windows_sandbox;
+pub use windows::{check_windows_sandbox_available, enforce_windows_sandbox};
