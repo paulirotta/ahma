@@ -52,21 +52,6 @@ fn get_ahma_mcp_binary() -> PathBuf {
     ahma_mcp::test_utils::cli::build_binary_cached("ahma_mcp", "ahma_mcp")
 }
 
-#[cfg(target_os = "linux")]
-fn should_force_no_sandbox_for_test_server() -> bool {
-    use ahma_mcp::sandbox::SandboxError;
-
-    matches!(
-        ahma_mcp::sandbox::check_sandbox_prerequisites(),
-        Err(SandboxError::LandlockNotAvailable) | Err(SandboxError::PrerequisiteFailed(_))
-    )
-}
-
-#[cfg(not(target_os = "linux"))]
-fn should_force_no_sandbox_for_test_server() -> bool {
-    false
-}
-
 async fn start_deferred_sandbox_server(
     port: u16,
     tools_dir: &std::path::Path,
@@ -86,11 +71,8 @@ async fn start_deferred_sandbox_server(
         "--log-to-stderr",
     ]);
 
-    if should_force_no_sandbox_for_test_server() {
-        cmd.arg("--no-sandbox");
-    }
-
     SandboxTestEnv::configure(&mut cmd);
+    SandboxTestEnv::apply_nested_sandbox_override(&mut cmd);
 
     let child = cmd
         .stdout(Stdio::inherit())

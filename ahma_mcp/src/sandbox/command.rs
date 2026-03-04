@@ -69,17 +69,45 @@ impl Sandbox {
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
+            // Windows: delegate to the AppContainer scaffolding.
+            // `check_windows_sandbox_available` already blocks strict mode until
+            // the implementation is complete, so this path is only reached in
+            // Test/Permissive mode or when --no-sandbox is active.
+            #[cfg(target_os = "windows")]
+            {
+                let scope = self
+                    .scopes()
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| working_dir.to_path_buf());
+                return super::windows::create_windows_sandboxed_command(
+                    program,
+                    args,
+                    working_dir,
+                    &scope,
+                );
+            }
+            #[cfg(not(target_os = "windows"))]
             Ok(self.base_command(program, args, working_dir))
         }
     }
 
-    /// Create a sandboxed shell command (e.g. bash -c "complex command")
+    /// Create a sandboxed shell command (e.g. `bash -c "..."` on Unix,
+    /// `pwsh -NoProfile -NonInteractive -Command "..."` on Windows).
     pub fn create_shell_command(
         &self,
         shell_program: &str,
         full_command: &str,
         working_dir: &Path,
     ) -> Result<tokio::process::Command> {
+        #[cfg(target_os = "windows")]
+        let args = vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            full_command.to_string(),
+        ];
+        #[cfg(not(target_os = "windows"))]
         let args = vec!["-c".to_string(), full_command.to_string()];
         self.create_command(shell_program, &args, working_dir)
     }

@@ -52,9 +52,12 @@ env:
 
 jobs:
   job-cargo-build:
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -118,6 +121,7 @@ jobs:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
+            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
@@ -189,9 +193,12 @@ jobs:
 
 
   job-cargo-test:
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -255,6 +262,7 @@ jobs:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
+            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
@@ -583,6 +591,9 @@ jobs:
     needs: [job-coverage]
     # Run only after coverage succeeds on main branch pushes
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -598,6 +609,11 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             platform: darwin-arm64
+            use_cross: false
+          # Windows native build
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
             use_cross: false
           # Cross-compiled musl builds (portable, no glibc dependency)
           - os: ubuntu-latest
@@ -677,6 +693,7 @@ jobs:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
+            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-
@@ -726,13 +743,22 @@ jobs:
         run: |
           set -euo pipefail
           platform="${{ matrix.platform }}"
-          archive_name="ahma-release-${platform}.tar.gz"
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/ahma_mcp dist/
-          cp target/${{ matrix.target }}/release/ahma_simplify dist/
-          cp README.md dist/
-          (cd dist && shasum -a 256 ahma_mcp ahma_simplify > SHA256SUMS)
-          tar -czf "$archive_name" -C dist ahma_mcp ahma_simplify SHA256SUMS README.md
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            archive_name="ahma-release-${platform}.zip"
+            cp "target/${{ matrix.target }}/release/ahma_mcp.exe" dist/
+            cp "target/${{ matrix.target }}/release/ahma_simplify.exe" dist/
+            cp README.md dist/
+            (cd dist && sha256sum ahma_mcp.exe ahma_simplify.exe > SHA256SUMS)
+            (cd dist && 7z a "../${archive_name}" ahma_mcp.exe ahma_simplify.exe SHA256SUMS README.md)
+          else
+            archive_name="ahma-release-${platform}.tar.gz"
+            cp target/${{ matrix.target }}/release/ahma_mcp dist/
+            cp target/${{ matrix.target }}/release/ahma_simplify dist/
+            cp README.md dist/
+            (cd dist && shasum -a 256 ahma_mcp ahma_simplify > SHA256SUMS)
+            tar -czf "$archive_name" -C dist ahma_mcp ahma_simplify SHA256SUMS README.md
+          fi
           echo "archive_name=$archive_name" >> $GITHUB_OUTPUT
           echo "platform=$platform" >> $GITHUB_OUTPUT
 
@@ -764,6 +790,15 @@ jobs:
           pattern: release-binaries-*
           merge-multiple: true
 
+      - name: Generate combined SHA256SUMS
+        run: |
+          # Produce a single SHA256SUMS file covering every release archive.
+          # This file is downloaded by scripts/publish-winget.sh to get the
+          # installer hash for the Windows .zip without re-downloading the archive.
+          sha256sum ahma-release-*.tar.gz ahma-release-*.zip > SHA256SUMS
+          echo "SHA256SUMS contents:"
+          cat SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -772,4 +807,47 @@ jobs:
           body: "Automated release from main branch"
           draft: false
           prerelease: false
-          files: ahma-release-*.tar.gz
+          files: |
+            ahma-release-*.tar.gz
+            ahma-release-*.zip
+            SHA256SUMS
+
+
+  # --------------------------------------------------------------------------
+  # Publish to Windows Package Manager (winget-pkgs)
+  # Runs after a successful release publish on main.
+  # Requires repository secret WINGET_TOKEN (GitHub PAT with winget-pkgs write
+  # access).  If the secret is absent the job skips gracefully.
+  # --------------------------------------------------------------------------
+  job-publish-winget:
+    name: Publish Winget Manifest
+    needs: [job-publish-release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install wingetcreate
+        shell: pwsh
+        run: |
+          # winget is available on windows-latest but can be flaky on CI.
+          # Download wingetcreate directly as a fallback to ensure reliability.
+          $url = 'https://aka.ms/wingetcreate/latest'
+          Invoke-WebRequest -Uri $url -OutFile wingetcreate.exe -UseBasicParsing
+          Move-Item wingetcreate.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\wingetcreate.exe" -Force
+          wingetcreate --version
+
+      - name: Publish winget manifest
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "${WINGET_TOKEN:-}" ]; then
+            echo "WINGET_TOKEN secret not set — skipping winget publish."
+            echo "Set the secret to enable automatic winget-pkgs PR submission."
+            exit 0
+          fi
+          chmod +x scripts/publish-winget.sh
+          ./scripts/publish-winget.sh

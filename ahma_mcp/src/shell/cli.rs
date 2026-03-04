@@ -304,6 +304,19 @@ pub async fn run() -> Result<()> {
                 return Err(e);
             }
         }
+
+        // Apply Windows Job Object enforcement as defense-in-depth.
+        // This ensures all child processes are killed when the server exits.
+        // Non-fatal: if the process is already inside an outer job (CI,
+        // Task Scheduler) we log a warning and continue.
+        #[cfg(target_os = "windows")]
+        {
+            match sandbox::enforce_windows_sandbox(&s.scopes()) {
+                Ok(()) => {}
+                Err(e) => tracing::warn!("Windows Job Object enforcement failed: {}", e),
+            }
+        }
+
         Some(Arc::new(s))
     } else {
         None
@@ -321,8 +334,39 @@ pub async fn run() -> Result<()> {
         tracing::info!(
             "SECURE Sandbox mode: SEATBELT (macOS sandbox-exec per-command restrictions)"
         );
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        tracing::info!("SECURE Sandbox mode: ACTIVE");
+        #[cfg(target_os = "windows")]
+        tracing::info!(
+            "Sandbox mode: JOB OBJECT active (kill-on-close); \
+             AppContainer path security not yet enforced (R6.3 in-progress)"
+        );
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        tracing::info!(
+            "SECURE Sandbox mode: UNSUPPORTED ON THIS OS (startup fails closed in strict mode)"
+        );
+    }
+
+    // R6.3.6: On Windows, PowerShell Core (pwsh) is the required runtime shell.
+    // Probe for it early so the user gets an actionable error instead of a
+    // generic "file not found" later when the shell pool tries to spawn it.
+    #[cfg(target_os = "windows")]
+    {
+        let pwsh_check = std::process::Command::new("pwsh").arg("--version").output();
+        match pwsh_check {
+            Ok(out) if out.status.success() => {
+                let ver = String::from_utf8_lossy(&out.stdout);
+                tracing::info!("PowerShell Core detected: {}", ver.trim());
+            }
+            _ => {
+                eprintln!(
+                    "\nFAIL Error: PowerShell Core (pwsh) was not found.\n\n\
+                     ahma_mcp requires PowerShell 7+ as its runtime shell on Windows.\n\n\
+                     Install it with:\n\
+                     \n  winget install Microsoft.PowerShell\n\
+                     \nOr download from: https://github.com/PowerShell/PowerShell/releases\n"
+                );
+                std::process::exit(1);
+            }
+        }
     }
 
     // Determine mode based on CLI arguments

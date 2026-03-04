@@ -88,18 +88,21 @@ fn resolve_binary_path() -> PathBuf {
     static BINARY_LOG_ONCE: std::sync::Once = std::sync::Once::new();
 
     let debug_bin = ahma_mcp::test_utils::cli::get_binary_path("ahma_mcp", "ahma_mcp");
+    // Construct sibling binary paths with the correct platform executable extension.
+    let exe_ext = if cfg!(windows) { ".exe" } else { "" };
+    let bin_name = format!("ahma_mcp{exe_ext}");
     let release_bin = debug_bin
         .parent()
         .and_then(|p| p.parent())
-        .map(|target| target.join("release/ahma_mcp"));
+        .map(|target| target.join("release").join(&bin_name));
     let llvm_cov_debug_bin = debug_bin
         .parent()
         .and_then(|p| p.parent())
-        .map(|target| target.join("llvm-cov-target/debug/ahma_mcp"));
+        .map(|target| target.join("llvm-cov-target/debug").join(&bin_name));
     let llvm_cov_release_bin = debug_bin
         .parent()
         .and_then(|p| p.parent())
-        .map(|target| target.join("llvm-cov-target/release/ahma_mcp"));
+        .map(|target| target.join("llvm-cov-target/release").join(&bin_name));
 
     let mut candidates = vec![debug_bin];
     if let Some(path) = release_bin {
@@ -177,9 +180,22 @@ fn should_force_no_sandbox_for_test_server() -> bool {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+/// On macOS, spawn the test server without `--no-sandbox` only when
+/// `sandbox-exec` is known to work in the current environment.  When running
+/// inside a nested sandbox (Cursor, VS Code, Docker) `sandbox-exec` returns
+/// exit 71 / "Operation not permitted", so we fall back to `--no-sandbox` so
+/// the integration tests can still exercise the server code.
+#[cfg(target_os = "macos")]
 fn should_force_no_sandbox_for_test_server() -> bool {
-    false
+    ahma_mcp::sandbox::test_sandbox_exec_available().is_err()
+}
+
+/// On Windows the AppContainer backend is not yet implemented (fails closed).
+/// Always pass `--no-sandbox` so server processes can start during tests.
+/// On any other unsupported platform, also skip sandbox to let tests run.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn should_force_no_sandbox_for_test_server() -> bool {
+    true
 }
 
 fn wire_output_reader<R: std::io::Read + Send + 'static>(reader: R, sender: mpsc::Sender<String>) {

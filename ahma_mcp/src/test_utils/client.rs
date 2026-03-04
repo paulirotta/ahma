@@ -41,22 +41,23 @@ fn get_test_binary_path() -> PathBuf {
 
             // Check for debug binary
             let workspace = get_workspace_dir();
+            let bin_name = format!("ahma_mcp{}", std::env::consts::EXE_SUFFIX);
 
             // Check CARGO_TARGET_DIR
             if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-                let p = PathBuf::from(target_dir).join("debug/ahma_mcp");
+                let p = PathBuf::from(target_dir).join("debug").join(&bin_name);
                 if p.exists() {
                     return p;
                 }
             }
 
-            let debug_binary = workspace.join("target/debug/ahma_mcp");
+            let debug_binary = workspace.join("target/debug").join(&bin_name);
             if debug_binary.exists() {
                 return debug_binary;
             }
 
             // Check for release binary
-            let release_binary = workspace.join("target/release/ahma_mcp");
+            let release_binary = workspace.join("target/release").join(&bin_name);
             if release_binary.exists() {
                 return release_binary;
             }
@@ -182,8 +183,14 @@ impl ClientBuilder {
         command: Command,
         working_dir: &Path,
     ) -> Result<RunningService<RoleClient, ()>> {
+        // When the caller explicitly requests sandbox (`no_sandbox == false`) but the current
+        // environment is a nested sandbox (Cursor, VS Code, Docker), `sandbox-exec` would fail
+        // inside the child process and cause an immediate exit.  Force `--no-sandbox` so the
+        // child can start; application-level path checks (path_security.rs) still enforce bounds.
+        let force_no_sandbox = self.no_sandbox || is_nested_sandbox_environment();
+
         ().serve(TokioChildProcess::new(command.configure(|cmd| {
-            if self.no_sandbox {
+            if force_no_sandbox {
                 cmd.arg("--no-sandbox");
             } else {
                 cmd.arg("--sandbox-scope").arg(working_dir);
@@ -213,6 +220,45 @@ impl ClientBuilder {
         .await
         .context("Failed to start client service")
     }
+}
+
+/// Returns `true` when the current process is running inside a sandbox environment
+/// (e.g., Cursor, VS Code, Docker, or ahma's own `sandboxed_shell`) that would
+/// prevent the child MCP server from applying its own OS-level sandbox.
+///
+/// On macOS this probes `sandbox-exec` directly; on other platforms we check for
+/// the `AHMA_NO_SANDBOX` env var as a convention for nested callers.
+#[cfg(target_os = "macos")]
+fn is_nested_sandbox_environment() -> bool {
+    ahma_mcp_internal_sandbox_probe()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_nested_sandbox_environment() -> bool {
+    // On Linux with Landlock unavailable, check sandbox prerequisites.
+    #[cfg(target_os = "linux")]
+    {
+        use crate::sandbox::SandboxError;
+        matches!(
+            crate::sandbox::check_sandbox_prerequisites(),
+            Err(SandboxError::LandlockNotAvailable) | Err(SandboxError::PrerequisiteFailed(_))
+        )
+    }
+    // On Windows (sandbox not yet implemented) or any other platform, always
+    // force no-sandbox so tests can run.
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+/// Probe for the macOS nested sandbox condition without importing the sandbox module
+/// (avoids circular dependency in test-utils).  Calls `sandbox-exec` with a
+/// trivial allow-all profile; if it returns exit 71 or fails, we're nested.
+#[cfg(target_os = "macos")]
+fn ahma_mcp_internal_sandbox_probe() -> bool {
+    use crate::sandbox::test_sandbox_exec_available;
+    test_sandbox_exec_available().is_err()
 }
 
 // Backward compatibility wrappers

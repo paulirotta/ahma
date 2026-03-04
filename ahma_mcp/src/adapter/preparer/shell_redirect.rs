@@ -10,7 +10,10 @@ fn shell_script_index(program: &str, args: &[String]) -> Option<usize> {
     if !is_shell_program(program) {
         return None;
     }
-    let command_idx = args.iter().position(|a| a == "-c")?;
+    // Unix shells use `-c <script>`; PowerShell uses `-Command <script>`.
+    let command_idx = args
+        .iter()
+        .position(|a| a == "-c" || a.eq_ignore_ascii_case("-command"))?;
     let script_idx = command_idx + 1;
     if script_idx < args.len() {
         Some(script_idx)
@@ -37,8 +40,19 @@ fn ensure_shell_redirect(script: &mut String) {
 }
 
 fn is_shell_program(program: &str) -> bool {
+    // Strip optional `.exe` suffix (Windows) for comparison.
+    let base = program
+        .rsplit_once('.')
+        .filter(|(_, ext)| ext.eq_ignore_ascii_case("exe"))
+        .map(|(stem, _)| stem)
+        .unwrap_or(program);
+    // Last path component only (handles `/bin/bash`, `C:\Windows\pwsh`, etc.)
+    let name = base
+        .rsplit_once(['/', '\\'])
+        .map(|(_, n)| n)
+        .unwrap_or(base);
     matches!(
-        program,
-        "sh" | "bash" | "zsh" | "/bin/sh" | "/bin/bash" | "/bin/zsh"
+        name,
+        "sh" | "bash" | "zsh" | "fish" | "ksh" | "pwsh" | "powershell" | "cmd"
     )
 }

@@ -431,6 +431,15 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
+    #[cfg(target_os = "windows")]
+    fn is_windows_drive_path(path: &str) -> bool {
+        let bytes = path.as_bytes();
+        bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'/' || bytes[2] == b'\\')
+    }
+
     fn parse_file_uri_to_path(uri: &str) -> Option<PathBuf> {
         // RFC 8089-ish minimal parsing: accept file:///abs/path and file://localhost/abs/path.
         // Percent-decoding is required for common IDE roots that contain spaces/unicode.
@@ -450,6 +459,33 @@ impl SessionManager {
         // Handle host form: file://localhost/...
         if let Some(after_localhost) = rest.strip_prefix("localhost") {
             rest = after_localhost;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // Accept drive-letter forms:
+            // - file:///C:/Users/name
+            // - file://localhost/C:/Users/name
+            // - file://C:/Users/name
+            // And UNC host form:
+            // - file://server/share/path
+            let decoded = Self::percent_decode_utf8(rest)?;
+
+            if let Some(without_leading_slash) = decoded.strip_prefix('/')
+                && Self::is_windows_drive_path(without_leading_slash)
+            {
+                return Some(PathBuf::from(without_leading_slash));
+            }
+
+            if Self::is_windows_drive_path(&decoded) {
+                return Some(PathBuf::from(decoded));
+            }
+
+            if !decoded.starts_with('/') && !decoded.starts_with("//") {
+                return Some(PathBuf::from(format!("//{}", decoded)));
+            }
+
+            return None;
         }
 
         // For unix-like paths, we only accept absolute paths.

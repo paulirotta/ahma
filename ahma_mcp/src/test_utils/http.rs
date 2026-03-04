@@ -44,25 +44,35 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
     let tools_dir = temp_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir)?;
 
-    let mut child = Command::new(&binary)
-        .args([
-            "--mode",
-            "http",
-            "--http-port",
-            &port.to_string(),
-            "--tools-dir",
-            &tools_dir.to_string_lossy(),
-            "--sandbox-scope",
-            &temp_dir.path().to_string_lossy(),
-            "--log-to-stderr",
-        ])
-        .env_remove("NEXTEST")
-        .env_remove("NEXTEST_EXECUTION_MODE")
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("RUST_TEST_THREADS")
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut cmd = Command::new(&binary);
+    cmd.args([
+        "--mode",
+        "http",
+        "--http-port",
+        &port.to_string(),
+        "--tools-dir",
+        &tools_dir.to_string_lossy(),
+        "--sandbox-scope",
+        &temp_dir.path().to_string_lossy(),
+        "--log-to-stderr",
+    ])
+    .env_remove("NEXTEST")
+    .env_remove("NEXTEST_EXECUTION_MODE")
+    .env_remove("CARGO_TARGET_DIR")
+    .env_remove("RUST_TEST_THREADS")
+    .stdout(Stdio::null())
+    .stderr(Stdio::piped());
+
+    // Detect nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker) and use
+    // AHMA_NO_SANDBOX so the child can start; app-level path security still applies.
+    #[cfg(target_os = "macos")]
+    if crate::sandbox::test_sandbox_exec_available().is_err() {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
+    #[cfg(windows)]
+    cmd.env("AHMA_NO_SANDBOX", "1");
+
+    let mut child = cmd.spawn()?;
 
     // Wait for server health
     let client = Client::new();

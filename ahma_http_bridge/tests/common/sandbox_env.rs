@@ -24,6 +24,54 @@ impl SandboxTestEnv {
         cmd
     }
 
+    /// When the *current* test process is running inside a nested sandbox
+    /// (e.g., `mcp_ahma_sandboxed_shell`, Cursor, VS Code, Docker), the child
+    /// `ahma_mcp` binary would detect the nesting and exit before serving any
+    /// requests.  This helper adds `AHMA_NO_SANDBOX=1` to the command so the
+    /// binary can start; application-level path security (path_security.rs) is
+    /// still active in that mode.
+    ///
+    /// Call this **after** `configure()` on every direct binary spawn.
+    pub fn apply_nested_sandbox_override(cmd: &mut Command) -> &mut Command {
+        if Self::is_nested_sandbox() {
+            cmd.env("AHMA_NO_SANDBOX", "1");
+        }
+        cmd
+    }
+
+    /// Tokio-command variant of `apply_nested_sandbox_override`.
+    pub fn apply_nested_sandbox_override_tokio(
+        cmd: &mut tokio::process::Command,
+    ) -> &mut tokio::process::Command {
+        if Self::is_nested_sandbox() {
+            cmd.env("AHMA_NO_SANDBOX", "1");
+        }
+        cmd
+    }
+
+    /// Returns `true` when the current process is running inside a sandbox
+    /// that would prevent child processes from applying their own OS-level
+    /// sandbox (sandbox-exec / Landlock / AppContainer).
+    pub fn is_nested_sandbox() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            ahma_mcp::sandbox::test_sandbox_exec_available().is_err()
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use ahma_mcp::sandbox::SandboxError;
+            matches!(
+                ahma_mcp::sandbox::check_sandbox_prerequisites(),
+                Err(SandboxError::LandlockNotAvailable) | Err(SandboxError::PrerequisiteFailed(_))
+            )
+        }
+        // Windows: AppContainer backend not yet implemented; always allow bypass.
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            true
+        }
+    }
+
     pub fn current_bypass_vars() -> Vec<String> {
         SANDBOX_BYPASS_ENV_VARS
             .iter()

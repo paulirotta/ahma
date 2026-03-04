@@ -99,23 +99,34 @@ async fn start_http_bridge(
 ) -> std::process::Child {
     let binary = get_ahma_mcp_binary();
 
-    let child = Command::new(&binary)
-        .args([
-            "--mode",
-            "http",
-            "--http-port",
-            &port.to_string(),
-            "--sync",
-            "--tools-dir",
-            &tools_dir.to_string_lossy(),
-            "--sandbox-scope",
-            &sandbox_scope.to_string_lossy(),
-            "--log-to-stderr",
-        ])
-        .env_remove("NEXTEST")
-        .env_remove("NEXTEST_EXECUTION_MODE")
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("RUST_TEST_THREADS")
+    // Detect nested sandbox (ahma_mcp_sandboxed_shell / VS Code / Docker) and disable
+    // OS-level sandboxing so the binary can start; app-level path checks still apply.
+    #[cfg(target_os = "macos")]
+    let no_sandbox = ahma_mcp::sandbox::test_sandbox_exec_available().is_err();
+    #[cfg(not(target_os = "macos"))]
+    let no_sandbox = cfg!(windows);
+
+    let mut cmd = Command::new(&binary);
+    cmd.args([
+        "--mode",
+        "http",
+        "--http-port",
+        &port.to_string(),
+        "--sync",
+        "--tools-dir",
+        &tools_dir.to_string_lossy(),
+        "--sandbox-scope",
+        &sandbox_scope.to_string_lossy(),
+        "--log-to-stderr",
+    ])
+    .env_remove("NEXTEST")
+    .env_remove("NEXTEST_EXECUTION_MODE")
+    .env_remove("CARGO_TARGET_DIR")
+    .env_remove("RUST_TEST_THREADS");
+    if no_sandbox {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

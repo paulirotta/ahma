@@ -86,6 +86,8 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
 
     // CRITICAL: Remove bypass env vars for real sandbox testing
     SandboxTestEnv::configure(&mut cmd);
+    // Allow start inside nested sandboxes (app-level path security still active)
+    SandboxTestEnv::apply_nested_sandbox_override(&mut cmd);
 
     let mut child = cmd
         .stdout(Stdio::piped())

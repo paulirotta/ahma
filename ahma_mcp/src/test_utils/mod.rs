@@ -11,6 +11,7 @@ pub mod concurrency;
 pub mod config;
 pub mod fs;
 pub mod http;
+pub mod path_helpers;
 pub mod project;
 pub mod stdio;
 

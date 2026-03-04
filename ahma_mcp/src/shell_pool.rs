@@ -184,6 +184,175 @@ impl ShellError {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Platform-specific shell helpers
+// ---------------------------------------------------------------------------
+
+/// The shell binary for the pre-warmed protocol process.
+/// On Windows we use PowerShell Core (`pwsh`) for the health-check loop;
+/// on all other platforms we use `bash`.
+///
+/// Also used by `mcp_service` handlers to build progress descriptions.
+pub(crate) fn platform_shell_program() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "pwsh"
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "bash"
+    }
+}
+
+/// Extra arguments passed to the shell binary before it reads the protocol
+/// script from stdin.
+fn shell_args() -> &'static [&'static str] {
+    #[cfg(target_os = "windows")]
+    {
+        // -Command - : read a script from stdin and execute it
+        &["-NoProfile", "-NonInteractive", "-Command", "-"]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        &[]
+    }
+}
+
+/// The protocol setup script injected into the shell on startup.
+/// The script must:
+///
+/// 1. Write a single "SHELL_READY" line to stdout.
+/// 2. Enter a loop: "HEALTH_CHECK" -> "HEALTHY", "SHUTDOWN" -> exit.
+///
+/// Actual command execution bypasses this shell entirely (see `execute_command`).
+fn initialize_protocol_script() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        // PowerShell Core (`pwsh -Command -`) reads the script from stdin;
+        // the while-loop then keeps reading further stdin lines for health checks.
+        r#"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
+Write-Output 'SHELL_READY'
+[Console]::Out.Flush()
+while ($true) {
+    $line = [Console]::In.ReadLine()
+    if ($null -eq $line) { break }
+    if ($line -eq 'HEALTH_CHECK') {
+        Write-Output 'HEALTHY'
+        [Console]::Out.Flush()
+    } elseif ($line -eq 'SHUTDOWN') {
+        break
+    }
+}
+"#
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        r#"
+# Portable minimal shell setup for async_cargo_mcp (macOS bash 3.2 compatible)
+set +e
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo 'MCP_DIAG: jq not found in PATH' >&2
+fi
+
+# JSON string encoder: reads from stdin, outputs a JSON string value
+json_escape_stream() {
+    if command -v jq >/dev/null 2>&1; then
+        jq -Rs . 2>/dev/null
+        return
+    fi
+    # Fallback: emit empty JSON string if no input
+    if [ -t 0 ]; then
+        printf '""'
+        return
+    fi
+    tmp_in=$(mktemp)
+    cat >"$tmp_in"
+    if [ ! -s "$tmp_in" ]; then
+        printf '""'
+    else
+        # Basic escaping: backslash and quote, join lines with \n
+        sed 's/\\/\\\\/g; s/"/\"/g; s/$/\\n/' "${tmp_in}" | tr -d '\n' | sed 's/\\n$//' | sed 's/^"/;s/$/"/' 
+    fi
+    rm -f "$tmp_in"
+}
+
+# Extract simple fields from JSON when jq is unavailable
+json_get_string() {
+    key="$1"
+    input="$2"
+    if command -v jq >/dev/null 2>&1; then
+        echo "$input" | jq -r ".${key}"
+    else
+        echo "$input" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
+    fi
+}
+
+json_get_command_array() {
+    input="$1"
+    if command -v jq >/dev/null 2>&1; then
+        echo "$input" | jq -r '.command[]'
+    else
+        # Extract content inside command array and split by ","
+        echo "$input" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*\[\(.*\)\].*/\1/p' | head -n1 | awk -v RS=',' '{gsub(/^\"|\"$/,"",$0); print}'
+    fi
+}
+
+execute_command() {
+    cmd_json="$1"
+    id=$(json_get_string id "$cmd_json")
+    working_dir=$(json_get_string working_dir "$cmd_json")
+
+    # Safely read command and arguments into a bash array
+    temp_cmd_file=$(mktemp)
+    json_get_command_array "$cmd_json" > "$temp_cmd_file"
+    cmd_array=()
+    while IFS= read -r cmd_part; do
+        [ -z "$cmd_part" ] && continue
+        cmd_array[${#cmd_array[@]}]="$cmd_part"
+    done < "$temp_cmd_file"
+    rm -f "$temp_cmd_file"
+
+    cd "$working_dir" 2>/dev/null || {
+        echo '{"id":"'"$id"'","exit_code":1,"stdout":"","stderr":"Failed to change directory","duration_ms":0}'
+        return
+    }
+
+    start_time=$(date +%s)
+    temp_stdout=$(mktemp)
+    temp_stderr=$(mktemp)
+
+    # Execute command directly, with each part as a separate argument
+    "${cmd_array[@]}" >"$temp_stdout" 2>"$temp_stderr"
+    exit_code=$?
+    end_time=$(date +%s)
+    duration=$(((end_time - start_time)*1000))
+
+    stdout_json=$(json_escape_stream < "$temp_stdout")
+    stderr_json=$(json_escape_stream < "$temp_stderr")
+    rm -f "$temp_stdout" "$temp_stderr"
+    echo '{"id":"'"$id"'","exit_code":"'$exit_code'","stdout":'"$stdout_json"',"stderr":'"$stderr_json"',"duration_ms":'"$duration"'}'
+}
+
+echo "SHELL_READY"
+
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    if [ "$line" = "HEALTH_CHECK" ]; then
+        echo "HEALTHY"
+    elif [ "$line" = "SHUTDOWN" ]; then
+        break
+    else
+        execute_command "$line"
+    fi
+
+done
+"#
+    }
+}
+
 /// A single prewarmed shell process
 pub struct PrewarmedShell {
     /// Unique identifier for this shell
@@ -236,8 +405,11 @@ impl PrewarmedShell {
 
         // Wrap initialization in timeout
         timeout(config.shell_spawn_timeout, async {
-            // Spawn bash process with JSON communication
-            let mut process = Command::new("bash")
+            // Spawn a pre-warmed protocol shell.
+            // On Windows: `pwsh -NoProfile -NonInteractive -Command -`
+            // On Unix:    `bash`
+            let mut process = Command::new(platform_shell_program())
+                .args(shell_args())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()) // capture stderr for diagnostics
@@ -303,108 +475,10 @@ impl PrewarmedShell {
 
     /// Initialize the shell with our JSON command protocol
     async fn initialize_protocol(&mut self) -> Result<(), ShellError> {
-        // Send initial setup commands to prepare shell for JSON protocol
-        let setup_script = r#"
-# Portable minimal shell setup for async_cargo_mcp (macOS bash 3.2 compatible)
-set +e
-
-if ! command -v jq >/dev/null 2>&1; then
-    echo 'MCP_DIAG: jq not found in PATH' >&2
-fi
-
-# JSON string encoder: reads from stdin, outputs a JSON string value
-json_escape_stream() {
-    if command -v jq >/dev/null 2>&1; then
-        jq -Rs . 2>/dev/null
-        return
-    fi
-    # Fallback: emit empty JSON string if no input
-    if [ -t 0 ]; then
-        printf '""'
-        return
-    fi
-    tmp_in=$(mktemp)
-    cat >"$tmp_in"
-    if [ ! -s "$tmp_in" ]; then
-        printf '""'
-    else
-        # Basic escaping: backslash and quote, join lines with \n
-        sed 's/\\/\\\\/g; s/"/\"/g; s/$/\\n/' "${tmp_in}" | tr -d '\n' | sed 's/\\n$//' | sed 's/^/"/;s/$/"/'
-    fi
-    rm -f "$tmp_in"
-}
-
-# Extract simple fields from JSON when jq is unavailable
-json_get_string() {
-    key="$1"
-    input="$2"
-    if command -v jq >/dev/null 2>&1; then
-        echo "$input" | jq -r ".${key}"
-    else
-        echo "$input" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
-    fi
-}
-
-json_get_command_array() {
-    input="$1"
-    if command -v jq >/dev/null 2>&1; then
-        echo "$input" | jq -r '.command[]'
-    else
-        # Extract content inside command array and split by ","
-        echo "$input" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*\[\(.*\)\].*/\1/p' | head -n1 | awk -v RS=',' '{gsub(/^\"|\"$/,"",$0); print}'
-    fi
-}
-
-execute_command() {
-    cmd_json="$1"
-    id=$(json_get_string id "$cmd_json")
-    working_dir=$(json_get_string working_dir "$cmd_json")
-
-    # Safely read command and arguments into a bash array
-    temp_cmd_file=$(mktemp)
-    json_get_command_array "$cmd_json" > "$temp_cmd_file"
-    cmd_array=()
-    while IFS= read -r cmd_part; do
-        [ -z "$cmd_part" ] && continue
-        cmd_array[${#cmd_array[@]}]="$cmd_part"
-    done < "$temp_cmd_file"
-    rm -f "$temp_cmd_file"
-
-    cd "$working_dir" 2>/dev/null || {
-        echo '{"id":"'"$id"'","exit_code":1,"stdout":"","stderr":"Failed to change directory","duration_ms":0}'
-        return
-    }
-
-    start_time=$(date +%s)
-    temp_stdout=$(mktemp)
-    temp_stderr=$(mktemp)
-
-    # Execute command directly, with each part as a separate argument
-    "${cmd_array[@]}" >"$temp_stdout" 2>"$temp_stderr"
-    exit_code=$?
-    end_time=$(date +%s)
-    duration=$(((end_time - start_time)*1000))
-
-    stdout_json=$(json_escape_stream < "$temp_stdout")
-    stderr_json=$(json_escape_stream < "$temp_stderr")
-    rm -f "$temp_stdout" "$temp_stderr"
-    echo '{"id":"'"$id"'","exit_code":'"$exit_code"',"stdout":'"$stdout_json"',"stderr":'"$stderr_json"',"duration_ms":'"$duration"'}'
-}
-
-echo "SHELL_READY"
-
-while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    if [ "$line" = "HEALTH_CHECK" ]; then
-        echo "HEALTHY"
-    elif [ "$line" = "SHUTDOWN" ]; then
-        break
-    else
-        execute_command "$line"
-    fi
-
-done
-"#;
+        // Send the platform-specific protocol setup script to the shell.
+        // NOTE: `execute_command` bypasses this shell and spawns programs directly;
+        // this script only drives the SHELL_READY handshake and health checks.
+        let setup_script = initialize_protocol_script();
 
         // Send setup script to shell
         self.stdin.write_all(setup_script.as_bytes()).await?;
