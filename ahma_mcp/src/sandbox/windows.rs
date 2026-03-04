@@ -52,7 +52,7 @@ use windows_sys::Win32::System::Threading::GetCurrentProcess;
 // windows-sys imports — AppContainer
 // ---------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::{HANDLE, S_OK};
+use windows_sys::Win32::Foundation::S_OK;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Security::FreeSid;
@@ -287,8 +287,6 @@ fn create_appcontainer_command(
     working_dir: &Path,
     scope: &Path,
 ) -> anyhow::Result<tokio::process::Command> {
-    use anyhow::Context;
-
     // Build the container profile name.
     let container_name = appcontainer_name_for_scope(scope);
     let display = to_wide("Ahma MCP sandbox");
@@ -354,8 +352,6 @@ fn create_appcontainer_command(
     let _ = profile_name_lossy; // used above; silence any unreachable warning
     let _ = scope; // DACL already set
     let _ = working_dir;
-    let _: anyhow::Result<()> = Ok(());
-    drop(Context::context(Ok(()), "")); // ensure anyhow::Context is used
 
     Ok(cmd)
 }
@@ -372,6 +368,7 @@ fn set_scope_dacl_for_container(
     scope: &Path,
     container_sid: *mut core::ffi::c_void,
 ) -> anyhow::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
     use windows_sys::Win32::Security::{
         ACL, ACL_REVISION, AddAccessAllowedAce, DACL_SECURITY_INFORMATION, GetLengthSid,
@@ -406,8 +403,8 @@ fn set_scope_dacl_for_container(
             scope_wide.as_ptr(),
             SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION,
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             acl_ptr,
             std::ptr::null_mut(),
         );
