@@ -352,16 +352,17 @@ When running inside another sandbox (Cursor, VS Code, Docker):
 ### Windows Platform Development
 
 > **Status**: Runtime (PowerShell shell pool, path model) is `in-progress`.
-> Sandbox backend (`ahma_mcp/src/sandbox/windows.rs`) is `not-started` — fails closed until implemented.
+> Job Object sandbox enforcement (`enforce_windows_sandbox`) is **done** and wired into startup.
+> AppContainer backend (`ahma_mcp/src/sandbox/windows.rs`) is `not-started` — fails closed until implemented.
 
 #### Key rules for Windows-targeted changes
 
-- **Never use `#[cfg(unix)]` or `#[cfg(target_family = "unix")]` without a Windows arm.**  
-  Every conditional must handle all three platforms: Linux, macOS, Windows.
+- **Never use `#[cfg(unix)]` or `#[cfg(target_family = "unix")]` for tests that have Windows-compatible equivalents.**  
+  If a test is genuinely Unix-only (e.g., because it calls `std::os::unix::fs::symlink`), using `#[cfg(unix)]` without a Windows arm is correct — do not force-write a broken Windows version just to fill the gap.
 - **Root path checks** in `sandbox/scopes.rs` use `is_filesystem_root()` — never compare  
   directly to `Path::new("/")` because `C:\` and UNC roots have different representations.
-- **Shell invocations** must go through `is_shell_program_invocation()` (in `adapter/mod.rs`)  
-  and `shell_binary()` / `shell_args()` (in `shell_pool.rs`) — do not hard-code `bash` or `/bin/sh`.
+- **Shell invocations** must go through `shell_binary()` / `shell_args()` (in `shell_pool.rs`) — do not hard-code `bash` or `/bin/sh`.  
+  The removed `is_shell_program_invocation()` function caused a double `-c` bug; do not re-introduce it.
 - **Path separators**: always use `std::path::MAIN_SEPARATOR` or `Path`/`PathBuf` APIs.  
   String-based separator assumptions (`"/"`, `"\\"`) break cross-platform.
 - **`expand_home`**: tilde expansion handles both `~/` and `~\` — test both when modifying.
@@ -374,6 +375,7 @@ must be satisfied (see R6.3 in SPEC.md for the full acceptance criteria):
 
 - [ ] `check_windows_sandbox_available()` returns `Ok(())` when AppContainer backend is ready
 - [x] `enforce_windows_sandbox(roots)` — **done**: Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` applied at startup; non-fatal if already inside a job
+- [x] Win32 imports in `windows.rs` are active (not commented out) — `CloseHandle`, `FALSE`, `CreateJobObjectW`, `SetInformationJobObject`, `AssignProcessToJobObject`, `JOBOBJECT_EXTENDED_LIMIT_INFORMATION`, `GetCurrentProcess`
 - [ ] Write outside scope is OS-blocked at kernel level (AppContainer; tested by integration test)
 - [ ] `tools/call` before sandbox lock returns HTTP 409 / JSON-RPC `-32001`
 - [x] Filesystem root scopes (`C:\`, UNC) are rejected by `canonicalize_scopes` — **done**: `is_filesystem_root()` handles all Win/Unix root forms

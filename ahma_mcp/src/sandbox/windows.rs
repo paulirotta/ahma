@@ -59,13 +59,22 @@ use super::error::SandboxError;
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
-// windows-sys imports (compiled only when targetting Windows)
+// windows-sys imports — Job Object enforcement (active)
 // ---------------------------------------------------------------------------
-// These will be uncommented and used when the implementation lands.
-// They are listed here so the required `windows-sys` features are already
-// declared in Cargo.toml and the correct API surface is documented.
+use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+};
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+// ---------------------------------------------------------------------------
+// windows-sys imports — AppContainer (not yet active; listed for reference)
+// ---------------------------------------------------------------------------
+// Uncomment when implementing create_windows_sandboxed_command (§ R6.3):
 //
-// use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, BOOL, S_OK};
+// use windows_sys::Win32::Foundation::{HANDLE, S_OK};
 // use windows_sys::Win32::Security::{PSID, FreeSid, SECURITY_CAPABILITIES};
 // use windows_sys::Win32::Security::Isolation::{
 //     CreateAppContainerProfile, DeleteAppContainerProfile,

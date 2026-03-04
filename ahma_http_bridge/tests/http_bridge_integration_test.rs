@@ -16,7 +16,6 @@ use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
 use serial_test::serial;
-use std::os::unix::fs as unix_fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -1254,9 +1253,11 @@ async fn test_rejects_working_directory_path_traversal_outside_root() {
 }
 
 /// Red-team: symlink inside root pointing outside must not allow writes outside root.
+#[cfg(unix)]
 #[tokio::test]
 #[serial]
 async fn test_symlink_escape_attempt_is_blocked() {
+    use std::os::unix::fs as unix_fs;
     let server_scope_dir = TempDir::new().expect("Failed to create temp dir (server_scope)");
     let sandbox_parent = TempDir::new().expect("Failed to create temp dir (sandbox_parent)");
 
