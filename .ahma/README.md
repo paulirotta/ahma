@@ -1,6 +1,6 @@
-# AHMA Tool Configurations
+# Ahma Tool Configurations
 
-This directory contains tool configuration files for the AHMA MCP (Model Context Protocol) server. These configurations define how AI agents can interact with various command-line tools in a safe and structured way.
+This directory contains tool configuration files for the Ahma MCP (Model Context Protocol) server. These configurations define how AI agents can interact with various command-line tools in a safe and structured way.
 
 ## How Tool Loading Works
 

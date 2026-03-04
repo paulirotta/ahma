@@ -29,10 +29,10 @@ cargo build --relese
     "mcpServers": {
         "ahma-stdio-debug-vscode": {
             "cwd": "${workspaceFolder}",
-            "command": "/path/to/ahma_mcp/target/release/ahma_mcp",
+            "command": "/path/to/ahma/target/release/ahma_mcp",
             "args": [
                 "--tools-dir",
-                "/path/to/ahma_mcp/.ahma",
+                "/path/to/ahma/.ahma",
                 "--log-to-stderr"
             ],
             "env": {
@@ -50,11 +50,11 @@ cargo build --relese
   "mcpServers": {
     "ahma": {
       "cwd": "/path/to/working/directory",
-      "command": "/path/to/ahma_mcp/target/release/ahma_mcp",
+      "command": "/path/to/ahma/target/release/ahma_mcp",
       "args": [
         "--sync",
         "--tools-dir",
-        "/path/to/ahma_mcp/.ahma",
+        "/path/to/ahma/.ahma",
         "--log-to-stderr"
       ],
       "env": {
@@ -72,11 +72,11 @@ cargo build --relese
     "servers": {
         "ahma": {
             "cwd": "/path/to/working/directory",
-            "command": "/path/to/ahma_mcp/target/release/ahma_mcp",
+            "command": "/path/to/ahma/target/release/ahma_mcp",
             "args": [
                 "--sync",
                 "--tools-dir",
-                "/path/to/ahma_mcp/.ahma",
+                "/path/to/ahma/.ahma",
                 "--log-to-stderr"
             ],
         }

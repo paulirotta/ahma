@@ -2,7 +2,7 @@
 
 Core library for the Ahma MCP server, providing tool execution, configuration management, and async orchestration.
 
-For full documentation and architecture details, see the [Ahma Core Documentation](https://paulirotta.github.io/ahma_mcp/doc/ahma_mcp/index.html) (generated via `cargo doc`).
+For full documentation and architecture details, see the [Ahma Core Documentation](https://paulirotta.github.io/ahma/doc/ahma_mcp/index.html) (generated via `cargo doc`).
 
 ## Features
 

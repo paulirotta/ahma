@@ -2,7 +2,7 @@
 
 ## About This File
 
-This file provides AI-specific development guidance for the `ahma_mcp` project. For functional requirements and architecture, see [SPEC.md](SPEC.md). These files work together:
+This file provides AI-specific development guidance for the `ahma` project. For functional requirements and architecture, see [SPEC.md](SPEC.md). These files work together:
 
 - **SPEC.md**: Single source of truth for **what** the product does and **how** it's architected
 - **AGENTS.md**: Guide for **how** to develop, test, and contribute to the codebase
@@ -30,8 +30,8 @@ Use `ahma_mcp sandboxed_shell` to execute commands securely within the project c
 ### Initial Setup
 ```bash
 # Clone the repository
-git clone https://github.com/paulirotta/ahma_mcp.git
-cd ahma_mcp
+git clone https://github.com/paulirotta/ahma.git
+cd ahma
 
 # Build the project
 cargo build
@@ -398,7 +398,7 @@ ahma_mcp --debug --log-to-stderr cargo_test --working-directory .
 - **Architecture**: [SPEC.md](SPEC.md)
 - **HTTP Bridge Details**: [docs/session-isolation.md](docs/session-isolation.md)
 - **Development Methodology**: [docs/spec-driven-development.md](docs/spec-driven-development.md)
-- **Coverage Reports**: https://paulirotta.github.io/ahma_mcp/html/
+- **Coverage Reports**: https://paulirotta.github.io/ahma/html/
 - **MCP Protocol**: https://github.com/mcp-rs/rmcp
 
 ---

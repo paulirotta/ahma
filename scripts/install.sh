@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-liner installer for ahma_mcp and ahma_simplify
-# Usage: curl -sSf https://raw.githubusercontent.com/paulirotta/ahma_mcp/main/scripts/install.sh | bash
+# Usage: curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
 
 set -euo pipefail
 
@@ -46,7 +46,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Fetch latest release data
 echo "Fetching latest release info..."
-RELEASES_URL="https://api.github.com/repos/paulirotta/ahma_mcp/releases/tags/latest"
+RELEASES_URL="https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
 
 if command -v curl >/dev/null 2>&1; then
     RELEASE_JSON=$(curl -s "$RELEASES_URL")
@@ -66,7 +66,7 @@ DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url" | grep "$ASSET
 
 if [ -z "$DOWNLOAD_URL" ]; then
     echo "Error: Could not find release asset '$ASSET_NAME'."
-    echo "Please check https://github.com/paulirotta/ahma_mcp/releases for available binaries."
+    echo "Please check https://github.com/paulirotta/ahma/releases for available binaries."
     exit 1
 fi
 

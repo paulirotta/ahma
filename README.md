@@ -4,7 +4,7 @@ _Create agents from your command line tools with one JSON file, then watch them 
 
 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |                                     |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------: |
-| [![CI](https://github.com/paulirotta/ahma_mcp/actions/workflows/build.yml/badge.svg)](https://github.com/paulirotta/ahma_mcp/actions/workflows/build.yml) [![Coverage Report](https://img.shields.io/badge/Coverage-Report-blue)](https://paulirotta.github.io/ahma_mcp/html/) [![Code Simplicity](https://img.shields.io/badge/Code-Simplicity-green)](https://paulirotta.github.io/ahma_mcp/CODE_SIMPLICITY.html) [![Prebuilt Binaries](https://img.shields.io/badge/Prebuilt-Binaries-blueviolet)](https://github.com/paulirotta/ahma_mcp/actions/workflows/build.yml?query=branch%3Amain+event%3Apush+is%3Asuccess) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: Apache: 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2020) [![Rust](https://img.shields.io/badge/Rust-1.93%2B-B7410E.svg)](https://www.rust-lang.org/) | ![Ahma MCP Logo](./assets/ahma.png) |
+| [![CI](https://github.com/paulirotta/ahma/actions/workflows/build.yml/badge.svg)](https://github.com/paulirotta/ahma/actions/workflows/build.yml) [![Coverage Report](https://img.shields.io/badge/Coverage-Report-blue)](https://paulirotta.github.io/ahma/html/) [![Code Simplicity](https://img.shields.io/badge/Code-Simplicity-green)](https://paulirotta.github.io/ahma/CODE_SIMPLICITY.html) [![Prebuilt Binaries](https://img.shields.io/badge/Prebuilt-Binaries-blueviolet)](https://github.com/paulirotta/ahma/actions/workflows/build.yml?query=branch%3Amain+event%3Apush+is%3Asuccess) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: Apache: 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2020) [![Rust](https://img.shields.io/badge/Rust-1.93%2B-B7410E.svg)](https://www.rust-lang.org/) | ![Ahma MCP Logo](./assets/ahma.png) |
 
 Ahma MCP is
 - **secure by default**: this is a toolbox for AI to use command line tools safely. It helps move past the  'do you trust this tool/author?' prompts. Trust is not a security model. Asking the user working fast on several tasks for permission to `rm -rf ~` is irresponsible, not a security model.
@@ -43,14 +43,14 @@ The installation script will:
 Ensure `~/.local/bin` is in your `PATH`.
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/paulirotta/ahma_mcp/main/scripts/install.sh | bash
+curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
 ```
 
 ## Source Installation
 
 ```bash
-git clone https://github.com/paulirotta/ahma_mcp.git
-cd ahma_mcp
+git clone https://github.com/paulirotta/ahma.git
+cd ahma
 cargo build --release
 mv target/release/ahma_mcp /usr/local/bin/
 mv target/release/ahma_simplify /usr/local/bin/

@@ -74,7 +74,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║       ahma_mcp HTTP Bridge Stress Test Suite                 ║${NC}"
+echo -e "${BLUE}║       Ahma HTTP Bridge Stress Test Suite                     ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
 

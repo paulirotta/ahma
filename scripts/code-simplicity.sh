@@ -17,17 +17,17 @@
 #   ./scripts/code-simplicity.sh /path/to/project   # Analyze specific directory
 #   ./scripts/code-simplicity.sh . --limit 10       # Analyze current dir, show top 10 issues
 #
-# Note: This script can be called from any directory. It will find the ahma_mcp
+# Note: This script can be called from any directory. It will find the ahma
 # repository root (where Cargo.toml is located) to run cargo, but the analysis
 # target can be any directory on your system.
 
-# Find the ahma_mcp repository root based on script location
+# Find the ahma repository root based on script location
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 AHMA_REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
 # Verify we found the correct repository root
 if [ ! -f "$AHMA_REPO_ROOT/Cargo.toml" ]; then
-    echo "Error: Could not find ahma_mcp repository root (Cargo.toml not found)" >&2
+    echo "Error: Could not find ahma repository root (Cargo.toml not found)" >&2
     echo "Expected location: $AHMA_REPO_ROOT/Cargo.toml" >&2
     exit 1
 fi
@@ -54,7 +54,7 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd)" || {
 shift || true
 
 echo "Analyzing: $TARGET_DIR"
-echo "Running from ahma_mcp repo: $AHMA_REPO_ROOT"
+echo "Running from ahma repo: $AHMA_REPO_ROOT"
 echo ""
 
 # AI-first default focus: score maintainability of production code paths first.
@@ -71,7 +71,7 @@ if [ "${CODE_SIMPLICITY_INCLUDE_NON_PROD:-0}" != "1" ]; then
     echo ""
 fi
 
-# Change to ahma_mcp repo root to run cargo, but analyze the target directory
+# Change to ahma repo root to run cargo, but analyze the target directory
 cd "$AHMA_REPO_ROOT" || exit 1
 
 # Run the code simplicity aggregator on the target directory
