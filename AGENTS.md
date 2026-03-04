@@ -373,13 +373,14 @@ When running inside another sandbox (Cursor, VS Code, Docker):
 Before marking `Windows Sandbox backend` → `tests-pass` in SPEC.md, all of the following
 must be satisfied (see R6.3 in SPEC.md for the full acceptance criteria):
 
-- [ ] `check_windows_sandbox_available()` returns `Ok(())` when AppContainer backend is ready
+- [x] `check_windows_sandbox_available()` returns `Ok(())` when AppContainer backend is ready — **done**: probes `CreateAppContainerProfile` with invalid name; `E_INVALIDARG` confirms Win8+ API is present
 - [x] `enforce_windows_sandbox(roots)` — **done**: Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` applied at startup; non-fatal if already inside a job
 - [x] Win32 imports in `windows.rs` are active (not commented out) — `CloseHandle`, `FALSE`, `CreateJobObjectW`, `SetInformationJobObject`, `AssignProcessToJobObject`, `JOBOBJECT_EXTENDED_LIMIT_INFORMATION`, `GetCurrentProcess`
-- [ ] Write outside scope is OS-blocked at kernel level (AppContainer; tested by integration test)
-- [ ] `tools/call` before sandbox lock returns HTTP 409 / JSON-RPC `-32001`
+- [x] AppContainer profile + DACL grant implemented in `create_windows_sandboxed_command` — **done**: `CreateAppContainerProfile`, `SetNamedSecurityInfoW` with `FILE_ALL_ACCESS` for container SID
+- [ ] Write outside scope is OS-blocked at kernel level (requires `windows-latest` CI integration test — R6.3.3)
+- [x] `tools/call` before sandbox lock returns HTTP 409 / JSON-RPC `-32001` — covered by `handshake_timeout_test`
 - [x] Filesystem root scopes (`C:\`, UNC) are rejected by `canonicalize_scopes` — **done**: `is_filesystem_root()` handles all Win/Unix root forms
-- [ ] All sandbox gating integration tests pass on `windows-latest` CI runner
+- [ ] All sandbox gating integration tests pass on `windows-latest` CI runner — blocked on CI run (R6.3.7)
 
 #### Running against Windows CI locally (cross-check)
 
