@@ -372,10 +372,10 @@ fn set_scope_dacl_for_container(
     scope: &Path,
     container_sid: *mut core::ffi::c_void,
 ) -> anyhow::Result<()> {
+    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
     use windows_sys::Win32::Security::{
-        ACCESS_ALLOWED_ACE_TYPE, ACL, ACL_INFORMATION_CLASS, ACL_REVISION, AddAccessAllowedAce,
-        DACL_SECURITY_INFORMATION, GetLengthSid, InitializeAcl, SE_FILE_OBJECT,
-        SetNamedSecurityInfoW,
+        ACL, ACL_REVISION, AddAccessAllowedAce, DACL_SECURITY_INFORMATION, GetLengthSid,
+        InitializeAcl,
     };
     use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 
@@ -417,7 +417,6 @@ fn set_scope_dacl_for_container(
             anyhow::bail!("SetNamedSecurityInfoW failed: {err}");
         }
 
-        let _ = ACL_INFORMATION_CLASS::AclRevisionInformation; // keep import live
         Ok(())
     }
 }
