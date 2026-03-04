@@ -287,11 +287,13 @@ fn create_appcontainer_command(
     working_dir: &Path,
     scope: &Path,
 ) -> anyhow::Result<tokio::process::Command> {
-    use std::os::windows::process::CommandExt;
-    use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
-    use windows_sys::Win32::System::Threading::{
-        EXTENDED_STARTUPINFO_PRESENT, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-    };
+    // These imports are unused until raw_attribute stabilizes and the
+    // AppContainer launch code is re-enabled.
+    // use std::os::windows::process::CommandExt;
+    // use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
+    // use windows_sys::Win32::System::Threading::{
+    //     EXTENDED_STARTUPINFO_PRESENT, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+    // };
 
     // Build the container profile name.
     let container_name = appcontainer_name_for_scope(scope);
@@ -335,6 +337,15 @@ fn create_appcontainer_command(
                 // raw_attribute must live until `spawn()` is called by the caller.
                 // We heap-allocate the capabilities and intentionally leak it.
                 // It's a small leak per sandboxed command (24 bytes).
+
+                // NOTE: The `raw_attribute` method on `std::os::windows::process::CommandExt`
+                // is currently an unstable, nightly-only feature (#114854).
+                // Until it stabilizes, we cannot launch the process *inside* the
+                // AppContainer using the standard library on stable Rust.
+                // The profile and DACL setup above remains active so the sandbox
+                // infrastructure is ready once the API is available.
+
+                /*
                 let sec_caps = Box::new(SECURITY_CAPABILITIES {
                     AppContainerSid: sid,
                     Capabilities: std::ptr::null_mut(),
@@ -348,6 +359,7 @@ fn create_appcontainer_command(
                     PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
                     sec_caps_ptr as *mut core::ffi::c_void,
                 );
+                */
             }
         }
     }
