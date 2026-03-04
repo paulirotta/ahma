@@ -190,10 +190,15 @@ fn should_force_no_sandbox_for_test_server() -> bool {
     ahma_mcp::sandbox::test_sandbox_exec_available().is_err()
 }
 
-/// On Windows the AppContainer backend is not yet implemented (fails closed).
-/// Always pass `--no-sandbox` so server processes can start during tests.
-/// On any other unsupported platform, also skip sandbox to let tests run.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// On Windows, only skip sandbox if the OS version is too old (Windows 7 or older)
+/// or if sandbox creation is otherwise unavailable.
+#[cfg(target_os = "windows")]
+fn should_force_no_sandbox_for_test_server() -> bool {
+    ahma_mcp::sandbox::check_windows_sandbox_available().is_err()
+}
+
+/// On any other unsupported platform, skip sandbox to let tests run.
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn should_force_no_sandbox_for_test_server() -> bool {
     true
 }
@@ -273,7 +278,7 @@ pub async fn spawn_test_server_with_timeout(
 
     if should_force_no_sandbox_for_test_server() {
         eprintln!(
-            "[TestServer] Landlock unavailable on this Linux kernel; running test server with --no-sandbox"
+            "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --no-sandbox"
         );
         cmd.env("AHMA_NO_SANDBOX", "1");
     }

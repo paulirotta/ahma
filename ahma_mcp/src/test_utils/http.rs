@@ -69,8 +69,10 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
     if crate::sandbox::test_sandbox_exec_available().is_err() {
         cmd.env("AHMA_NO_SANDBOX", "1");
     }
-    #[cfg(windows)]
-    cmd.env("AHMA_NO_SANDBOX", "1");
+    #[cfg(target_os = "windows")]
+    if crate::sandbox::check_windows_sandbox_available().is_err() {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
 
     let mut child = cmd.spawn()?;
 

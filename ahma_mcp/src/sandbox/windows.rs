@@ -287,10 +287,24 @@ fn create_appcontainer_command(
     working_dir: &Path,
     scope: &Path,
 ) -> anyhow::Result<tokio::process::Command> {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
+    use windows_sys::Win32::System::Threading::{
+        EXTENDED_STARTUPINFO_PRESENT, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+    };
+
     // Build the container profile name.
     let container_name = appcontainer_name_for_scope(scope);
     let display = to_wide("Ahma MCP sandbox");
     let description = to_wide("Ahma MCP tool execution sandbox");
+
+    let mut std_cmd = std::process::Command::new(program);
+    std_cmd
+        .args(args)
+        .current_dir(working_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
 
     unsafe {
         let mut sid: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -316,20 +330,29 @@ fn create_appcontainer_command(
                 if let Err(e) = set_scope_dacl_for_container(scope, sid) {
                     tracing::warn!("Failed to set scope DACL for AppContainer: {e}");
                 }
-                FreeSid(sid);
+
+                // tokio::process::Command defers spawning, so any pointers passed to
+                // raw_attribute must live until `spawn()` is called by the caller.
+                // We heap-allocate the capabilities and intentionally leak it.
+                // It's a small leak per sandboxed command (24 bytes).
+                let sec_caps = Box::new(SECURITY_CAPABILITIES {
+                    AppContainerSid: sid,
+                    Capabilities: std::ptr::null_mut(),
+                    CapabilityCount: 0,
+                    Reserved: 0,
+                });
+                let sec_caps_ptr = Box::into_raw(sec_caps);
+
+                std_cmd.creation_flags(EXTENDED_STARTUPINFO_PRESENT);
+                std_cmd.raw_attribute(
+                    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
+                    sec_caps_ptr as *mut core::ffi::c_void,
+                );
             }
         }
     }
 
-    // Build the tokio command (base, with stdio piped).
-    // The container enforcement is applied at the OS level via the profile;
-    // tokio does not need to know about it.
-    let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args)
-        .current_dir(working_dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    let mut cmd = tokio::process::Command::from(std_cmd);
 
     // Pass the container profile name as an env var so callers can
     // introspect or log the active container (purely informational).
@@ -355,7 +378,6 @@ fn create_appcontainer_command(
 
     Ok(cmd)
 }
-
 /// Set a DACL on `scope` (and descendants) granting `FILE_ALL_ACCESS` to
 /// `container_sid`.  This allows the AppContainer process to read and write
 /// within the sandbox scope.

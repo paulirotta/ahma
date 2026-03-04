@@ -336,8 +336,8 @@ pub async fn run() -> Result<()> {
         );
         #[cfg(target_os = "windows")]
         tracing::info!(
-            "Sandbox mode: JOB OBJECT active (kill-on-close); \
-             AppContainer path security not yet enforced (R6.3 in-progress)"
+            "SECURE Sandbox mode: APPCONTAINER (per-command path security) + \
+             JOB OBJECT (kill-on-close process tracking)"
         );
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         tracing::info!(
