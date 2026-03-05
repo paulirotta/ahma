@@ -12,6 +12,9 @@
 //! They use dynamic port allocation to avoid conflicts with other tests.
 //! The shared test server singleton (port 5721) is NOT used here.
 
+mod common;
+
+use common::uri::paths_equivalent;
 use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -799,9 +802,8 @@ async fn test_tool_call_with_different_working_directory() {
         .and_then(|item| item.get("text"))
         .and_then(|t| t.as_str())
         .unwrap_or("");
-    let different_project_str = different_project_path.to_string_lossy();
     assert!(
-        output_text.contains(different_project_str.as_ref()),
+        paths_equivalent(output_text, &different_project_path),
         "pwd output must include the requested working_directory. Output: {:?}",
         tool_response
     );
@@ -1039,7 +1041,7 @@ async fn test_roots_uri_parsing_percent_encoded_path() {
         .and_then(|t| t.as_str())
         .unwrap_or("");
     assert!(
-        output_text.contains(client_root.to_string_lossy().as_ref()),
+        paths_equivalent(output_text, &client_root),
         "pwd output must include decoded client root path; got: {resp:?}"
     );
 }

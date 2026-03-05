@@ -25,4 +25,7 @@ pub use server::{
     ServerGuard, TestServerInstance, spawn_test_server, spawn_test_server_with_timeout,
 };
 #[allow(unused_imports)]
-pub use uri::{encode_file_uri, malformed_uris, parse_file_uri};
+pub use uri::{
+    create_pwd_tool_config, encode_file_uri, malformed_uris, normalize_path_for_comparison,
+    parse_file_uri, paths_equivalent,
+};

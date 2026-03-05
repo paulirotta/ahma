@@ -16,6 +16,7 @@
 
 mod common;
 
+use common::uri::paths_equivalent;
 use common::{TestServerInstance, spawn_test_server};
 use futures::StreamExt;
 use reqwest::Client;
@@ -313,7 +314,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
         let result = v.get("result").cloned().unwrap_or_else(|| json!({}));
         let out = extract_text_content(&result);
         assert!(
-            out.contains(root_path.to_string_lossy().as_ref()),
+            paths_equivalent(&out, &root_path),
             "pwd output should contain root path. got: {out}"
         );
         break;
