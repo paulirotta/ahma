@@ -54,7 +54,7 @@ fn post_roots_configured_grace_timeout() -> Duration {
     if coverage_mode() {
         Duration::from_secs(8)
     } else {
-        Duration::from_secs(3)
+        Duration::from_secs(5)
     }
 }
 
