@@ -28,6 +28,28 @@ fn create_test_session_manager(default_scope: Option<PathBuf>) -> SessionManager
     SessionManager::new(config)
 }
 
+/// Returns a valid `(file_uri, expected_pathbuf)` pair for the current platform.
+///
+/// On Unix: `file:///tmp/ahma_test/<relative>` → `/tmp/ahma_test/<relative>`
+/// On Windows: uses the system temp dir with a drive-letter prefix so that
+/// `parse_file_uri_to_path` accepts the URI.
+fn test_file_uri(relative_path: &str) -> (String, PathBuf) {
+    #[cfg(windows)]
+    {
+        let tmp = std::env::temp_dir()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let tmp = tmp.trim_end_matches('/');
+        let full = format!("{}/ahma_test/{}", tmp, relative_path);
+        (format!("file:///{}", full), PathBuf::from(&full))
+    }
+    #[cfg(not(windows))]
+    {
+        let full = format!("/tmp/ahma_test/{}", relative_path);
+        (format!("file://{}", full), PathBuf::from(&full))
+    }
+}
+
 // =============================================================================
 // Concurrent Session Creation Tests
 // =============================================================================
@@ -152,12 +174,12 @@ async fn test_concurrent_sandbox_lock_attempts() {
 
     // Create different root sets
     let roots_a = vec![McpRoot {
-        uri: "file:///project/a".to_string(),
+        uri: test_file_uri("project/a").0,
         name: Some("Project A".to_string()),
     }];
 
     let roots_b = vec![McpRoot {
-        uri: "file:///project/b".to_string(),
+        uri: test_file_uri("project/b").0,
         name: Some("Project B".to_string()),
     }];
 
@@ -202,14 +224,16 @@ async fn test_many_independent_sandbox_scopes() {
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope.clone())));
 
     let num_sessions = 20;
-    let mut session_ids = Vec::new();
+    // (session_id, expected_scope_path)
+    let mut session_data: Vec<(String, PathBuf)> = Vec::new();
 
     // Create sessions with unique sandbox scopes
     for i in 0..num_sessions {
         let session_id = session_manager.create_session().await.unwrap();
 
+        let (uri, expected) = test_file_uri(&format!("workspace/project_{}", i));
         let roots = vec![McpRoot {
-            uri: format!("file:///workspace/project_{}", i),
+            uri,
             name: Some(format!("Project {}", i)),
         }];
 
@@ -217,25 +241,23 @@ async fn test_many_independent_sandbox_scopes() {
             .lock_sandbox(&session_id, &roots)
             .await
             .unwrap();
-        session_ids.push((session_id, i));
+        session_data.push((session_id, expected));
     }
 
     // Verify each session has its correct sandbox scope
-    for (session_id, i) in &session_ids {
+    for (session_id, expected) in &session_data {
         let session = session_manager.get_session(session_id).unwrap();
         let scope = session.get_sandbox_scope().await.unwrap();
-        let expected = PathBuf::from(format!("/workspace/project_{}", i));
-
-        assert_eq!(scope, expected, "Session should have scope {:?}", expected);
+        assert_eq!(scope, *expected, "Session should have scope {:?}", expected);
     }
 
     // Concurrent verification - read all scopes at once
-    let futures: Vec<_> = session_ids
+    let futures: Vec<_> = session_data
         .iter()
-        .map(|(session_id, i)| {
+        .map(|(session_id, expected)| {
             let sm = session_manager.clone();
             let id = session_id.clone();
-            let idx = *i;
+            let exp = expected.clone();
             async move {
                 let session = sm
                     .get_session(&id)
@@ -244,7 +266,7 @@ async fn test_many_independent_sandbox_scopes() {
                     .get_sandbox_scope()
                     .await
                     .ok_or_else(|| anyhow::anyhow!("No scope"))?;
-                Ok::<_, anyhow::Error>((idx, scope))
+                Ok::<_, anyhow::Error>((exp, scope))
             }
         })
         .collect();
@@ -252,13 +274,12 @@ async fn test_many_independent_sandbox_scopes() {
     let results = futures::future::join_all(futures).await;
 
     for result in results {
-        let (i, scope) = result.unwrap();
-        let expected = PathBuf::from(format!("/workspace/project_{}", i));
+        let (expected, scope) = result.unwrap();
         assert_eq!(scope, expected);
     }
 
     // Cleanup
-    for (session_id, _) in session_ids {
+    for (session_id, _) in session_data {
         let _ = session_manager
             .terminate_session(&session_id, SessionTerminationReason::ClientRequested)
             .await;
@@ -310,10 +331,8 @@ async fn test_rapid_session_lifecycle() {
         let session_id = session_manager.create_session().await.unwrap();
 
         // Lock sandbox
-        let roots = vec![McpRoot {
-            uri: format!("file:///workspace/cycle_{}", i),
-            name: None,
-        }];
+        let (uri, expected_scope) = test_file_uri(&format!("workspace/cycle_{}", i));
+        let roots = vec![McpRoot { uri, name: None }];
         session_manager
             .lock_sandbox(&session_id, &roots)
             .await
@@ -322,7 +341,7 @@ async fn test_rapid_session_lifecycle() {
         // Verify
         let session = session_manager.get_session(&session_id).unwrap();
         let scope = session.get_sandbox_scope().await.unwrap();
-        assert_eq!(scope, PathBuf::from(format!("/workspace/cycle_{}", i)));
+        assert_eq!(scope, expected_scope);
 
         // Terminate
         session_manager
@@ -489,7 +508,7 @@ async fn test_session_operations_with_timeout() {
     // Operations should complete within reasonable timeout
     let result = timeout(Duration::from_secs(5), async {
         let roots = vec![McpRoot {
-            uri: "file:///test".to_string(),
+            uri: test_file_uri("test").0,
             name: None,
         }];
         session_manager.lock_sandbox(&session_id, &roots).await
@@ -547,17 +566,18 @@ async fn test_multiple_roots_uses_first() {
 
     let session_id = session_manager.create_session().await.unwrap();
 
+    let (first_uri, first_path) = test_file_uri("first/project");
     let roots = vec![
         McpRoot {
-            uri: "file:///first/project".to_string(),
+            uri: first_uri,
             name: Some("First".to_string()),
         },
         McpRoot {
-            uri: "file:///second/project".to_string(),
+            uri: test_file_uri("second/project").0,
             name: Some("Second".to_string()),
         },
         McpRoot {
-            uri: "file:///third/project".to_string(),
+            uri: test_file_uri("third/project").0,
             name: Some("Third".to_string()),
         },
     ];
@@ -572,7 +592,7 @@ async fn test_multiple_roots_uses_first() {
 
     assert_eq!(
         scope,
-        PathBuf::from("/first/project"),
+        first_path,
         "Should use first root's path as sandbox scope"
     );
 
