@@ -7,7 +7,7 @@ use std::{
 };
 use tracing::{error, info, instrument};
 
-/// Ahma MCP Tool Configuration Validator
+/// Ahma Tool Configuration Validator
 ///
 /// This CLI tool validates tool configuration files against the MTDF schema.
 /// It verifies that the JSON structure matches expected schemas and checks for

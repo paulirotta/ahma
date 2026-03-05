@@ -98,7 +98,7 @@ fi
 
 INSTALL_DIR="$HOME/.local/bin"
 
-echo "Installing Ahma MCP for ${PLATFORM}..."
+echo "Installing Ahma for ${PLATFORM}..."
 
 # Create install directory
 mkdir -p "$INSTALL_DIR"

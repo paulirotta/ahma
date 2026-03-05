@@ -1,7 +1,7 @@
-//! # Ahma MCP Core
+//! # Ahma Core
 //!
 //! Ahma (Finnish for wolverine) is a fast and fearless engine for wrapping CLI tools for AI use.
-//! It provides the foundational library that powers the Ahma MCP server.
+//! It provides the foundational library that powers the Ahma server.
 //!
 //! ## Core Mission
 //!
@@ -69,7 +69,7 @@ pub mod adapter;
 /// Progress callback system for async operations.
 pub mod callback_system;
 mod check_service_ext;
-/// Client helpers for talking to Ahma MCP.
+/// Client helpers for talking to Ahma.
 pub mod client;
 /// Client type helpers and compatibility flags.
 pub mod client_type;

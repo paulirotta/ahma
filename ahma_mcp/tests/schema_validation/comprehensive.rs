@@ -295,9 +295,10 @@ async fn test_performance_for_large_tool_sets() -> Result<()> {
 
     println!("Large tool validation took: {:?}", validation_time);
 
-    // Should complete within reasonable time (less than 1 second for this size)
+    // Should complete within reasonable time (less than 3 seconds for this size,
+    // allowing headroom for CI runners and loaded machines)
     assert!(
-        validation_time < std::time::Duration::from_secs(1),
+        validation_time < std::time::Duration::from_secs(3),
         "Validation took too long: {:?}",
         validation_time
     );

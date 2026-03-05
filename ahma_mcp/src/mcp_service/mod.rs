@@ -1,4 +1,4 @@
-//! # Ahma MCP Service Implementation
+//! # Ahma Service Implementation
 //!
 //! This module contains the core implementation of the `ahma_mcp` server. The
 //! `AhmaMcpService` struct implements the `rmcp::ServerHandler` trait, making it the

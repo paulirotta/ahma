@@ -297,8 +297,8 @@ fn create_appcontainer_command(
 
     // Build the container profile name.
     let container_name = appcontainer_name_for_scope(scope);
-    let display = to_wide("Ahma MCP sandbox");
-    let description = to_wide("Ahma MCP tool execution sandbox");
+    let display = to_wide("Ahma sandbox");
+    let description = to_wide("Ahma tool execution sandbox");
 
     let mut std_cmd = std::process::Command::new(program);
     std_cmd

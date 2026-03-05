@@ -73,10 +73,7 @@ async fn test_uri_percent_encoding_decoding() {
         .await
         .expect("Should have scope");
 
-    assert_eq!(
-        scope, expected,
-        "Percent-encoded spaces should be decoded"
-    );
+    assert_eq!(scope, expected, "Percent-encoded spaces should be decoded");
 }
 
 /// Test that file://localhost/ URIs are parsed correctly
@@ -202,6 +199,10 @@ async fn test_non_file_uri_rejected() {
 }
 
 /// Test that relative paths (non-absolute) are rejected
+///
+/// On Windows, `file://host/path` is interpreted as a UNC path (`\\host\path`),
+/// which is a valid absolute path. This test only applies to Unix.
+#[cfg(unix)]
 #[tokio::test]
 async fn test_relative_path_rejected() {
     let temp = tempdir().expect("Failed to create temp dir");
@@ -287,7 +288,7 @@ async fn test_mixed_valid_invalid_roots() {
             name: Some("Valid One".to_string()),
         },
         McpRoot {
-            uri: "file://no-slash".to_string(), // Invalid - no absolute path
+            uri: "ftp://invalid/path".to_string(), // Invalid - not file://
             name: None,
         },
         McpRoot {

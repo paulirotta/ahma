@@ -1,4 +1,4 @@
-//! Test helper utilities for Ahma MCP.
+//! Test helper utilities for Ahma
 //!
 //! This module provides reusable helpers for integration and unit tests,
 //! including sandbox setup, temporary project scaffolding, and MCP client

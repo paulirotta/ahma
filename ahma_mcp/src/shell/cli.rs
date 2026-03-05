@@ -1,4 +1,4 @@
-//! # Ahma MCP Server CLI
+//! # Ahma Server CLI
 //!
 //! This module contains the command-line interface definition and main entry point.
 
@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 
-/// Ahma MCP Server: A generic, config-driven adapter for CLI tools.
+/// Ahma Server: A generic, config-driven adapter for CLI tools.
 #[derive(Parser, Debug, Clone)]
 #[command(
     author,

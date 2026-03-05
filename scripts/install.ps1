@@ -31,7 +31,7 @@ $installDir = if ($env:AHMA_INSTALL_DIR) {
     Join-Path $HOME ".local\bin"
 }
 
-Write-Host "Installing Ahma MCP for $platform to $installDir ..."
+Write-Host "Installing Ahma for $platform to $installDir ..."
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 # ── Fetch latest release metadata ─────────────────────────────────────────────

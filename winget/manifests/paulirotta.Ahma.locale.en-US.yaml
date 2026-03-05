@@ -5,7 +5,7 @@ PackageLocale: en-US
 Publisher: Paul Irotta
 PublisherUrl: https://github.com/paulirotta
 PublisherSupportUrl: https://github.com/paulirotta/ahma/issues
-PackageName: Ahma MCP
+PackageName: Ahma
 PackageUrl: https://github.com/paulirotta/ahma
 License: MIT OR Apache-2.0
 LicenseUrl: https://github.com/paulirotta/ahma/blob/main/MIT_LICENSE.txt
