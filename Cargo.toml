@@ -14,7 +14,7 @@ members = [
     "ahma_http_bridge",
     "ahma_http_mcp_client",
     "ahma_common",
-    "ahma_simplify",
+    "ahma_simplify", "tmp_url_test",
 ]
 resolver = "3"
 
