@@ -14,7 +14,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -194,12 +193,8 @@ async fn test_sequence_step_failure_stops_subsequent_steps() -> Result<()> {
     );
 
     // Call the failing sequence
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("failing_sequence"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("failing_sequence")
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
 
@@ -265,12 +260,8 @@ async fn test_sequence_with_missing_subcommand_reference() -> Result<()> {
         return Ok(());
     }
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("missing_subcommand_seq"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("missing_subcommand_seq")
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await;
 
@@ -373,12 +364,8 @@ async fn test_sequence_failure_with_filesystem_markers() -> Result<()> {
         return Ok(());
     }
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("marker_sequence"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("marker_sequence")
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let _result = client.call_tool(params).await;
 
@@ -445,12 +432,8 @@ async fn test_empty_sequence_handling() -> Result<()> {
     let has_empty_seq = tools.iter().any(|t| t.name.as_ref() == "empty_sequence");
 
     if has_empty_seq {
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("empty_sequence"),
-            arguments: Some(json!({}).as_object().unwrap().clone()),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new("empty_sequence")
+            .with_arguments(json!({}).as_object().unwrap().clone());
 
         let result = client.call_tool(params).await?;
 
@@ -513,12 +496,8 @@ async fn test_sequence_all_steps_succeed() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("success_sequence"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("success_sequence")
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
 

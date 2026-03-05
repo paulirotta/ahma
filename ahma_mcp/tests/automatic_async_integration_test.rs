@@ -9,7 +9,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 use tokio::fs;
 
 /// Setup test tools directory with async tool configurations
@@ -66,19 +65,14 @@ async fn test_automatic_async_fast_shell_returns_inline() -> Result<()> {
         .await?;
 
     // Don't set execution_mode — let it default to AsyncResultPush
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "echo 'automatic_async_test_marker'"
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        json!({
+            "command": "echo 'automatic_async_test_marker'"
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
 
     let result = client.call_tool(params).await?;
     assert!(
@@ -129,19 +123,14 @@ async fn test_automatic_async_slow_command_returns_async_id() -> Result<()> {
 
     let start = std::time::Instant::now();
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "sleep 30 && echo done"
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        json!({
+            "command": "sleep 30 && echo done"
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
 
     let result = client.call_tool(params).await?;
     let duration = start.elapsed();
@@ -197,17 +186,12 @@ async fn test_automatic_async_configured_tool_returns_inline() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("auto_async_echo"),
-        arguments: Some(
-            json!({"message": "configured_tool_inline_result"})
-                .as_object()
-                .unwrap()
-                .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("auto_async_echo").with_arguments(
+        json!({"message": "configured_tool_inline_result"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
 
     let result = client.call_tool(params).await?;
     assert!(
@@ -250,20 +234,15 @@ async fn test_automatic_async_does_not_affect_sync_mode() -> Result<()> {
 
     let start = std::time::Instant::now();
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "echo sync_marker",
-                "execution_mode": "Synchronous"
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        json!({
+            "command": "echo sync_marker",
+            "execution_mode": "Synchronous"
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
 
     let result = client.call_tool(params).await?;
     let duration = start.elapsed();
@@ -316,19 +295,14 @@ async fn test_automatic_async_multiple_fast_commands() -> Result<()> {
 
     for i in 1..=3 {
         let marker = format!("fast_cmd_{}", i);
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("sandboxed_shell"),
-            arguments: Some(
-                json!({
-                    "command": format!("echo '{}'", marker)
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            ),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+            json!({
+                "command": format!("echo '{}'", marker)
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
         let result = client.call_tool(params).await?;
         assert!(

@@ -11,7 +11,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 use std::time::Duration;
 use tokio::fs;
 
@@ -28,14 +27,12 @@ async fn call_test_tool(
     name: &str,
     args: serde_json::Value,
 ) -> Result<rmcp::model::CallToolResult> {
-    Ok(client
-        .call_tool(CallToolRequestParams {
-            name: Cow::Owned(name.to_string()),
-            arguments: args.as_object().cloned(),
-            task: None,
-            meta: None,
-        })
-        .await?)
+    let mut params = CallToolRequestParams::new(name.to_string());
+    if let Some(arguments) = args.as_object().cloned() {
+        params = params.with_arguments(arguments);
+    }
+
+    Ok(client.call_tool(params).await?)
 }
 
 fn assert_success_and_get_text(result: &rmcp::model::CallToolResult) -> String {

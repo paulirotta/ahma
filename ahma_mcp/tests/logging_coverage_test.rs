@@ -17,7 +17,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 
 // ============================================================================
 // Logging Initialization Tests
@@ -70,12 +69,8 @@ async fn test_client_with_debug_logging() -> Result<()> {
         .await?;
 
     // Verify client works with debug logging
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params =
+        CallToolRequestParams::new("status").with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
     assert!(!result.content.is_empty());
@@ -97,12 +92,8 @@ async fn test_client_with_stderr_logging() -> Result<()> {
         .await?;
 
     // Verify client works with stderr logging
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params =
+        CallToolRequestParams::new("status").with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
     assert!(!result.content.is_empty());
@@ -139,12 +130,8 @@ async fn test_client_with_default_file_logging() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Verify client works with default logging
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params =
+        CallToolRequestParams::new("status").with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
     assert!(!result.content.is_empty());

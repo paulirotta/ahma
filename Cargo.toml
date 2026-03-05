@@ -38,7 +38,7 @@ futures = "0.3.32"
 landlock = "0.4.4"
 opentelemetry = { version = "0.31", features = ["trace"] }
 # Windows-only kernel binding crate (only fetched when compiling for Windows)
-windows-sys = { version = "0.52", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
@@ -54,7 +54,7 @@ opentelemetry-otlp = { version = "0.31", features = [
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 regex = "1.12.3"
 reqwest = { version = "0.13.2", default-features = false }
-rmcp = { version = "0.17.0", features = [
+rmcp = { version = "1.1.0", features = [
     "server",
     "client",
     "macros",
@@ -76,7 +76,7 @@ tokio = { version = "1.50.0", features = [
     "signal",
 ] }
 tokio-util = "0.7.18"
-toml = "1.0.3"
+toml = "1.0.4"
 tracing = "0.1.44"
 tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.32"

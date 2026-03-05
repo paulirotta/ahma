@@ -37,18 +37,13 @@ async fn red_team_basic_path_traversal_blocked() {
         .unwrap();
 
     // Attempt to escape via simple ../
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "cat /etc/passwd",
-                "working_directory": "../"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "cat /etc/passwd",
+            "working_directory": "../"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
@@ -72,18 +67,13 @@ async fn red_team_deep_path_traversal_blocked() {
         .unwrap();
 
     // Attempt to escape via deeply nested traversal
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "ls",
-                "working_directory": "a/b/c/d/e/../../../../../../../../../../"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "ls",
+            "working_directory": "a/b/c/d/e/../../../../../../../../../../"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
@@ -107,18 +97,13 @@ async fn red_team_absolute_path_escape_blocked() {
         .unwrap();
 
     // Attempt to use absolute path outside sandbox
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "ls",
-                "working_directory": "/etc"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "ls",
+            "working_directory": "/etc"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
@@ -166,18 +151,13 @@ async fn red_team_symlink_escape_blocked() {
         Err(e) => panic!("Failed to create symlink: {}", e),
     }
 
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "cat passwd",
-                "working_directory": "etc_link"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "cat passwd",
+            "working_directory": "etc_link"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
@@ -229,18 +209,13 @@ async fn red_team_symlink_to_home_blocked() {
         Err(e) => panic!("Failed to create symlink: {}", e),
     }
 
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "ls .ssh",
-                "working_directory": "home_link"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "ls .ssh",
+            "working_directory": "home_link"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
@@ -269,18 +244,13 @@ async fn red_team_shell_metacharacters_in_path() {
 
     // Attempt to inject shell commands via path
     // The path "; cat /etc/passwd #" doesn't exist as a directory
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "echo test",
-                "working_directory": "; cat /etc/passwd #"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "echo test",
+            "working_directory": "; cat /etc/passwd #"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     // The command may start async but should fail during execution
     // because the working directory doesn't exist.
@@ -332,17 +302,12 @@ async fn documented_limitation_read_access_unrestricted() {
     // because file-read* is allowed everywhere.
     //
     // This is a KNOWN LIMITATION, not a bug.
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "test -r /etc/passwd && echo 'readable' || echo 'not readable'"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "test -r /etc/passwd && echo 'readable' || echo 'not readable'"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
 
     // The command should succeed (sandbox allows running in current dir)
@@ -370,18 +335,13 @@ async fn documented_limitation_network_unrestricted() {
 
     // Test that network access works (e.g., DNS lookup)
     // This documents that network is unrestricted
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                // Use a simple network test that doesn't actually transfer data
-                "command": "ping -c 1 -t 1 127.0.0.1 2>/dev/null || echo 'network test'"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            // Use a simple network test that doesn't actually transfer data
+            "command": "ping -c 1 -t 1 127.0.0.1 2>/dev/null || echo 'network test'"
+        }))
+        .unwrap(),
+    );
     let result = client.call_tool(params).await;
     // Just document that network commands can run - this is a known limitation
     let _ = result;
@@ -411,18 +371,13 @@ async fn red_team_command_write_escape_blocked() {
         .unwrap();
 
     // Attempt to write to a file outside the sandbox using absolute path
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": format!("echo 'hacked' > {}", outside_file.display()),
-                "execution_mode": "Synchronous"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": format!("echo 'hacked' > {}", outside_file.display()),
+            "execution_mode": "Synchronous"
+        }))
+        .unwrap(),
+    );
 
     // The command might "succeed" (exit code 0) if the shell handles the error gracefully,
     // or fail (exit code 1). Key check is: file MUST NOT exist.
@@ -458,18 +413,13 @@ async fn red_team_command_read_escape_blocked_linux() {
         .unwrap();
 
     // Attempt to read /etc/shadow (or similar restricted file)
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "cat /etc/shadow", // Typically root only, but Landlock should block open() regardless
-                "execution_mode": "Synchronous"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "cat /etc/shadow", // Typically root only, but Landlock should block open() regardless
+            "execution_mode": "Synchronous"
+        }))
+        .unwrap(),
+    );
 
     let result = client.call_tool(params).await;
 
@@ -513,18 +463,13 @@ async fn red_team_command_read_escape_blocked_linux_custom() {
         .unwrap();
 
     // Attempt to read the outside file
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": format!("cat {}", outside_file.display()),
-                "execution_mode": "Synchronous"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": format!("cat {}", outside_file.display()),
+            "execution_mode": "Synchronous"
+        }))
+        .unwrap(),
+    );
 
     let result = client.call_tool(params).await;
 

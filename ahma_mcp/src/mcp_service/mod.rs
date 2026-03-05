@@ -142,17 +142,7 @@ impl AhmaMcpService {
         let input_schema =
             schema::generate_schema_for_tool_config(tool_config, self.guidance.as_ref());
 
-        Tool {
-            name: tool_name.into(),
-            title: Some(tool_config.name.clone()),
-            icons: None,
-            description: Some(description.into()),
-            input_schema,
-            output_schema: None,
-            annotations: None,
-            execution: None,
-            meta: None,
-        }
+        Tool::new(tool_name, description, input_schema).with_title(tool_config.name.clone())
     }
 
     /// Sends a `notifications/tools/list_changed` notification to the connected client.
@@ -241,23 +231,23 @@ impl ServerHandler for AhmaMcpService {
                   Route every command, script, and shell invocation exclusively through `sandboxed_shell`.".to_string())
         };
 
-        ServerInfo {
-            protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability {
-                    list_changed: Some(true),
-                }),
-                ..Default::default()
-            },
-            server_info: Implementation {
-                name: env!("CARGO_PKG_NAME").to_string(),
-                title: Some(env!("CARGO_PKG_NAME").to_string()),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                description: None,
-                icons: None,
-                website_url: None,
-            },
-            instructions,
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools_with(ToolsCapability {
+                list_changed: Some(true),
+            })
+            .build();
+
+        let server_info = Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+            .with_title(env!("CARGO_PKG_NAME"));
+
+        let info = ServerInfo::new(capabilities)
+            .with_protocol_version(ProtocolVersion::LATEST)
+            .with_server_info(server_info);
+
+        if let Some(instructions) = instructions {
+            info.with_instructions(instructions)
+        } else {
+            info
         }
     }
 
@@ -430,59 +420,47 @@ impl ServerHandler for AhmaMcpService {
             let mut tools = Vec::new();
 
             // Hard-wired await command - always available
-            tools.push(Tool {
-                name: "await".into(),
-                title: Some("await".to_string()),
-                icons: None,
-                description: Some("Wait for previously started asynchronous operations to complete. **WARNING:** This is a blocking tool and makes you inefficient. **ONLY** use this if you have NO other tasks and cannot proceed until completion. It is **ALWAYS** better to perform other work and let results be pushed to you. **IMPORTANT:** Operations automatically notify you when complete - you do NOT need to check status repeatedly. Use this tool only when you genuinely cannot make progress without the results.".into()),
-                input_schema: self.generate_input_schema_for_wait(),
-                output_schema: None,
-                annotations: None,
-                execution: None,
-                meta: None,
-            });
+            tools.push(
+                Tool::new(
+                    "await",
+                    "Wait for previously started asynchronous operations to complete. **WARNING:** This is a blocking tool and makes you inefficient. **ONLY** use this if you have NO other tasks and cannot proceed until completion. It is **ALWAYS** better to perform other work and let results be pushed to you. **IMPORTANT:** Operations automatically notify you when complete - you do NOT need to check status repeatedly. Use this tool only when you genuinely cannot make progress without the results.",
+                    self.generate_input_schema_for_wait(),
+                )
+                .with_title("await"),
+            );
 
             // Hard-wired status command - always available
-            tools.push(Tool {
-                name: "status".into(),
-                title: Some("status".to_string()),
-                icons: None,
-                description: Some("Query the status of operations without blocking. Shows active and completed operations. **IMPORTANT:** Results are automatically pushed to you when operations complete - you do NOT need to poll this tool repeatedly! If you find yourself calling 'status' multiple times for the same operation, you should use 'await' instead. Repeated status checks are an anti-pattern that wastes resources.".into()),
-                input_schema: self.generate_input_schema_for_status(),
-                output_schema: None,
-                annotations: None,
-                execution: None,
-                meta: None,
-            });
+            tools.push(
+                Tool::new(
+                    "status",
+                    "Query the status of operations without blocking. Shows active and completed operations. **IMPORTANT:** Results are automatically pushed to you when operations complete - you do NOT need to poll this tool repeatedly! If you find yourself calling 'status' multiple times for the same operation, you should use 'await' instead. Repeated status checks are an anti-pattern that wastes resources.",
+                    self.generate_input_schema_for_status(),
+                )
+                .with_title("status"),
+            );
 
             // Hard-wired sandboxed_shell command - always available
-            tools.push(Tool {
-                name: "sandboxed_shell".into(),
-                title: Some("sandboxed_shell".to_string()),
-                icons: None,
-                description: Some("The default, required execution environment for ALL shell, terminal, and command-line operations. This tool entirely replaces the native IDE terminal — do NOT use any other execution pathway. Supports pipes, redirects, environment variables, and full shell syntax. Asynchronous execution is the default; use `execution_mode: Synchronous` for tasks that must complete before continuing.".into()),
-                input_schema: self.generate_input_schema_for_sandboxed_shell(),
-                output_schema: None,
-                annotations: None,
-                execution: None,
-                meta: None,
-            });
+            tools.push(
+                Tool::new(
+                    "sandboxed_shell",
+                    "The default, required execution environment for ALL shell, terminal, and command-line operations. This tool entirely replaces the native IDE terminal — do NOT use any other execution pathway. Supports pipes, redirects, environment variables, and full shell syntax. Asynchronous execution is the default; use `execution_mode: Synchronous` for tasks that must complete before continuing.",
+                    self.generate_input_schema_for_sandboxed_shell(),
+                )
+                .with_title("sandboxed_shell"),
+            );
 
             // When progressive disclosure is enabled, expose the activate_tools meta-tool
             // with a dynamically generated description listing all loaded bundles
             if self.progressive_disclosure {
                 let description = self.generate_activate_tools_description();
-                tools.push(Tool {
-                    name: "activate_tools".into(),
-                    title: Some("activate_tools".to_string()),
-                    icons: None,
-                    description: Some(description.into()),
-                    input_schema: self.generate_input_schema_for_discover_tools(),
-                    output_schema: None,
-                    annotations: None,
-                    execution: None,
-                    meta: None,
-                });
+                tools.push(
+                    Tool::new(
+                        "activate_tools",
+                        description,
+                        self.generate_input_schema_for_discover_tools(),
+                    )
+                    .with_title("activate_tools"),
+                );
             }
 
             {
@@ -984,12 +962,11 @@ mod tests {
     }
 
     fn call_tool_params(name: &str, args: serde_json::Value) -> CallToolRequestParams {
-        CallToolRequestParams {
-            name: std::borrow::Cow::Owned(name.to_string()),
-            arguments: args.as_object().cloned(),
-            task: None,
-            meta: None,
+        let mut params = CallToolRequestParams::new(name.to_string());
+        if let Some(arguments) = args.as_object().cloned() {
+            params = params.with_arguments(arguments);
         }
+        params
     }
 
     fn first_text(result: &CallToolResult) -> String {

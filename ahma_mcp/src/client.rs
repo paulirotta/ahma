@@ -15,7 +15,6 @@ use rmcp::{
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use serde_json::json;
-use std::borrow::Cow;
 use tokio::process::Command;
 
 /// A test client that wraps a running `ahma_mcp` server process.
@@ -96,20 +95,15 @@ impl Client {
     pub async fn shell_async_sleep(&mut self, duration: &str) -> Result<ToolCallResult> {
         let service = self.get_service()?;
 
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("sandboxed_shell"),
-            arguments: Some(
-                json!({
-                    "subcommand": "default",
-                    "args": [format!("sleep {}", duration)]
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            ),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+            json!({
+                "subcommand": "default",
+                "args": [format!("sleep {}", duration)]
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
         let result = service.call_tool(params).await?;
         if let Some(content) = result.content.first() {
@@ -132,19 +126,14 @@ impl Client {
     pub async fn await_op(&mut self, op_id: &str) -> Result<String> {
         let service = self.get_service()?;
 
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("await"),
-            arguments: Some(
-                json!({
-                    "id": op_id
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            ),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new("await").with_arguments(
+            json!({
+                "id": op_id
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
         let result = service.call_tool(params).await?;
         let full_text = join_text_contents(&result.content)?;
@@ -154,19 +143,14 @@ impl Client {
     pub async fn status(&mut self, op_id: &str) -> Result<String> {
         let service = self.get_service()?;
 
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("status"),
-            arguments: Some(
-                json!({
-                    "id": op_id
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            ),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new("status").with_arguments(
+            json!({
+                "id": op_id
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
         let result = service.call_tool(params).await?;
         first_text_content(&result.content)

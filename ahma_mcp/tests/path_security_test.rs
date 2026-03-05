@@ -18,18 +18,13 @@ async fn test_path_validation_success() {
         .await
         .unwrap();
 
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "echo test",
-                "working_directory": "."
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "echo test",
+            "working_directory": "."
+        }))
+        .unwrap(),
+    );
 
     let result = client.call_tool(params).await;
     assert!(result.is_ok());
@@ -48,18 +43,13 @@ async fn test_path_validation_failure_absolute() {
         .await
         .unwrap();
 
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "echo test",
-                "working_directory": "/etc"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "echo test",
+            "working_directory": "/etc"
+        }))
+        .unwrap(),
+    );
 
     let result = client.call_tool(params).await;
     assert!(result.is_err());
@@ -92,18 +82,13 @@ async fn test_path_validation_failure_relative() {
         .await
         .unwrap();
 
-    let params = CallToolRequestParams {
-        name: "sandboxed_shell".into(),
-        arguments: Some(
-            serde_json::from_value(json!({
-                "command": "echo test",
-                "working_directory": "../"
-            }))
-            .unwrap(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": "echo test",
+            "working_directory": "../"
+        }))
+        .unwrap(),
+    );
 
     let result = client.call_tool(params).await;
     assert!(result.is_err());

@@ -15,7 +15,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 
 // ============================================================================
 // Test Helpers - Reduce boilerplate and improve readability
@@ -23,12 +22,11 @@ use std::borrow::Cow;
 
 /// Creates CallToolRequestParams with the given tool name and optional arguments
 fn make_params(name: &'static str, args: Option<serde_json::Value>) -> CallToolRequestParams {
-    CallToolRequestParams {
-        name: Cow::Borrowed(name),
-        arguments: args.map(|v| v.as_object().unwrap().clone()),
-        task: None,
-        meta: None,
+    let mut params = CallToolRequestParams::new(name);
+    if let Some(arguments) = args.and_then(|v| v.as_object().cloned()) {
+        params = params.with_arguments(arguments);
     }
+    params
 }
 
 /// Extracts text content from a tool call result, returning None if not available

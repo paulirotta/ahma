@@ -17,21 +17,18 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 
 async fn call_test_tool(
     client: &rmcp::service::RunningService<rmcp::service::RoleClient, ()>,
     name: &str,
     args: serde_json::Value,
 ) -> Result<rmcp::model::CallToolResult> {
-    Ok(client
-        .call_tool(CallToolRequestParams {
-            name: Cow::Owned(name.to_string()),
-            arguments: args.as_object().cloned(),
-            task: None,
-            meta: None,
-        })
-        .await?)
+    let mut params = CallToolRequestParams::new(name.to_string());
+    if let Some(arguments) = args.as_object().cloned() {
+        params = params.with_arguments(arguments);
+    }
+
+    Ok(client.call_tool(params).await?)
 }
 
 fn get_result_text(result: &rmcp::model::CallToolResult) -> &str {

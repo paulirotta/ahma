@@ -19,6 +19,7 @@ use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
 };
 use tokio::sync::Mutex;
+use tracing;
 
 /// Transport wrapper supporting mixed MCP framing styles.
 #[derive(Clone)]
@@ -74,7 +75,7 @@ where
             let mut json = json_res?;
             json.push('\n');
             let mut w = writer.lock().await;
-            eprintln!("[AhmaTransport] SEND: {}", json.trim_end());
+            tracing::debug!("[AhmaTransport] SEND: {}", json.trim_end());
             w.write_all(json.as_bytes()).await?;
             w.flush().await?;
             Ok(())
@@ -95,7 +96,7 @@ where
                     Ok(0) => return None, // EOF
                     Ok(_) => {}
                     Err(e) => {
-                        eprintln!("[AhmaTransport] Read Error: {}", e);
+                        tracing::debug!("[AhmaTransport] Read Error: {}", e);
                         return None;
                     }
                 }
@@ -108,7 +109,7 @@ where
                         .unwrap_or("0")
                         .trim();
                     let content_len: usize = len_str.parse().unwrap_or(0);
-                    eprintln!(
+                    tracing::debug!(
                         "[AhmaTransport] Detected Header Framing. Content-Length: {}",
                         content_len
                     );
@@ -128,13 +129,13 @@ where
                     // Read exact bytes
                     let mut buf = vec![0u8; content_len];
                     if let Err(e) = r.read_exact(&mut buf).await {
-                        eprintln!("[AhmaTransport] Failed to read body: {}", e);
+                        tracing::debug!("[AhmaTransport] Failed to read body: {}", e);
                         continue;
                     }
                     match String::from_utf8(buf) {
                         Ok(s) => s,
                         Err(e) => {
-                            eprintln!("[AhmaTransport] Invalid UTF-8 body: {}", e);
+                            tracing::debug!("[AhmaTransport] Invalid UTF-8 body: {}", e);
                             continue;
                         }
                     }
@@ -146,14 +147,15 @@ where
                 // Try to parse as Value to inspect and patch
                 let mut value: Value = match serde_json::from_str(&message_body) {
                     Ok(v) => {
-                        eprintln!("[AhmaTransport] RECV RAW: {}", message_body.trim());
+                        tracing::debug!("[AhmaTransport] RECV RAW: {}", message_body.trim());
                         v
                     }
                     Err(e) => {
                         if !message_body.trim().is_empty() {
-                            eprintln!(
+                            tracing::debug!(
                                 "[AhmaTransport] Invalid JSON: {} | Content: {}",
-                                e, message_body
+                                e,
+                                message_body
                             );
                         }
                         // Ignore invalid JSON lines and continue loop
@@ -165,7 +167,7 @@ where
                 if let Some(method) = value.get("method").and_then(|v| v.as_str())
                     && method == "initialize"
                 {
-                    eprintln!(
+                    tracing::debug!(
                         "[AhmaTransport] Detected 'initialize' request. Checking capabilities..."
                     );
                     if let Some(params) = value.get_mut("params")
@@ -173,14 +175,14 @@ where
                         && let Some(tasks) = caps.get("tasks")
                     {
                         if tasks.is_object() {
-                            eprintln!(
+                            tracing::debug!(
                                 "[AhmaTransport] Patching: Removing 'tasks' capability object"
                             );
                             if let Some(caps_obj) = caps.as_object_mut() {
                                 caps_obj.remove("tasks");
                             }
                         } else {
-                            eprintln!(
+                            tracing::debug!(
                                 "[AhmaTransport] 'tasks' capability found but not an object: {:?}",
                                 tasks
                             );
@@ -192,7 +194,7 @@ where
                 match serde_json::from_value(value) {
                     Ok(msg) => return Some(msg),
                     Err(e) => {
-                        eprintln!("[AhmaTransport] Deserialization failed: {}", e);
+                        tracing::debug!("[AhmaTransport] Deserialization failed: {}", e);
                         continue;
                     }
                 }
@@ -208,12 +210,12 @@ where
         let mut w = writer.lock().await;
         // Attempt to flush any buffered bytes first
         if let Err(e) = w.flush().await {
-            eprintln!("[AhmaTransport] Flush on close failed: {}", e);
+            tracing::debug!("[AhmaTransport] Flush on close failed: {}", e);
             return Err(e);
         }
         // Then try a graceful shutdown of the writer (if supported)
         if let Err(e) = AsyncWriteExt::shutdown(&mut *w).await {
-            eprintln!("[AhmaTransport] Shutdown on close failed: {}", e);
+            tracing::debug!("[AhmaTransport] Shutdown on close failed: {}", e);
             return Err(e);
         }
         Ok(())

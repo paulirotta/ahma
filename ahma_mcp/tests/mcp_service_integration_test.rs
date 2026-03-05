@@ -243,17 +243,12 @@ async fn test_mcp_call_sync_tool_with_positional_args() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("test_echo"),
-        arguments: Some(
-            json!({"message": "hello world"})
-                .as_object()
-                .unwrap()
-                .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("test_echo")).with_arguments(
+        json!({"message": "hello world"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
 
     let result = client.call_tool(params).await?;
 
@@ -292,12 +287,8 @@ async fn test_mcp_call_tool_with_no_args() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("test_echo"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("test_echo"))
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
 
@@ -328,17 +319,12 @@ async fn test_mcp_call_async_tool_returns_id() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("async_echo"),
-        arguments: Some(
-            json!({"message": "async test"})
-                .as_object()
-                .unwrap()
-                .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("async_echo")).with_arguments(
+        json!({"message": "async test"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
 
     let result = client.call_tool(params).await?;
 
@@ -388,17 +374,12 @@ async fn test_mcp_subcommand_routing() -> Result<()> {
         .await?;
 
     // Call with explicit subcommand
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("test_echo"),
-        arguments: Some(
-            json!({"subcommand": "uppercase", "message": "test"})
-                .as_object()
-                .unwrap()
-                .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("test_echo")).with_arguments(
+        json!({"subcommand": "uppercase", "message": "test"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
 
     let result = client.call_tool(params).await?;
 
@@ -428,12 +409,8 @@ async fn test_mcp_call_nonexistent_tool_error() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("nonexistent_tool_xyz"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("nonexistent_tool_xyz"))
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await;
 
@@ -474,17 +451,12 @@ async fn test_mcp_call_invalid_subcommand_error() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("test_echo"),
-        arguments: Some(
-            json!({"subcommand": "nonexistent_subcommand"})
-                .as_object()
-                .unwrap()
-                .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("test_echo")).with_arguments(
+        json!({"subcommand": "nonexistent_subcommand"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
 
     let result = client.call_tool(params).await;
 
@@ -529,20 +501,15 @@ async fn test_mcp_shell_command_execution() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "echo 'MCP test output'",
-                "execution_mode": "Synchronous"
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell")).with_arguments(
+        json!({
+            "command": "echo 'MCP test output'",
+            "execution_mode": "Synchronous"
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
 
     let result = client.call_tool(params).await?;
 
@@ -579,12 +546,8 @@ async fn test_mcp_shell_command_failure() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(json!({"command": "exit 1"}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell"))
+        .with_arguments(json!({"command": "exit 1"}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await;
 
@@ -651,21 +614,16 @@ async fn test_mcp_working_directory_parameter() -> Result<()> {
         .build()
         .await?;
 
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "ls",
-                "working_directory": sub_dir.to_str().unwrap(),
-                "execution_mode": "Synchronous"
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell")).with_arguments(
+        json!({
+            "command": "ls",
+            "working_directory": sub_dir.to_str().unwrap(),
+            "execution_mode": "Synchronous"
+        })
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
 
     let result = client.call_tool(params).await?;
 

@@ -193,14 +193,16 @@ async fn handle_existing_session_request(
     }
 
     if method == Some("notifications/roots/list_changed")
-        && let Some(response) = handle_roots_changed_request(session_manager, session_id).await {
-            return response;
-        }
+        && let Some(response) = handle_roots_changed_request(session_manager, session_id).await
+    {
+        return response;
+    }
 
     if method == Some("tools/call")
-        && let Some(response) = check_sandbox_lock(session_manager, session_id) {
-            return response;
-        }
+        && let Some(response) = check_sandbox_lock(session_manager, session_id)
+    {
+        return response;
+    }
 
     let is_initialized_notification = method == Some("notifications/initialized");
     if is_initialized_notification {

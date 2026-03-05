@@ -843,7 +843,8 @@ jobs:
   job-publish-winget:
     name: Publish Winget Manifest
     needs: [job-publish-release]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Temporarily disabled until WINGET_TOKEN secret is configured.
+    if: false
     runs-on: windows-latest
     defaults:
       run:

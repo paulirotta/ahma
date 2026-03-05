@@ -40,7 +40,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
-tokio = "1.40"
+tokio = "1.50"
 toml.workspace = true
 tracing-appender.workspace = true
 tracing-opentelemetry = { workspace = true, optional = true }

@@ -206,12 +206,8 @@ async fn test_sync_sequence_tool_execution() -> Result<()> {
     );
 
     // Call the synchronous sequence tool
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("sync_sequence"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("sync_sequence"))
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
 
@@ -250,12 +246,8 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
         .await?;
 
     // Call the asynchronous sequence tool
-    let params = CallToolRequestParams {
-        name: Cow::Borrowed("async_sequence"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let params = CallToolRequestParams::new(Cow::Borrowed("async_sequence"))
+        .with_arguments(json!({}).as_object().unwrap().clone());
 
     let result = client.call_tool(params).await?;
 
@@ -286,12 +278,8 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
         || {
             let client = client.clone();
             async move {
-                let status_params = CallToolRequestParams {
-                    name: Cow::Borrowed("status"),
-                    arguments: Some(json!({}).as_object().unwrap().clone()),
-                    task: None,
-                    meta: None,
-                };
+                let status_params = CallToolRequestParams::new(Cow::Borrowed("status"))
+                    .with_arguments(json!({}).as_object().unwrap().clone());
                 client
                     .call_tool(status_params)
                     .await
@@ -304,12 +292,8 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
     .await;
 
     // Check status to verify completion
-    let status_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let status_params = CallToolRequestParams::new(Cow::Borrowed("status"))
+        .with_arguments(json!({}).as_object().unwrap().clone());
     let status_result = client.call_tool(status_params).await?;
     assert!(!status_result.content.is_empty());
 
@@ -341,17 +325,12 @@ async fn test_subcommand_sequence_execution() -> Result<()> {
 
     if has_multi_step {
         // Call the pipeline subcommand which is a sequence
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("multi_step"),
-            arguments: Some(
-                json!({"subcommand": "pipeline"})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            ),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new(Cow::Borrowed("multi_step")).with_arguments(
+            json!({"subcommand": "pipeline"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
 
         let result = client.call_tool(params).await?;
 
@@ -405,12 +384,8 @@ async fn test_sequence_with_missing_tool_reference() -> Result<()> {
     let has_bad_seq = tools.iter().any(|t| t.name.as_ref() == "bad_sequence");
 
     if has_bad_seq {
-        let params = CallToolRequestParams {
-            name: Cow::Borrowed("bad_sequence"),
-            arguments: Some(json!({}).as_object().unwrap().clone()),
-            task: None,
-            meta: None,
-        };
+        let params = CallToolRequestParams::new(Cow::Borrowed("bad_sequence"))
+            .with_arguments(json!({}).as_object().unwrap().clone());
 
         let result = client.call_tool(params).await;
 

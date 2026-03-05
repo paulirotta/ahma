@@ -12,7 +12,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-use std::borrow::Cow;
 
 /// Test async notification delivery with malformed operation IDs
 #[tokio::test]
@@ -21,19 +20,12 @@ async fn test_async_notification_malformed_ids() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Test status tool with numeric id (should be handled gracefully)
-    let malformed_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(
-            json!({
-                "id": 12345  // numeric instead of string
-            })
+    let malformed_params = CallToolRequestParams::new("status").with_arguments(
+        json!({ "id": 12345 })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(malformed_params).await;
 
@@ -53,30 +45,19 @@ async fn test_async_notification_extreme_timeout_values() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Test await with no timeout parameter (uses intelligent timeout)
-    let no_timeout_params = CallToolRequestParams {
-        name: Cow::Borrowed("await"),
-        arguments: Some(json!({}).as_object().unwrap().clone()),
-        task: None,
-        meta: None,
-    };
+    let no_timeout_params = CallToolRequestParams::new("await")
+        .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let result = client.call_tool(no_timeout_params).await?;
     assert!(!result.content.is_empty());
 
     // Test await with only valid parameters
-    let valid_params = CallToolRequestParams {
-        name: Cow::Borrowed("await"),
-        arguments: Some(
-            json!({
-                "tools": "cargo"
-            })
+    let valid_params = CallToolRequestParams::new("await").with_arguments(
+        json!({ "tools": "cargo" })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(valid_params).await?;
     assert!(!result.content.is_empty());
@@ -140,37 +121,19 @@ async fn test_error_handling_malformed_call_tool_params() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Test with missing required parameters for cancel tool
-    let missing_params = CallToolRequestParams {
-        name: Cow::Borrowed("cancel"),
-        arguments: Some(
-            json!({
-                // Missing id which is required
-            })
-            .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+    let missing_params = CallToolRequestParams::new("cancel")
+        .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let result = client.call_tool(missing_params).await;
     assert!(result.is_err(), "Cancel tool should require id parameter");
 
     // Test with invalid parameter types for await tool (no timeout_seconds accepted)
-    let invalid_types_params = CallToolRequestParams {
-        name: Cow::Borrowed("await"),
-        arguments: Some(
-            json!({
-                "tools": 123  // Number instead of string
-            })
+    let invalid_types_params = CallToolRequestParams::new("await").with_arguments(
+        json!({ "id": 12345 })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(invalid_types_params).await;
     // Should handle type mismatch gracefully
@@ -186,12 +149,7 @@ async fn test_error_handling_unknown_tools() -> Result<()> {
     init_test_logging();
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    let unknown_tool_params = CallToolRequestParams {
-        name: Cow::Borrowed("nonexistent_tool_xyz_123"),
-        arguments: None,
-        task: None,
-        meta: None,
-    };
+    let unknown_tool_params = CallToolRequestParams::new("unknown_tool");
 
     let result = client.call_tool(unknown_tool_params).await;
     assert!(result.is_err(), "Unknown tools should return error");
@@ -211,19 +169,12 @@ async fn test_async_notification_concurrent_load() -> Result<()> {
     for i in 0..3 {
         let client_clone = client.clone();
         let handle = tokio::spawn(async move {
-            let params = CallToolRequestParams {
-                name: Cow::Borrowed("status"),
-                arguments: Some(
-                    json!({
-                        "id": format!("test_concurrent_op_{}", i)
-                    })
+            let params = CallToolRequestParams::new("status").with_arguments(
+                json!({ "id": format!("load_test_{}", i) })
                     .as_object()
-                    .unwrap()
-                    .clone(),
-                ),
-                task: None,
-                meta: None,
-            };
+                    .cloned()
+                    .unwrap_or_default(),
+            );
             client_clone.call_tool(params).await
         });
         handles.push(handle);
@@ -251,19 +202,12 @@ async fn test_status_tool_filter_combinations() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Test with tool filter
-    let tool_filter_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(
-            json!({
-                "tools": "cargo,git"
-            })
+    let tool_filter_params = CallToolRequestParams::new("status").with_arguments(
+        json!({ "tools": "cargo" })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(tool_filter_params).await?;
     assert!(!result.content.is_empty());
@@ -277,20 +221,12 @@ async fn test_status_tool_filter_combinations() -> Result<()> {
     }
 
     // Test with both id and tools filter
-    let combined_filter_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: Some(
-            json!({
-                "id": "test_123",
-                "tools": "cargo"
-            })
+    let combined_filter_params = CallToolRequestParams::new("status").with_arguments(
+        json!({ "tools": "cargo", "id": "test-op" })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(combined_filter_params).await?;
     assert!(!result.content.is_empty());
@@ -307,19 +243,12 @@ async fn test_async_operation_with_real_execution() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
     // Start a real async operation (shell command)
-    let async_params = CallToolRequestParams {
-        name: Cow::Borrowed("sandboxed_shell"),
-        arguments: Some(
-            json!({
-                "command": "echo 'test async execution'"
-            })
+    let async_params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        json!({ "command": "echo 'test async execution'" })
             .as_object()
-            .unwrap()
-            .clone(),
-        ),
-        task: None,
-        meta: None,
-    };
+            .cloned()
+            .unwrap_or_default(),
+    );
 
     let result = client.call_tool(async_params).await?;
     assert!(!result.content.is_empty());
@@ -340,12 +269,8 @@ async fn test_async_operation_with_real_execution() -> Result<()> {
     }
 
     // Test that we can query the status
-    let status_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: None,
-        task: None,
-        meta: None,
-    };
+    let status_params = CallToolRequestParams::new("status")
+        .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let status_result = client.call_tool(status_params).await?;
     assert!(!status_result.content.is_empty());
@@ -364,21 +289,12 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
 
     // 1. Cause an error with unknown tool
     let _ = client
-        .call_tool(CallToolRequestParams {
-            name: Cow::Borrowed("unknown_tool"),
-            arguments: None,
-            task: None,
-            meta: None,
-        })
+        .call_tool(CallToolRequestParams::new("invalid_tool_for_recovery"))
         .await;
 
     // 2. Service should still work normally
-    let working_params = CallToolRequestParams {
-        name: Cow::Borrowed("status"),
-        arguments: None,
-        task: None,
-        meta: None,
-    };
+    let working_params = CallToolRequestParams::new("status")
+        .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let result = client.call_tool(working_params).await?;
     assert!(!result.content.is_empty());
@@ -388,22 +304,15 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
         // Error call
         let invalid_tool_name = format!("invalid_tool_{}", i);
         let _ = client
-            .call_tool(CallToolRequestParams {
-                name: Cow::Owned(invalid_tool_name),
-                arguments: None,
-                task: None,
-                meta: None,
-            })
+            .call_tool(CallToolRequestParams::new(invalid_tool_name.clone()))
             .await;
 
         // Successful call
         let good_result = client
-            .call_tool(CallToolRequestParams {
-                name: Cow::Borrowed("status"),
-                arguments: None,
-                task: None,
-                meta: None,
-            })
+            .call_tool(
+                CallToolRequestParams::new("status")
+                    .with_arguments(json!({}).as_object().cloned().unwrap_or_default()),
+            )
             .await?;
         assert!(!good_result.content.is_empty());
     }
