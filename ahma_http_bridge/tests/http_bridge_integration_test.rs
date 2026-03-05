@@ -242,7 +242,9 @@ fn coverage_mode() -> bool {
 
 fn roots_handshake_timeout() -> Duration {
     if coverage_mode() {
-        Duration::from_secs(30)
+        Duration::from_secs(120)
+    } else if cfg!(windows) {
+        Duration::from_secs(45)
     } else {
         Duration::from_secs(15)
     }
@@ -250,7 +252,9 @@ fn roots_handshake_timeout() -> Duration {
 
 fn post_roots_configured_grace_timeout() -> Duration {
     if coverage_mode() {
-        Duration::from_secs(8)
+        Duration::from_secs(60)
+    } else if cfg!(windows) {
+        Duration::from_secs(15)
     } else {
         Duration::from_secs(3)
     }

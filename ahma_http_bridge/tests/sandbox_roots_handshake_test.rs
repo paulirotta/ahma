@@ -44,7 +44,9 @@ fn coverage_mode() -> bool {
 
 fn roots_handshake_timeout() -> Duration {
     if coverage_mode() {
-        Duration::from_secs(30)
+        Duration::from_secs(120)
+    } else if cfg!(windows) {
+        Duration::from_secs(45)
     } else {
         Duration::from_secs(15)
     }

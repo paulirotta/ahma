@@ -380,7 +380,16 @@ async fn test_slow_client_handshake() {
         // Wait for notifications/sandbox/configured so the sandbox is truly Active
         // before the task returns.  Without this, the retry tool call races with
         // the subprocess confirming sandbox activation and incorrectly gets 409.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        let configured_secs = if std::env::var_os("LLVM_PROFILE_FILE").is_some()
+            || std::env::var_os("CARGO_LLVM_COV").is_some()
+        {
+            120
+        } else if cfg!(windows) {
+            45
+        } else {
+            15
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(configured_secs);
         while let Ok(Some(chunk)) = tokio::time::timeout_at(deadline, stream.next()).await {
             if let Ok(bytes) = chunk {
                 let text = String::from_utf8_lossy(&bytes);
