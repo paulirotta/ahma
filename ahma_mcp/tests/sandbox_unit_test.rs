@@ -38,18 +38,21 @@ fn test_is_test_mode_on_sandbox_instance() {
     let sandbox = Sandbox::new_test();
     assert!(sandbox.is_test_mode());
 
+    let temp = tempdir().unwrap();
     let sandbox_strict =
-        Sandbox::new(vec![PathBuf::from("/tmp")], SandboxMode::Strict, false).unwrap();
+        Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Strict, false).unwrap();
     assert!(!sandbox_strict.is_test_mode());
 }
 
 #[test]
 fn test_is_no_temp_files_on_sandbox_instance() {
-    let sandbox = Sandbox::new(vec![PathBuf::from("/tmp")], SandboxMode::Strict, true).unwrap();
+    let temp = tempdir().unwrap();
+    let sandbox = Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Strict, true).unwrap();
     assert!(sandbox.is_no_temp_files());
 
+    let temp2 = tempdir().unwrap();
     let sandbox_default =
-        Sandbox::new(vec![PathBuf::from("/tmp")], SandboxMode::Strict, false).unwrap();
+        Sandbox::new(vec![temp2.path().to_path_buf()], SandboxMode::Strict, false).unwrap();
     assert!(!sandbox_default.is_no_temp_files());
 }
 

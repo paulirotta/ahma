@@ -25,6 +25,7 @@ clap.workspace = true
 ctrlc.workspace = true
 directories.workspace = true
 dirs.workspace = true
+dunce.workspace = true
 futures.workspace = true
 notify = "8.2.0"
 opentelemetry-otlp = { workspace = true, optional = true }

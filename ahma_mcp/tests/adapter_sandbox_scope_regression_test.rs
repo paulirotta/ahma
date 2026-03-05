@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::test]
+#[cfg(unix)]
 async fn adapter_uses_global_sandbox_scope_not_adapter_root_path() {
     // Initialize sandbox scopes for tests. This sets sandbox scope to "/" and enables test mode.
     let sandbox = Arc::new(Sandbox::new_test());

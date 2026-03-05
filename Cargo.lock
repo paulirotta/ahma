@@ -82,6 +82,7 @@ dependencies = [
  "ctrlc",
  "directories",
  "dirs",
+ "dunce",
  "futures",
  "landlock",
  "notify",

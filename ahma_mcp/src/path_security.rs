@@ -12,10 +12,21 @@ use anyhow::{Result, anyhow};
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
+/// Canonicalize `path` and strip any Windows verbatim `\\?\` prefix.
+///
+/// Uses `tokio::fs::canonicalize` for symlink resolution, then
+/// `dunce::simplified` to remove the extended-length path prefix that Windows
+/// sometimes adds. This prevents UNC verbatim paths from appearing in command
+/// arguments or working-directory values where some OS APIs reject them.
+async fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
+    let canonical = fs::canonicalize(path).await?;
+    Ok(dunce::simplified(&canonical).to_path_buf())
+}
+
 /// Validates that a path is within the specified root directory.
 /// Resolves symlinks and relative paths.
 pub async fn validate_path(path: &Path, root: &Path) -> Result<PathBuf> {
-    let root_canonical = fs::canonicalize(root)
+    let root_canonical = canonicalize_simplified(root)
         .await
         .map_err(|e| anyhow!("Failed to canonicalize root path {:?}: {}", root, e))?;
 
@@ -29,11 +40,11 @@ pub async fn validate_path(path: &Path, root: &Path) -> Result<PathBuf> {
     // Try to canonicalize the full path to handle symlinks correctly.
     // If the file does not exist yet, canonicalize the parent directory (which should exist)
     // so symlink escapes are still detected for create/write operations.
-    let resolved_path = match fs::canonicalize(&path_to_check).await {
+    let resolved_path = match canonicalize_simplified(&path_to_check).await {
         Ok(p) => p,
         Err(_) => {
             if let Some(parent) = path_to_check.parent() {
-                if let Ok(parent_canonical) = fs::canonicalize(parent).await {
+                if let Ok(parent_canonical) = canonicalize_simplified(parent).await {
                     if let Some(name) = path_to_check.file_name() {
                         parent_canonical.join(name)
                     } else {
@@ -99,7 +110,7 @@ mod tests {
         fs::write(&file, "content").await?;
 
         let validated = validate_path(&file, root).await?;
-        assert_eq!(validated, fs::canonicalize(&file).await?);
+        assert_eq!(validated, canonicalize_simplified(&file).await?);
         Ok(())
     }
 
@@ -125,7 +136,7 @@ mod tests {
         // Relative path should be joined with root
         let relative = Path::new("subdir/file.txt");
         let validated = validate_path(relative, root).await?;
-        assert_eq!(validated, fs::canonicalize(&file).await?);
+        assert_eq!(validated, canonicalize_simplified(&file).await?);
         Ok(())
     }
 
@@ -139,7 +150,7 @@ mod tests {
         // File doesn't exist but parent does - should still validate
         let new_file = subdir.join("newfile.txt");
         let validated = validate_path(&new_file, root).await?;
-        assert!(validated.starts_with(fs::canonicalize(root).await?));
+        assert!(validated.starts_with(canonicalize_simplified(root).await?));
         Ok(())
     }
 
