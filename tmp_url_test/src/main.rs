@@ -9,6 +9,6 @@ fn main() {
     });
     match serde_json::from_value::<rmcp::types::ClientRoots>(json_val) {
         Ok(cr) => println!("Success! roots length is {}", cr.roots.len()),
-        Err(e) => println!("Failed to deserialize: {}", e)
+        Err(e) => println!("Failed to deserialize: {}", e),
     }
 }

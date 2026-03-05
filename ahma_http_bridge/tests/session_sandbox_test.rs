@@ -24,6 +24,23 @@ fn create_test_session_manager(default_scope: Option<PathBuf>) -> SessionManager
     SessionManager::new(config)
 }
 
+/// Convert a `Path` to a `file://` URI that is valid on both Unix and Windows.
+///
+/// Windows: `C:\foo\bar` → `"file:///C:/foo/bar"`
+/// Unix:    `/tmp/bar`   → `"file:///tmp/bar"`
+fn path_to_file_uri(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        let forward = s.replace('\\', "/");
+        format!("file:///{}", forward)
+    }
+    #[cfg(not(windows))]
+    {
+        format!("file://{}", s)
+    }
+}
+
 /// Test that verifies sandbox scope mismatch scenario.
 ///
 /// This reproduces the bug where:
@@ -36,11 +53,11 @@ fn create_test_session_manager(default_scope: Option<PathBuf>) -> SessionManager
 /// not from server's startup directory.
 #[tokio::test]
 async fn test_sandbox_scope_should_use_client_roots_not_server_cwd() {
-    // Server started from /ahma_mcp (this is the server's CWD/default scope)
-    let server_default_scope = PathBuf::from("/Users/paul/github/ahma_mcp");
+    // Server started with a temp dir as default scope
+    let server_default_scope = std::env::temp_dir().join("ahma_mcp");
 
     // Client's workspace is a different project
-    let client_workspace = PathBuf::from("/Users/paul/github/nb_lifeline3/android_lifeline");
+    let client_workspace = std::env::temp_dir().join("android_lifeline");
 
     let session_manager = create_test_session_manager(Some(server_default_scope.clone()));
 
@@ -52,7 +69,7 @@ async fn test_sandbox_scope_should_use_client_roots_not_server_cwd() {
 
     // Client provides their workspace root via roots/list response
     let client_roots = vec![McpRoot {
-        uri: format!("file://{}", client_workspace.display()),
+        uri: path_to_file_uri(&client_workspace),
         name: Some("android_lifeline".to_string()),
     }];
 
@@ -121,7 +138,7 @@ async fn test_sandbox_scope_rejects_empty_roots() {
 /// Test that sandbox scope cannot be changed after locking.
 #[tokio::test]
 async fn test_sandbox_scope_immutable_after_lock() {
-    let server_default_scope = PathBuf::from("/tmp/server");
+    let server_default_scope = std::env::temp_dir().join("server");
     let session_manager = create_test_session_manager(Some(server_default_scope));
 
     let session_id = session_manager
@@ -131,7 +148,7 @@ async fn test_sandbox_scope_immutable_after_lock() {
 
     // First lock
     let first_roots = vec![McpRoot {
-        uri: "file:///project/a".to_string(),
+        uri: path_to_file_uri(&std::env::temp_dir().join("project_a")),
         name: None,
     }];
 
@@ -142,7 +159,7 @@ async fn test_sandbox_scope_immutable_after_lock() {
 
     // Attempt second lock with different roots
     let second_roots = vec![McpRoot {
-        uri: "file:///project/b".to_string(),
+        uri: path_to_file_uri(&std::env::temp_dir().join("project_b")),
         name: None,
     }];
 
@@ -164,7 +181,7 @@ async fn test_sandbox_scope_immutable_after_lock() {
 /// Test that roots/list_changed notification terminates session after sandbox lock.
 #[tokio::test]
 async fn test_roots_change_terminates_session_after_lock() {
-    let server_default_scope = PathBuf::from("/tmp/server");
+    let server_default_scope = std::env::temp_dir().join("server");
     let session_manager = create_test_session_manager(Some(server_default_scope));
 
     let session_id = session_manager
@@ -174,7 +191,7 @@ async fn test_roots_change_terminates_session_after_lock() {
 
     // Lock sandbox
     let roots = vec![McpRoot {
-        uri: "file:///project/locked".to_string(),
+        uri: path_to_file_uri(&std::env::temp_dir().join("project_locked")),
         name: None,
     }];
 
@@ -201,7 +218,7 @@ async fn test_roots_change_terminates_session_after_lock() {
 /// Test that multiple sessions have independent sandbox scopes.
 #[tokio::test]
 async fn test_multiple_sessions_have_independent_sandbox_scopes() {
-    let server_default_scope = PathBuf::from("/tmp/server");
+    let server_default_scope = std::env::temp_dir().join("server");
     let session_manager = create_test_session_manager(Some(server_default_scope));
 
     // Create two sessions (simulating two VS Code windows)
@@ -216,13 +233,16 @@ async fn test_multiple_sessions_have_independent_sandbox_scopes() {
         .expect("Should create session 2");
 
     // Each session has different workspace
+    let path_a = std::env::temp_dir().join("project_a");
+    let path_b = std::env::temp_dir().join("project_b");
+
     let roots1 = vec![McpRoot {
-        uri: "file:///users/dev/project_a".to_string(),
+        uri: path_to_file_uri(&path_a),
         name: Some("Project A".to_string()),
     }];
 
     let roots2 = vec![McpRoot {
-        uri: "file:///users/dev/project_b".to_string(),
+        uri: path_to_file_uri(&path_b),
         name: Some("Project B".to_string()),
     }];
 
@@ -253,8 +273,8 @@ async fn test_multiple_sessions_have_independent_sandbox_scopes() {
         .await
         .expect("Session 2 should have sandbox scope");
 
-    assert_eq!(scope1, PathBuf::from("/users/dev/project_a"));
-    assert_eq!(scope2, PathBuf::from("/users/dev/project_b"));
+    assert_eq!(scope1, path_a);
+    assert_eq!(scope2, path_b);
 
     assert_ne!(
         scope1, scope2,
@@ -265,7 +285,7 @@ async fn test_multiple_sessions_have_independent_sandbox_scopes() {
 /// Test that file:// URI prefix is correctly stripped from roots.
 #[tokio::test]
 async fn test_file_uri_prefix_correctly_stripped() {
-    let server_default_scope = PathBuf::from("/tmp/server");
+    let server_default_scope = std::env::temp_dir().join("server");
     let session_manager = create_test_session_manager(Some(server_default_scope));
 
     let session_id = session_manager
@@ -274,8 +294,9 @@ async fn test_file_uri_prefix_correctly_stripped() {
         .expect("Should create session");
 
     // Test various URI formats
+    let test_path = std::env::temp_dir().join("my_project");
     let roots = vec![McpRoot {
-        uri: "file:///Users/paul/github/my_project".to_string(),
+        uri: path_to_file_uri(&test_path),
         name: None,
     }];
 
@@ -294,17 +315,13 @@ async fn test_file_uri_prefix_correctly_stripped() {
         .expect("Should have scope");
 
     // Should be the path without file:// prefix
-    assert_eq!(
-        sandbox_scope,
-        PathBuf::from("/Users/paul/github/my_project"),
-        "file:// prefix should be stripped"
-    );
+    assert_eq!(sandbox_scope, test_path, "file:// prefix should be stripped");
 }
 
 /// Test session termination cleanup.
 #[tokio::test]
 async fn test_session_termination_removes_session() {
-    let server_default_scope = PathBuf::from("/tmp/server");
+    let server_default_scope = std::env::temp_dir().join("server");
     let session_manager = create_test_session_manager(Some(server_default_scope));
 
     let session_id = session_manager
