@@ -32,7 +32,7 @@ use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -47,14 +47,6 @@ fn roots_handshake_timeout() -> Duration {
         Duration::from_secs(30)
     } else {
         Duration::from_secs(15)
-    }
-}
-
-fn post_roots_configured_grace_timeout() -> Duration {
-    if coverage_mode() {
-        Duration::from_secs(8)
-    } else {
-        Duration::from_secs(5)
     }
 }
 
@@ -227,6 +219,58 @@ async fn complete_handshake(client: &Client, base_url: &str) -> Result<String, S
     Ok(session_id)
 }
 
+/// Wait for sandbox readiness by polling a known-good tool call.
+async fn wait_for_tool_ready(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    working_directory: &Path,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + roots_handshake_timeout();
+    let mut last_error: Option<String> = None;
+
+    while tokio::time::Instant::now() < deadline {
+        let tool_call = json!({
+            "jsonrpc": "2.0",
+            "id": 9001,
+            "method": "tools/call",
+            "params": {
+                "name": "pwd",
+                "arguments": {
+                    "subcommand": "default",
+                    "working_directory": working_directory.to_string_lossy()
+                }
+            }
+        });
+
+        match send_mcp_request(client, base_url, &tool_call, Some(session_id)).await {
+            Ok((response, _)) => {
+                if response.get("error").is_none() {
+                    return Ok(());
+                }
+
+                let msg = response
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("tool call returned error")
+                    .to_string();
+                last_error = Some(msg);
+            }
+            Err(e) => {
+                last_error = Some(e);
+            }
+        }
+
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    Err(format!(
+        "Timeout waiting for sandbox/tool readiness: {}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    ))
+}
+
 /// Wait for roots/list request over SSE and respond with provided URIs
 async fn answer_roots_list_with_uris(
     client: &Client,
@@ -250,22 +294,11 @@ async fn answer_roots_list_with_uris(
 
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
-    let mut roots_answered = false;
     let deadline = tokio::time::Instant::now() + roots_handshake_timeout();
-    let mut post_roots_deadline: Option<tokio::time::Instant> = None;
 
     loop {
-        if let Some(timeout_at) = post_roots_deadline
-            && tokio::time::Instant::now() > timeout_at
-        {
-            return Err(
-                "Timeout waiting for notifications/sandbox/configured after roots/list response"
-                    .to_string(),
-            );
-        }
-
         if tokio::time::Instant::now() > deadline {
-            return Err("Timeout waiting for roots/list + sandbox/configured over SSE".to_string());
+            return Err("Timeout waiting for roots/list over SSE".to_string());
         }
 
         let chunk = tokio::time::timeout(Duration::from_millis(500), stream.next())
@@ -310,13 +343,6 @@ async fn answer_roots_list_with_uris(
                     return Err(format!("Sandbox configuration failed: {}", error));
                 }
 
-                if method == Some("notifications/sandbox/configured") {
-                    if roots_answered {
-                        return Ok(());
-                    }
-                    continue;
-                }
-
                 if method != Some("roots/list") {
                     continue;
                 }
@@ -338,9 +364,7 @@ async fn answer_roots_list_with_uris(
                 });
 
                 let _ = send_mcp_request(client, base_url, &response, Some(session_id)).await?;
-                roots_answered = true;
-                post_roots_deadline =
-                    Some(tokio::time::Instant::now() + post_roots_configured_grace_timeout());
+                return Ok(());
             }
         }
     }
@@ -629,8 +653,9 @@ async fn test_multi_root_workspace_scoping() {
         sse_result
     );
 
-    // Give time for sandbox to lock
-    sleep(Duration::from_millis(200)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, root1.path())
+        .await
+        .expect("Sandbox should become ready for tool calls");
 
     // Tool call in root1 should work
     let tool_call_1 = json!({
@@ -739,7 +764,9 @@ async fn test_url_encoded_path_in_roots() {
         sse_result
     );
 
-    sleep(Duration::from_millis(200)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, &special_path)
+        .await
+        .expect("Sandbox should become ready for URL-encoded root");
 
     // Tool call in the special path should work
     let tool_call = json!({
@@ -916,7 +943,9 @@ async fn test_handshake_ordering_sse_first() {
         sse_result
     );
 
-    sleep(Duration::from_millis(200)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, &project_dir)
+        .await
+        .expect("Sandbox should become ready for VSCode-style ordering");
 
     // Step 4: Verify tool call works
     let tool_call = json!({
@@ -998,7 +1027,9 @@ async fn test_mixed_valid_invalid_uris() {
         sse_result
     );
 
-    sleep(Duration::from_millis(1000)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, valid_root.path())
+        .await
+        .expect("Sandbox should become ready with mixed valid/invalid URIs");
 
     // Tool call should work because we had one valid root
     let tool_call = json!({
@@ -1080,8 +1111,9 @@ async fn test_post_lock_roots_change_rejected() {
     let sse_result = sse_task.await.expect("SSE task panicked");
     assert!(sse_result.is_ok(), "Initial roots exchange failed");
 
-    // Wait for sandbox to lock
-    sleep(Duration::from_millis(300)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, initial_root.path())
+        .await
+        .expect("Sandbox should become ready before roots/list_changed test");
 
     // Verify initial root works
     let tool_call = json!({
@@ -1210,7 +1242,9 @@ async fn test_working_directory_outside_sandbox_rejected() {
     let sse_result = sse_task.await.expect("SSE task panicked");
     assert!(sse_result.is_ok(), "Roots exchange failed");
 
-    sleep(Duration::from_millis(200)).await;
+    wait_for_tool_ready(&client, &base_url, &session_id, allowed_root.path())
+        .await
+        .expect("Sandbox should become ready for allowed root");
 
     // Tool call in allowed root should work
     let allowed_call = json!({

@@ -132,14 +132,6 @@ impl McpTestClient {
         }
     }
 
-    fn post_roots_configured_grace_timeout() -> Duration {
-        if Self::coverage_mode() {
-            Duration::from_secs(8)
-        } else {
-            Duration::from_secs(5)
-        }
-    }
-
     fn pop_next_sse_event(buffer: &mut String) -> Option<String> {
         let idx = buffer.find("\n\n")?;
         let raw_event = buffer[..idx].to_string();
@@ -190,18 +182,8 @@ impl McpTestClient {
         let mut buffer = String::new();
         let mut roots_answered = false;
         let deadline = Instant::now() + Self::roots_handshake_timeout();
-        let mut post_roots_deadline: Option<Instant> = None;
 
         loop {
-            if let Some(timeout_at) = post_roots_deadline
-                && Instant::now() > timeout_at
-            {
-                return Err(
-                        "Timeout waiting for notifications/sandbox/configured after roots/list response"
-                            .to_string(),
-                    );
-            }
-
             if Instant::now() > deadline {
                 return Err(
                     "Timeout waiting for roots/list + sandbox/configured over SSE".to_string(),
@@ -253,8 +235,6 @@ impl McpTestClient {
                     self.send_roots_response(session_id, request_id, roots)
                         .await?;
                     roots_answered = true;
-                    post_roots_deadline =
-                        Some(Instant::now() + Self::post_roots_configured_grace_timeout());
                 }
             }
         }

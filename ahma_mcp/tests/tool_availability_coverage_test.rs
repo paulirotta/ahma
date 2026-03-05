@@ -13,6 +13,17 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+fn platform_shell_program_for_test() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "pwsh"
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "bash"
+    }
+}
+
 fn build_subcommand(
     name: &str,
     check: Option<AvailabilityCheck>,
@@ -362,7 +373,7 @@ async fn test_evaluate_tool_with_unavailable_command() -> Result<()> {
 #[tokio::test]
 async fn test_evaluate_subcommand_disabled_when_probe_fails() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_prog = platform_shell_program_for_test();
     let shell_arg = if cfg!(target_os = "windows") {
         "-Command"
     } else {
@@ -461,7 +472,7 @@ async fn test_evaluate_already_disabled_subcommand_not_probed() -> Result<()> {
 #[tokio::test]
 async fn test_evaluate_nested_subcommands() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_prog = platform_shell_program_for_test();
     let shell_arg = if cfg!(target_os = "windows") {
         "-Command"
     } else {
@@ -523,7 +534,7 @@ async fn test_evaluate_nested_subcommands() -> Result<()> {
 #[tokio::test]
 async fn test_evaluate_custom_success_exit_codes() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_prog = platform_shell_program_for_test();
     let shell_arg = if cfg!(target_os = "windows") {
         "-Command"
     } else {
