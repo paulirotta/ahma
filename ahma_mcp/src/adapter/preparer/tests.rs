@@ -216,7 +216,7 @@ async fn find_command_args_with_dash_prefix() {
     // (path is expanded to absolute path due to format: "path")
     let first_arg = args_vec.first().expect("Should have at least one argument");
     assert!(
-        first_arg.starts_with('/') || first_arg == ".",
+        std::path::Path::new(first_arg).is_absolute() || first_arg == ".",
         "First argument should be a path, got: {:?}",
         args_vec
     );
