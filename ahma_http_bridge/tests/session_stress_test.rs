@@ -36,9 +36,7 @@ fn create_test_session_manager(default_scope: Option<PathBuf>) -> SessionManager
 fn test_file_uri(relative_path: &str) -> (String, PathBuf) {
     #[cfg(windows)]
     {
-        let tmp = std::env::temp_dir()
-            .to_string_lossy()
-            .replace('\\', "/");
+        let tmp = std::env::temp_dir().to_string_lossy().replace('\\', "/");
         let tmp = tmp.trim_end_matches('/');
         let full = format!("{}/ahma_test/{}", tmp, relative_path);
         (format!("file:///{}", full), PathBuf::from(&full))
@@ -591,8 +589,7 @@ async fn test_multiple_roots_uses_first() {
     let scope = session.get_sandbox_scope().await.unwrap();
 
     assert_eq!(
-        scope,
-        first_path,
+        scope, first_path,
         "Should use first root's path as sandbox scope"
     );
 

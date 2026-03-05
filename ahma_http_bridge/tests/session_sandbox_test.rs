@@ -315,7 +315,10 @@ async fn test_file_uri_prefix_correctly_stripped() {
         .expect("Should have scope");
 
     // Should be the path without file:// prefix
-    assert_eq!(sandbox_scope, test_path, "file:// prefix should be stripped");
+    assert_eq!(
+        sandbox_scope, test_path,
+        "file:// prefix should be stripped"
+    );
 }
 
 /// Test session termination cleanup.

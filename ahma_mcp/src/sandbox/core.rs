@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
-use std::path::{Path, PathBuf};
 use dunce;
+use std::path::{Path, PathBuf};
 
 use super::error::SandboxError;
 use super::scopes;
