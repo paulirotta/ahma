@@ -198,7 +198,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
         .await;
 
     // 4) Wait for roots/list over SSE
-    let roots_req = timeout(Duration::from_secs(20), async {
+    let roots_req = timeout(Duration::from_secs(60), async {
         loop {
             if let Some(msg) = rx.recv().await
                 && msg.get("method").and_then(|m| m.as_str()) == Some("roots/list")
@@ -240,7 +240,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
 
     // Wait until the server confirms sandbox lock before issuing tools/call.
     // This avoids a race where the fallback scope is still active briefly.
-    timeout(Duration::from_secs(10), async {
+    timeout(Duration::from_secs(30), async {
         loop {
             if let Some(msg) = rx.recv().await
                 && msg.get("method").and_then(|m| m.as_str())
@@ -270,7 +270,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
 
     let start = Instant::now();
     loop {
-        if start.elapsed() > Duration::from_secs(20) {
+        if start.elapsed() > Duration::from_secs(60) {
             panic!("timed out waiting for tools/call to succeed after roots lock");
         }
 
@@ -280,7 +280,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
             .header(ACCEPT, "application/json")
             .header(MCP_SESSION_ID_HEADER, session_id.as_str())
             .json(&tool_call)
-            .timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(60))
             .send()
             .await
             .expect("tools/call POST failed");

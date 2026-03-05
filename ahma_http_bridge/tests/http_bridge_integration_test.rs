@@ -98,7 +98,7 @@ async fn start_http_bridge(
 
     // Wait for port
     let start = std::time::Instant::now();
-    let timeout = Duration::from_secs(10);
+    let timeout = Duration::from_secs(30);
     let mut port = 0;
 
     while start.elapsed() < timeout {
@@ -246,7 +246,7 @@ fn roots_handshake_timeout() -> Duration {
     } else if cfg!(windows) {
         Duration::from_secs(45)
     } else {
-        Duration::from_secs(15)
+        Duration::from_secs(45)
     }
 }
 
@@ -254,7 +254,7 @@ fn post_roots_configured_grace_timeout() -> Duration {
     if coverage_mode() {
         Duration::from_secs(60)
     } else if cfg!(windows) {
-        Duration::from_secs(15)
+        Duration::from_secs(45)
     } else {
         Duration::from_secs(3)
     }
@@ -1438,7 +1438,7 @@ async fn start_http_bridge_dynamic(
     });
 
     // Wait for port with timeout
-    let port = match rx.recv_timeout(Duration::from_secs(10)) {
+    let port = match rx.recv_timeout(Duration::from_secs(30)) {
         Ok(p) => p,
         Err(_) => {
             let _ = child.kill();

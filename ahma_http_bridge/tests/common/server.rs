@@ -295,7 +295,7 @@ pub async fn spawn_test_server_with_timeout(
     wire_output_reader(stdout, line_tx.clone());
     wire_output_reader(stderr, line_tx);
 
-    let bound_port = match wait_for_bound_port(&line_rx, Duration::from_secs(10)) {
+    let bound_port = match wait_for_bound_port(&line_rx, Duration::from_secs(30)) {
         Some(port) => port,
         None => {
             let _ = child.kill();

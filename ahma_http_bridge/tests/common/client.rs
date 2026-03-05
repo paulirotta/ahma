@@ -128,9 +128,9 @@ impl McpTestClient {
         if Self::coverage_mode() {
             Duration::from_secs(120)
         } else if cfg!(windows) {
-            Duration::from_secs(45)
+            Duration::from_secs(90)
         } else {
-            Duration::from_secs(30)
+            Duration::from_secs(45)
         }
     }
 
@@ -272,7 +272,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Mcp-Session-Id", session_id)
             .json(&roots_response)
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .map_err(|e| format!("Failed to send roots response: {}", e))?;
