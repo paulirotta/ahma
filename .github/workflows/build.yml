@@ -127,7 +127,7 @@ jobs:
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: sccache-action
-        uses: mozilla-actions/sccache-action@v2
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
@@ -272,7 +272,7 @@ jobs:
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: sccache-action
-        uses: mozilla-actions/sccache-action@v2
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
@@ -394,7 +394,7 @@ jobs:
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: sccache-action
-        uses: mozilla-actions/sccache-action@v2
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
@@ -518,7 +518,7 @@ jobs:
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: sccache-action
-        uses: mozilla-actions/sccache-action@v2
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
@@ -715,7 +715,7 @@ jobs:
 
       - name: sccache-action
         if: "!matrix.use_cross"
-        uses: mozilla-actions/sccache-action@v2
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         if: "!matrix.use_cross"
