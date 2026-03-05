@@ -39,6 +39,8 @@ fn test_no_temp_files_flag_in_server_args() {
 }
 
 /// Test that sandbox scope extraction from file:// URIs works correctly
+/// This test uses Unix-style absolute paths which are only valid on Unix platforms.
+#[cfg(unix)]
 #[test]
 fn test_sandbox_scope_from_file_uri() {
     let roots = vec![
@@ -137,8 +139,23 @@ async fn test_sandbox_lock_immutability() {
     let manager = SessionManager::new(config);
     let session_id = manager.create_session().await.unwrap();
 
+    // Use platform-appropriate absolute paths for the sandbox scope URIs.
+    // On Windows, Unix-style paths like /Users/test/... are not absolute.
+    #[cfg(not(windows))]
+    let (initial_uri, expected_scope, attacker_uri) = (
+        "file:///tmp/test_project1".to_string(),
+        PathBuf::from("/tmp/test_project1"),
+        "file:///tmp/attacker_malicious".to_string(),
+    );
+    #[cfg(windows)]
+    let (initial_uri, expected_scope, attacker_uri) = (
+        "file:///C:/test/project1".to_string(),
+        PathBuf::from(r"C:\test\project1"),
+        "file:///C:/attacker/malicious".to_string(),
+    );
+
     let initial_roots = vec![McpRoot {
-        uri: "file:///Users/test/project1".to_string(),
+        uri: initial_uri,
         name: Some("project1".to_string()),
     }];
 
@@ -153,7 +170,7 @@ async fn test_sandbox_lock_immutability() {
     // Second lock attempt should succeed but return false (already locked)
     // This is idempotent - the security invariant is that the scope doesn't CHANGE
     let different_roots = vec![McpRoot {
-        uri: "file:///Users/attacker/malicious".to_string(),
+        uri: attacker_uri,
         name: Some("malicious".to_string()),
     }];
 
@@ -172,7 +189,7 @@ async fn test_sandbox_lock_immutability() {
     let scope = session.get_sandbox_scope().await;
     assert_eq!(
         scope,
-        Some(PathBuf::from("/Users/test/project1")),
+        Some(expected_scope),
         "Sandbox scope should remain as original, not changed to attacker's path"
     );
 }
@@ -224,14 +241,28 @@ async fn test_multi_root_workspace_sandbox() {
     let manager = SessionManager::new(config);
     let session_id = manager.create_session().await.unwrap();
 
+    // Use platform-appropriate absolute paths for multi-root sandbox URIs.
+    #[cfg(not(windows))]
+    let (uri_a, uri_b, expected_primary) = (
+        "file:///tmp/test_project_a".to_string(),
+        "file:///tmp/test_project_b".to_string(),
+        PathBuf::from("/tmp/test_project_a"),
+    );
+    #[cfg(windows)]
+    let (uri_a, uri_b, expected_primary) = (
+        "file:///C:/test/project_a".to_string(),
+        "file:///C:/test/project_b".to_string(),
+        PathBuf::from(r"C:\test\project_a"),
+    );
+
     // Multi-root workspace with two projects
     let roots = vec![
         McpRoot {
-            uri: "file:///Users/test/project_a".to_string(),
+            uri: uri_a,
             name: Some("project_a".to_string()),
         },
         McpRoot {
-            uri: "file:///Users/test/project_b".to_string(),
+            uri: uri_b,
             name: Some("project_b".to_string()),
         },
     ];
@@ -250,8 +281,7 @@ async fn test_multi_root_workspace_sandbox() {
     // First root should be the primary scope
     if let Some(primary_scope) = scope {
         assert_eq!(
-            primary_scope,
-            PathBuf::from("/Users/test/project_a"),
+            primary_scope, expected_primary,
             "Primary scope should be the first root"
         );
     }
