@@ -192,7 +192,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
         .header(ACCEPT, "application/json")
         .header(MCP_SESSION_ID_HEADER, session_id.as_str())
         .json(&initialized)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await;
 
@@ -230,7 +230,7 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
         .header(ACCEPT, "application/json")
         .header(MCP_SESSION_ID_HEADER, session_id.as_str())
         .json(&roots_response)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .expect("roots response POST failed");

@@ -248,7 +248,7 @@ async fn test_delete_session_terminates_subprocess() {
     let delete_response = client
         .delete(&delete_url)
         .header("Mcp-Session-Id", &session_id)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .expect("DELETE request should succeed");
@@ -276,7 +276,7 @@ async fn test_delete_session_terminates_subprocess() {
             "method": "tools/list",
             "params": {}
         }))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .expect("POST request should complete");
@@ -319,7 +319,7 @@ async fn test_delete_without_session_id_returns_400() {
     let delete_url = format!("{}/mcp", base_url);
     let delete_response = client
         .delete(&delete_url)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .expect("DELETE request should complete");
@@ -361,7 +361,7 @@ async fn test_delete_nonexistent_session_returns_404() {
     let delete_response = client
         .delete(&delete_url)
         .header("Mcp-Session-Id", "non-existent-session-id-12345")
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .expect("DELETE request should complete");

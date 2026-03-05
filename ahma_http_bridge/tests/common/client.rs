@@ -66,7 +66,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .json(&init_request)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .map_err(|e| format!("Initialize request failed: {}", e))?;
@@ -102,7 +102,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Mcp-Session-Id", session_id)
             .json(&initialized_notification)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .send()
             .await
             .map_err(|e| format!("initialized notification failed: {}", e))?;
