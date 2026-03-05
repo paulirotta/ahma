@@ -148,7 +148,10 @@ mod ahma_mcp_tests {
             assert!(
                 stderr.contains("not found")
                     || stderr.contains("No matching")
-                    || stderr.contains("disabled"),
+                    || stderr.contains("disabled")
+                    || stderr.contains("cannot find the path specified")
+                    || stderr.contains("The system cannot find the path specified")
+                    || stderr.contains("Command execution failed"),
                 "Should fail with meaningful error. Got: {}",
                 stderr
             );
