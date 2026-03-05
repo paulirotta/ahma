@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
+use dunce;
 
 use super::error::SandboxError;
 use super::scopes;
@@ -114,7 +115,11 @@ impl Sandbox {
     }
 
     fn resolve_test_path(&self, path: &Path) -> Result<PathBuf> {
-        std::fs::canonicalize(path).or_else(|_| Ok(path.to_path_buf()))
+        // Use dunce::canonicalize to avoid the \\?\ extended-length prefix that
+        // std::fs::canonicalize adds on Windows; that prefix is accepted by most
+        // Win32 APIs but rejected by CreateProcess as a working directory
+        // (OS error 267 "The directory name is invalid").
+        dunce::canonicalize(path).or_else(|_| Ok(path.to_path_buf()))
     }
 
     fn resolve_path(&self, path: &Path, scopes_guard: &[PathBuf]) -> Result<PathBuf> {
