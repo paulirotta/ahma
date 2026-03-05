@@ -196,6 +196,11 @@ impl Session {
         self.sandbox_state_machine.wait_for_active().await
     }
 
+    /// Get the current sandbox state
+    pub fn current_sandbox_state(&self) -> ahma_common::sandbox_state::SandboxState {
+        self.sandbox_state_machine.current()
+    }
+
     /// Get the current handshake state
     pub fn handshake_state(&self) -> HandshakeState {
         *self.handshake_state.lock().unwrap()
@@ -1016,6 +1021,26 @@ impl SessionManager {
                                                 );
                                             } else {
                                                 info!(session_id = %session.id, "Observed notifications/sandbox/configured from subprocess - Sandbox is now ACTIVE");
+                                            }
+                                        } else if method_str == "notifications/sandbox/failed" {
+                                            let err_msg = value
+                                                .get("params")
+                                                .and_then(|p| p.get("error"))
+                                                .and_then(|e| e.as_str())
+                                                .unwrap_or("Unknown error");
+
+                                            if let Err(e) = session.sandbox_state_machine.transition_to_failed(err_msg.to_string()) {
+                                                warn!(
+                                                    session_id = %session.id,
+                                                    error = %e,
+                                                    "Failed to transition sandbox state to Failed (received notifications/sandbox/failed)"
+                                                );
+                                            } else {
+                                                warn!(
+                                                    session_id = %session.id,
+                                                    error_msg = %err_msg,
+                                                    "Subprocess reported sandbox configuration failed"
+                                                );
                                             }
                                         } else {
                                             debug!(session_id = %session.id, method = %method_str, "Subprocess sent a different notification");

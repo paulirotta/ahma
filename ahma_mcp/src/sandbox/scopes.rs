@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use dunce;
 use std::path::{Path, PathBuf};
 
 use super::types::SandboxMode;
@@ -65,7 +66,7 @@ pub(super) fn canonicalize_scopes(
                 .map(|c| normalize_path_lexically(&c.join(&scope)))
         };
 
-        let canonical = match std::fs::canonicalize(&scope) {
+        let canonical = match dunce::canonicalize(&scope) {
             Ok(c) => c,
             Err(e) => {
                 if mode == SandboxMode::Test {

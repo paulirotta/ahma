@@ -7,6 +7,7 @@ use super::{list_tools, modes, resolution};
 use crate::{sandbox, utils::logging::init_logging};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use dunce;
 use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 
 /// Ahma Server: A generic, config-driven adapter for CLI tools.
@@ -244,7 +245,7 @@ pub async fn run() -> Result<()> {
             // Use provided working-directories as initial scope
             let mut canonical_scopes = Vec::new();
             for scope in dirs {
-                let canonical = std::fs::canonicalize(scope).with_context(|| {
+                let canonical = dunce::canonicalize(scope).with_context(|| {
                     format!("Failed to canonicalize working directory: {:?}", scope)
                 })?;
                 canonical_scopes.push(canonical);
@@ -264,7 +265,7 @@ pub async fn run() -> Result<()> {
         // CLI override takes precedence
         let mut canonical_scopes = Vec::new();
         for scope in &cli.sandbox_scope {
-            let canonical = std::fs::canonicalize(scope)
+            let canonical = dunce::canonicalize(scope)
                 .with_context(|| format!("Failed to canonicalize sandbox scope: {:?}", scope))?;
             canonical_scopes.push(canonical);
         }
@@ -272,7 +273,7 @@ pub async fn run() -> Result<()> {
     } else if let Ok(env_scope) = std::env::var("AHMA_SANDBOX_SCOPE") {
         // Environment variable is second priority
         let env_path = PathBuf::from(&env_scope);
-        let canonical = std::fs::canonicalize(&env_path).with_context(|| {
+        let canonical = dunce::canonicalize(&env_path).with_context(|| {
             format!(
                 "Failed to canonicalize AHMA_SANDBOX_SCOPE environment variable: {:?}",
                 env_scope

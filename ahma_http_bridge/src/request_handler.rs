@@ -295,8 +295,27 @@ fn get_conflict_message(requires_client_roots: bool) -> &'static str {
 /// Checks if the sandbox is locked for `tools/call` requests.
 fn check_sandbox_lock(session_manager: &SessionManager, session_id: &str) -> Option<Response> {
     let session = session_manager.get_session(session_id)?;
-    if session.is_sandbox_locked() {
+
+    let current_state = session.current_sandbox_state();
+    if current_state.is_active() {
         return None;
+    }
+
+    if let ahma_common::sandbox_state::SandboxState::Failed { error } = current_state {
+        return Some(with_session_header(
+            error_response_with_status(
+                StatusCode::FORBIDDEN,
+                -32000,
+                &format!("Sandbox configuration failed: {}", error),
+            ),
+            session_id,
+        ));
+    }
+    if let ahma_common::sandbox_state::SandboxState::Terminated = current_state {
+        return Some(with_session_header(
+            error_response_with_status(StatusCode::FORBIDDEN, -32000, "Session terminated"),
+            session_id,
+        ));
     }
 
     let (sse_connected, mcp_initialized) =

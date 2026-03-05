@@ -5,6 +5,7 @@
 
 use crate::shell::cli::Cli;
 use anyhow::{Context, Result};
+use dunce;
 use std::{env, path::PathBuf};
 
 /// Run in HTTP bridge mode.
@@ -39,7 +40,7 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
     // SECURITY: only treat CLI/env as explicit fallback; do not silently use CWD.
     let explicit_fallback_scope = if !cli.sandbox_scope.is_empty() {
         Some(
-            std::fs::canonicalize(&cli.sandbox_scope[0])
+            dunce::canonicalize(&cli.sandbox_scope[0])
                 .unwrap_or_else(|_| cli.sandbox_scope[0].clone()),
         )
     } else if let Ok(env_scope) = std::env::var("AHMA_SANDBOX_SCOPE") {

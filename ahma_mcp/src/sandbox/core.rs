@@ -133,11 +133,11 @@ impl Sandbox {
             first_scope.join(path)
         };
 
-        Ok(match std::fs::canonicalize(&full_path) {
+        Ok(match dunce::canonicalize(&full_path) {
             Ok(p) => p,
             Err(_) => {
                 if let Some(parent) = full_path.parent() {
-                    if let Ok(parent_canonical) = std::fs::canonicalize(parent) {
+                    if let Ok(parent_canonical) = dunce::canonicalize(parent) {
                         if let Some(name) = full_path.file_name() {
                             parent_canonical.join(name)
                         } else {
