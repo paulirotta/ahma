@@ -4,7 +4,7 @@
 
 `ahma_simplify` is a code simplicity metrics aggregator that uses the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) library to analyze source code and generate comprehensive simplicity reports (Markdown and HTML).
 
-It is a workspace member of the [Ahma MCP](../SPEC.md) project.
+It is a workspace member of the [Ahma](../SPEC.md) project.
 
 ## Functional Requirements
 

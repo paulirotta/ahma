@@ -13,7 +13,7 @@ Act as a Senior Rust QA Engineer. Your goal is to systematically increase code c
 
 ### 2. Analysis (Coverage Report)
 
-- **Note:** `cargo llvm-cov` is NOT available via Ahma MCP because its instrumentation conflicts with macOS sandboxing.
+- **Note:** `cargo llvm-cov` is NOT available via Ahma because its instrumentation conflicts with macOS sandboxing.
 - Run coverage analysis directly in your terminal: `cargo llvm-cov nextest --html --output-dir ./coverage`
 - **Goal:** Identify the top 3 critical files or modules with the lowest coverage.
 - Generate a prioritized list of missing test cases based on this data. *Focus on logic branches, not just line coverage.*

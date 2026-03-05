@@ -2,7 +2,7 @@
 
 A code simplicity metrics aggregator that analyzes source code using the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) library and generates comprehensive simplicity reports.
 
-Part of the [Ahma MCP](../README.md) workspace.
+Part of the [Ahma](../README.md) workspace.
 
 ## Installation
 

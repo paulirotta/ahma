@@ -1,6 +1,6 @@
 # Ahma Tool Configurations
 
-This directory contains tool configuration files for the Ahma MCP (Model Context Protocol) server. These configurations define how AI agents can interact with various command-line tools in a safe and structured way.
+This directory contains tool configuration files for the Ahma server (ahma_mcp). These configurations define how AI agents can interact with various command-line tools in a safe and structured way.
 
 ## How Tool Loading Works
 
@@ -59,7 +59,7 @@ cargo nextest run --package ahma_mcp --test tool_examples_execution_test
 
 ### 4. Verify Your Configuration Works
 
-After copying and enabling a configuration in `.ahma/`, restart the AHMA MCP server to load the new tool:
+After copying and enabling a configuration in `.ahma/`, restart the ahma_mcp server to load the new tool:
 
 ```bash
 # The server will automatically discover and load enabled configurations from .ahma/
@@ -158,7 +158,7 @@ match validator.validate_tool_config(config_path, &content) {
 
 ### Tool Not Available in AI
 
-1. Restart the AHMA MCP server
+1. Restart the `ahma_mcp` server
 2. Verify tool is enabled: `grep enabled .ahma/mytool.json`
 3. Check server initialization logs
 4. Ensure the underlying command is installed: `which command-name`

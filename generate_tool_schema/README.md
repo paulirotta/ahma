@@ -1,6 +1,6 @@
 # Generate Tool Schema
 
-Utility for generating JSON schemas for Ahma MCP tool configurations.
+Utility for generating JSON schemas for Ahma tool configurations.
 
 ## Overview
 

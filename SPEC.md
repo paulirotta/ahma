@@ -1,4 +1,4 @@
-# Ahma MCP Requirements
+# Ahma Requirements
 
 > **For AI Assistants:** This is the **single source of truth** for the project. Always read this before making changes. Update this file when requirements change, bugs are discovered, or implementation status changes.
 
@@ -419,11 +419,11 @@ ahma_mcp --list-tools --http http://localhost:3000
 
 ## 8. Development Workflow
 
-### 8.1 Core Principle: Use Ahma MCP
+### 8.1 Core Principle: Use Ahma
 
 **Always use Ahma** instead of terminal commands:
 
-| Instead of... | Use Ahma MCP tool... |
+| Instead of... | Use Ahma tool... |
 |---------------|---------------------|
 | `run_in_terminal("cargo build")` | `cargo` with `{"subcommand": "build"}` |
 | `run_in_terminal("any command")` | `sandboxed_shell` with `{"command": "any command"}` |

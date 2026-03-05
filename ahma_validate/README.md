@@ -1,6 +1,6 @@
 # Ahma Validate
 
-Validation tool for Ahma MCP tool configurations and schemas.
+Validation tool for Ahma tool configurations and schemas.
 
 ## Overview
 
