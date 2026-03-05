@@ -81,7 +81,15 @@ fn count_log_alerts(updates: &[ProgressUpdate]) -> usize {
 fn write_script(temp_dir: &std::path::Path, name: &str, content: &str) -> String {
     let script_path = temp_dir.join(name);
     std::fs::write(&script_path, content).unwrap();
-    format!("bash {}", script_path.display())
+    #[cfg(windows)]
+    {
+        let path_str = script_path.to_string_lossy().replace("\\", "/");
+        format!("bash {}", path_str)
+    }
+    #[cfg(not(windows))]
+    {
+        format!("bash {}", script_path.display())
+    }
 }
 
 fn final_result_output(updates: &[ProgressUpdate]) -> Option<String> {
