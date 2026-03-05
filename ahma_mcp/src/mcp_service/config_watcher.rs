@@ -129,16 +129,29 @@ impl AhmaMcpService {
 
                 // Convert McpRoot URIs to PathBufs
                 let mut new_scopes = Vec::new();
-                for root in roots {
+                for root in roots.iter() {
                     #[allow(clippy::collapsible_if)]
-                    if let Ok(url) = url::Url::parse(&root.uri)
-                        && url.scheme() == "file"
-                    {
-                        if let Ok(path) = url.to_file_path() {
-                            new_scopes.push(path);
+                    if let Ok(url) = url::Url::parse(&root.uri) {
+                        if url.scheme() == "file" {
+                            if let Ok(path) = url.to_file_path() {
+                                tracing::info!("Parsed valid file URI: {} -> {:?}", root.uri, path);
+                                new_scopes.push(path);
+                            } else {
+                                tracing::warn!("Failed to convert file URI to path: {}", root.uri);
+                            }
+                        } else {
+                            tracing::warn!("Ignoring non-file URI: {}", root.uri);
                         }
+                    } else {
+                        tracing::warn!("Failed to parse URI: {}", root.uri);
                     }
                 }
+
+                tracing::info!(
+                    "Parsed {} valid scopes out of {} client roots",
+                    new_scopes.len(),
+                    roots.len()
+                );
 
                 if !new_scopes.is_empty() {
                     if let Err(e) = self.adapter.sandbox().update_scopes(new_scopes.clone()) {

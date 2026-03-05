@@ -1005,9 +1005,9 @@ impl SessionManager {
 
                                 // If this is a notification that the subprocess has applied
                                 // the sandbox scopes, mark the session and notify waiters.
-                                if let Some(method_val) = value.get("method")
-                                    && let Some(method_str) = method_val.as_str()
-                                        && method_str == "notifications/sandbox/configured" {
+                                if let Some(method_val) = value.get("method") {
+                                    if let Some(method_str) = method_val.as_str() {
+                                        if method_str == "notifications/sandbox/configured" {
                                             if let Err(e) = session.sandbox_state_machine.transition_to_active() {
                                                 warn!(
                                                     session_id = %session.id,
@@ -1015,9 +1015,15 @@ impl SessionManager {
                                                     "Failed to transition sandbox state to Active (received notifications/sandbox/configured)"
                                                 );
                                             } else {
-                                                debug!(session_id = %session.id, "Observed notifications/sandbox/configured from subprocess");
+                                                info!(session_id = %session.id, "Observed notifications/sandbox/configured from subprocess - Sandbox is now ACTIVE");
                                             }
+                                        } else {
+                                            debug!(session_id = %session.id, method = %method_str, "Subprocess sent a different notification");
                                         }
+                                    } else {
+                                        warn!(session_id = %session.id, "Subprocess sent a method that is not a string");
+                                    }
+                                }
 
                                 // Not a response to a pending request - broadcast as SSE event
                                 let _ = session.broadcast_tx.send(line);

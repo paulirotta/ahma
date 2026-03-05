@@ -449,13 +449,23 @@ async fn try_lock_sandbox_from_roots(
     result: &Value,
 ) {
     let Some(roots) = result.get("roots").and_then(|r| r.as_array()) else {
+        warn!(session_id = %session_id, "roots/list response missing 'roots' array or it is invalid: {:?}", result);
         return;
     };
 
     let mcp_roots: Vec<McpRoot> = roots
         .iter()
-        .filter_map(|r| serde_json::from_value(r.clone()).ok())
+        .filter_map(|r| {
+            let parsed = serde_json::from_value::<McpRoot>(r.clone());
+            match &parsed {
+                Ok(pr) => info!(session_id = %session_id, "Successfully parsed root: {:?}", pr),
+                Err(e) => warn!(session_id = %session_id, "Failed to parse root {:?}: {}", r, e),
+            }
+            parsed.ok()
+        })
         .collect();
+
+    info!(session_id = %session_id, "Extracted {} valid McpRoot instances from {} raw roots", mcp_roots.len(), roots.len());
 
     if !should_lock_sandbox(&mcp_roots, session_manager, session_id) {
         debug!(
