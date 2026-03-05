@@ -125,7 +125,7 @@ pub fn enforce_windows_sandbox(_roots: &[PathBuf]) -> Result<(), SandboxError> {
     #[cfg(target_os = "windows")]
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job == 0 {
+        if job == std::ptr::null_mut() {
             let err = std::io::Error::last_os_error();
             return Err(SandboxError::PrerequisiteFailed(format!(
                 "CreateJobObjectW failed: {err}"
