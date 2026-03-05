@@ -42,9 +42,20 @@ async fn test_uri_percent_encoding_decoding() {
         .await
         .expect("Should create session");
 
-    // Path with spaces: /Users/test/My Project becomes file:///Users/test/My%20Project
+    // Path with spaces encoded as %20
+    #[cfg(not(windows))]
+    let (uri, expected) = (
+        "file:///tmp/test/My%20Project",
+        PathBuf::from("/tmp/test/My Project"),
+    );
+    #[cfg(windows)]
+    let (uri, expected) = (
+        "file:///C:/test/My%20Project",
+        PathBuf::from(r"C:\test\My Project"),
+    );
+
     let roots = vec![McpRoot {
-        uri: "file:///Users/test/My%20Project".to_string(),
+        uri: uri.to_string(),
         name: Some("My Project".to_string()),
     }];
 
@@ -63,13 +74,16 @@ async fn test_uri_percent_encoding_decoding() {
         .expect("Should have scope");
 
     assert_eq!(
-        scope,
-        PathBuf::from("/Users/test/My Project"),
+        scope, expected,
         "Percent-encoded spaces should be decoded"
     );
 }
 
 /// Test that file://localhost/ URIs are parsed correctly
+///
+/// Note: file://localhost/ form requires an absolute path after the host.
+/// On Windows, this needs a drive letter (e.g., file://localhost/C:/path).
+#[cfg(unix)]
 #[tokio::test]
 async fn test_uri_localhost_form() {
     let temp = tempdir().expect("Failed to create temp dir");
@@ -82,7 +96,7 @@ async fn test_uri_localhost_form() {
 
     // file://localhost/path/to/project is valid per RFC 8089
     let roots = vec![McpRoot {
-        uri: "file://localhost/Users/dev/project".to_string(),
+        uri: "file://localhost/tmp/dev/project".to_string(),
         name: None,
     }];
 
@@ -102,7 +116,7 @@ async fn test_uri_localhost_form() {
 
     assert_eq!(
         scope,
-        PathBuf::from("/Users/dev/project"),
+        PathBuf::from("/tmp/dev/project"),
         "file://localhost/ prefix should be stripped correctly"
     );
 }
@@ -119,8 +133,19 @@ async fn test_uri_query_and_fragment_stripped() {
         .expect("Should create session");
 
     // Some clients may add query or fragment to file URIs
+    #[cfg(not(windows))]
+    let (uri, expected) = (
+        "file:///tmp/dev/project?version=1#section",
+        PathBuf::from("/tmp/dev/project"),
+    );
+    #[cfg(windows)]
+    let (uri, expected) = (
+        "file:///C:/dev/project?version=1#section",
+        PathBuf::from(r"C:\dev\project"),
+    );
+
     let roots = vec![McpRoot {
-        uri: "file:///Users/dev/project?version=1#section".to_string(),
+        uri: uri.to_string(),
         name: None,
     }];
 
@@ -139,8 +164,7 @@ async fn test_uri_query_and_fragment_stripped() {
         .expect("Should have scope");
 
     assert_eq!(
-        scope,
-        PathBuf::from("/Users/dev/project"),
+        scope, expected,
         "Query string and fragment should be stripped"
     );
 }
@@ -238,13 +262,28 @@ async fn test_mixed_valid_invalid_roots() {
         .expect("Should create session");
 
     // Mix of valid and invalid URIs - should accept the valid ones
+    #[cfg(not(windows))]
+    let (uri1, uri2, expected1, expected2) = (
+        "file:///tmp/valid/path/one",
+        "file:///tmp/valid/path/two",
+        PathBuf::from("/tmp/valid/path/one"),
+        PathBuf::from("/tmp/valid/path/two"),
+    );
+    #[cfg(windows)]
+    let (uri1, uri2, expected1, expected2) = (
+        "file:///C:/valid/path/one",
+        "file:///C:/valid/path/two",
+        PathBuf::from(r"C:\valid\path\one"),
+        PathBuf::from(r"C:\valid\path\two"),
+    );
+
     let roots = vec![
         McpRoot {
             uri: "https://invalid.com/path".to_string(), // Invalid - not file://
             name: None,
         },
         McpRoot {
-            uri: "file:///valid/path/one".to_string(), // Valid
+            uri: uri1.to_string(), // Valid
             name: Some("Valid One".to_string()),
         },
         McpRoot {
@@ -252,7 +291,7 @@ async fn test_mixed_valid_invalid_roots() {
             name: None,
         },
         McpRoot {
-            uri: "file:///valid/path/two".to_string(), // Valid
+            uri: uri2.to_string(), // Valid
             name: Some("Valid Two".to_string()),
         },
     ];
@@ -273,8 +312,8 @@ async fn test_mixed_valid_invalid_roots() {
 
     // Should only include the valid file:// paths
     assert_eq!(scopes.len(), 2, "Should have exactly 2 valid scopes");
-    assert!(scopes.contains(&PathBuf::from("/valid/path/one")));
-    assert!(scopes.contains(&PathBuf::from("/valid/path/two")));
+    assert!(scopes.contains(&expected1));
+    assert!(scopes.contains(&expected2));
 }
 
 // =============================================================================
@@ -299,8 +338,13 @@ async fn test_handshake_timeout_returns_none_when_locked() {
         .expect("Should create session");
 
     // Lock the sandbox
+    #[cfg(not(windows))]
+    let uri = "file:///tmp/project";
+    #[cfg(windows)]
+    let uri = "file:///C:/project";
+
     let roots = vec![McpRoot {
-        uri: "file:///project".to_string(),
+        uri: uri.to_string(),
         name: None,
     }];
     session_manager
@@ -357,13 +401,26 @@ async fn test_get_sandbox_scope_returns_first() {
         .await
         .expect("Should create session");
 
+    #[cfg(not(windows))]
+    let (uri1, uri2, expected_first) = (
+        "file:///tmp/first/path",
+        "file:///tmp/second/path",
+        PathBuf::from("/tmp/first/path"),
+    );
+    #[cfg(windows)]
+    let (uri1, uri2, expected_first) = (
+        "file:///C:/first/path",
+        "file:///C:/second/path",
+        PathBuf::from(r"C:\first\path"),
+    );
+
     let roots = vec![
         McpRoot {
-            uri: "file:///first/path".to_string(),
+            uri: uri1.to_string(),
             name: None,
         },
         McpRoot {
-            uri: "file:///second/path".to_string(),
+            uri: uri2.to_string(),
             name: None,
         },
     ];
@@ -388,8 +445,7 @@ async fn test_get_sandbox_scope_returns_first() {
         .expect("Should have scopes");
 
     assert_eq!(
-        single_scope,
-        PathBuf::from("/first/path"),
+        single_scope, expected_first,
         "get_sandbox_scope should return first scope"
     );
     assert_eq!(all_scopes.len(), 2, "get_sandbox_scopes should return all");
