@@ -84,7 +84,7 @@ fn workspace_dir() -> PathBuf {
         .to_path_buf()
 }
 
-fn resolve_binary_path() -> PathBuf {
+pub fn resolve_binary_path() -> PathBuf {
     static BINARY_LOG_ONCE: std::sync::Once = std::sync::Once::new();
 
     let debug_bin = ahma_mcp::test_utils::cli::get_binary_path("ahma_mcp", "ahma_mcp");

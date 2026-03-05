@@ -14,76 +14,24 @@
 
 mod common;
 
+use common::server::{ServerGuard, resolve_binary_path};
 use common::uri::paths_equivalent;
 use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
 use serial_test::serial;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::time::sleep;
 
-struct ServerGuard {
-    child: Option<Child>,
-}
-
-impl ServerGuard {
-    fn new(child: Child) -> Self {
-        Self { child: Some(child) }
-    }
-}
-
-impl Drop for ServerGuard {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-/// Build the ahma_mcp binary if needed and return the path
-fn get_ahma_mcp_binary() -> PathBuf {
-    let workspace_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("Failed to get workspace dir")
-        .to_path_buf();
-
-    // Check for CARGO_TARGET_DIR
-    let target_dir = std::env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| workspace_dir.join("target"));
-
-    let binary_path = target_dir.join("debug/ahma_mcp");
-
-    // Optimization: Skip manual build if binary already exists, especially in NEXTEST
-    // where all binaries are pre-built to avoid cargo lock contention.
-    if !binary_path.exists() {
-        // Build ahma_mcp binary
-        let output = Command::new("cargo")
-            .current_dir(&workspace_dir)
-            .args(["build", "--package", "ahma_mcp", "--bin", "ahma_mcp"])
-            .output()
-            .expect("Failed to run cargo build");
-
-        assert!(
-            output.status.success(),
-            "Failed to build ahma_mcp: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    binary_path
-}
-
-/// Start the HTTP bridge server and return the process and URL
+/// Start the HTTP bridge server and return a ServerGuard
 async fn start_http_bridge(
     tools_dir: &std::path::Path,
     sandbox_scope: &std::path::Path,
-) -> (std::process::Child, u16) {
-    let binary = get_ahma_mcp_binary();
+) -> ServerGuard {
+    let binary = resolve_binary_path();
 
     let mut cmd = Command::new(&binary);
     cmd.args([
@@ -119,7 +67,9 @@ async fn start_http_bridge(
         cmd.env("AHMA_NO_SANDBOX", "1");
     }
     #[cfg(windows)]
-    cmd.env("AHMA_NO_SANDBOX", "1");
+    if ahma_mcp::sandbox::check_windows_sandbox_available().is_err() {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
 
     let mut child = cmd
         .stdout(Stdio::piped())
@@ -178,7 +128,7 @@ async fn start_http_bridge(
         if let Ok(resp) = client.get(&health_url).send().await
             && resp.status().is_success()
         {
-            return (child, port);
+            return ServerGuard::new(child, port);
         }
     }
 
@@ -481,11 +431,45 @@ async fn answer_roots_list_over_sse(
 }
 
 fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
-    // Percent-encode path characters commonly present in IDE roots (spaces/unicode).
-    // We keep '/' and unreserved characters. This is sufficient for file:// URIs.
-    let s = path.to_string_lossy();
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
+    // Produce an RFC 8089-compatible file URI *path component* from a
+    // filesystem path.  This string is meant to be appended directly after
+    // the authority (e.g. `file://localhost` or `file://`).
+    //
+    // On Windows:
+    //   1. Strip any `\\?\` extended-length prefix.
+    //   2. Convert backslashes to forward slashes.
+    //   3. Prepend "/" so the drive letter (e.g. "C:") is in the *path*
+    //      component, not the authority field of the URL.
+    //      Without this step `file://localhostC%3A...` would put
+    //      `localhostC%3A...` in the host field, breaking `url::Url::parse`.
+    let mut s = path.to_string_lossy().into_owned();
+
+    // Strip \\?\ prefix (Windows extended-length paths).
+    if s.starts_with(r"\\?\") {
+        s = s[4..].to_string();
+    }
+    // Normalise path separators.
+    s = s.replace('\\', "/");
+
+    let mut out = String::with_capacity(s.len() + 1);
+
+    // If this is a Windows drive-letter path (e.g. "C:/…"), the path
+    // component must begin with "/" so the drive letter is not confused with
+    // the URL authority.  This applies whether the caller will prepend
+    // "file://" or "file://localhost".
+    #[cfg(target_os = "windows")]
+    {
+        let is_drive =
+            s.len() >= 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':';
+        if is_drive {
+            out.push('/');
+        }
+    }
+
+    for b in s.as_bytes() {
+        let b = *b;
+        // Keep unreserved chars and forward slashes.
+        // Keep ':' so Windows drive letters (C:/) are not encoded.
         let keep = matches!(
             b,
             b'a'..=b'z'
@@ -496,6 +480,7 @@ fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
                 | b'_'
                 | b'~'
                 | b'/'
+                | b':'
         );
         if keep {
             out.push(b as char);
@@ -667,23 +652,7 @@ async fn test_tool_call_with_different_working_directory() {
     let tools_dir = server_scope_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
 
-    // Create a simple tool config that proves working_directory is honored.
-    // We use `pwd` so we can assert the output contains the requested working directory.
-    let tool_config = json!({
-        "name": "pwd",
-        "description": "Print current working directory",
-        "command": "pwd",
-        "enabled": true,
-        "subcommand": [{
-            "name": "default",
-            "description": "Print working directory"
-        }]
-    });
-    std::fs::write(
-        tools_dir.join("echo.json"),
-        serde_json::to_string_pretty(&tool_config).unwrap(),
-    )
-    .expect("Failed to write tool config");
+    common::uri::create_pwd_tool_config(&tools_dir);
 
     // Server sandbox scope (what used to incorrectly apply to all clients)
     let sandbox_scope = server_scope_dir.path().to_path_buf();
@@ -691,9 +660,8 @@ async fn test_tool_call_with_different_working_directory() {
     // Client workspace scope (what must apply to THIS session after roots/list)
     let different_project_path = client_scope_dir.path().to_path_buf();
 
-    let (child, port) = start_http_bridge(&tools_dir, &sandbox_scope).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     // Step 1: Send initialize request (no session ID - creates new session)
@@ -822,27 +790,11 @@ async fn test_basic_tool_call_within_sandbox() {
     let tools_dir = temp_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
 
-    // Create pwd tool config
-    let tool_config = json!({
-        "name": "pwd",
-        "description": "Print current working directory",
-        "command": "pwd",
-        "enabled": true,
-        "subcommand": [{
-            "name": "default",
-            "description": "Print working directory"
-        }]
-    });
-    std::fs::write(
-        tools_dir.join("echo.json"),
-        serde_json::to_string_pretty(&tool_config).unwrap(),
-    )
-    .expect("Failed to write tool config");
+    common::uri::create_pwd_tool_config(&tools_dir);
 
     let sandbox_scope = temp_dir.path().to_path_buf();
-    let (child, port) = start_http_bridge(&tools_dir, &sandbox_scope).await;
-    let _server = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     // Initialize
@@ -943,22 +895,7 @@ async fn test_roots_uri_parsing_percent_encoded_path() {
     let tools_dir = server_scope_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
 
-    // Create pwd tool config
-    let tool_config = json!({
-        "name": "pwd",
-        "description": "Print current working directory",
-        "command": "pwd",
-        "enabled": true,
-        "subcommand": [{
-            "name": "default",
-            "description": "Print working directory"
-        }]
-    });
-    std::fs::write(
-        tools_dir.join("pwd.json"),
-        serde_json::to_string_pretty(&tool_config).unwrap(),
-    )
-    .expect("Failed to write tool config");
+    common::uri::create_pwd_tool_config(&tools_dir);
 
     // Make a workspace root with space + unicode in the path.
     let client_root = client_scope_dir.path().join("my proj OK");
@@ -966,9 +903,8 @@ async fn test_roots_uri_parsing_percent_encoded_path() {
         .await
         .expect("Failed to create client root");
 
-    let (child, port) = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     let init_request = json!({
@@ -1078,10 +1014,8 @@ async fn test_roots_uri_parsing_file_localhost() {
         .expect("Failed to create client root");
 
     // Start server on dynamic port to avoid conflicts/flakiness
-    let (child, port, _stderr) =
-        start_http_bridge_dynamic(&tools_dir, server_scope_dir.path()).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let (server, _stderr) = start_http_bridge_dynamic(&tools_dir, server_scope_dir.path()).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     let init_request = json!({
@@ -1181,9 +1115,8 @@ async fn test_rejects_working_directory_path_traversal_outside_root() {
     )
     .expect("Failed to write tool config");
 
-    let (child, port) = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     let init_request = json!({
@@ -1290,9 +1223,8 @@ async fn test_symlink_escape_attempt_is_blocked() {
     )
     .expect("Failed to copy file-tools tool config");
 
-    let (child, port) = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     let init_request = json!({
@@ -1377,27 +1309,11 @@ async fn test_tool_call_without_initialize_returns_proper_error() {
     let tools_dir = temp_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
 
-    // Create pwd tool config
-    let tool_config = json!({
-        "name": "pwd",
-        "description": "Print current working directory",
-        "command": "pwd",
-        "enabled": true,
-        "subcommand": [{
-            "name": "default",
-            "description": "Print working directory"
-        }]
-    });
-    std::fs::write(
-        tools_dir.join("echo.json"),
-        serde_json::to_string_pretty(&tool_config).unwrap(),
-    )
-    .expect("Failed to write tool config");
+    common::uri::create_pwd_tool_config(&tools_dir);
 
     let sandbox_scope = temp_dir.path().to_path_buf();
-    let (child, port) = start_http_bridge(&tools_dir, &sandbox_scope).await;
-    let _server_guard = ServerGuard::new(child);
-    let base_url = format!("http://127.0.0.1:{}", port);
+    let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
+    let base_url = server.base_url();
     let client = Client::new();
 
     // SKIP initialize - send tools/call directly
@@ -1443,17 +1359,13 @@ async fn test_tool_call_without_initialize_returns_proper_error() {
 }
 
 /// Start HTTP bridge on random port (0) and parse the bound port from stderr.
-/// Returns (child_process, port, stderr_receiver).
+/// Returns (ServerGuard, stderr_receiver).
 /// Stderr is forwarded to test stderr and captured.
 async fn start_http_bridge_dynamic(
     tools_dir: &std::path::Path,
     sandbox_scope: &std::path::Path,
-) -> (
-    std::process::Child,
-    u16,
-    std::sync::Arc<std::sync::Mutex<String>>,
-) {
-    let binary = get_ahma_mcp_binary();
+) -> (ServerGuard, std::sync::Arc<std::sync::Mutex<String>>) {
+    let binary = resolve_binary_path();
     let mut cmd = Command::new(&binary);
     cmd.args([
         "--mode",
@@ -1548,5 +1460,5 @@ async fn start_http_bridge_dynamic(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    (child, port, stderr_buffer)
+    (ServerGuard::new(child, port), stderr_buffer)
 }

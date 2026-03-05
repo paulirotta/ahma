@@ -15,7 +15,6 @@ use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
-#[cfg(not(target_os = "windows"))]
 use std::fs;
 use tempfile::TempDir;
 
@@ -134,10 +133,13 @@ async fn red_team_absolute_path_escape_blocked() {
 
 /// Test that symlinks pointing outside sandbox are blocked
 #[tokio::test]
-#[cfg(unix)]
 async fn red_team_symlink_escape_blocked() {
     init_test_logging();
+
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir as symlink;
 
     let temp_dir = TempDir::new().unwrap();
     let tools_dir = get_workspace_tools_dir();
@@ -149,10 +151,20 @@ async fn red_team_symlink_escape_blocked() {
         .await
         .unwrap();
 
-    // Create a symlink inside sandbox pointing to /etc (outside)
+    // Create a symlink inside sandbox pointing to root / C:\ (outside)
     let malicious_link = temp_dir.path().join("etc_link");
+    let target_dir = if cfg!(windows) { "C:\\" } else { "/etc" };
     let _ = fs::remove_file(&malicious_link);
-    symlink("/etc", &malicious_link).expect("Failed to create symlink");
+    match symlink(target_dir, &malicious_link) {
+        Ok(_) => {}
+        Err(e) if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied => {
+            println!(
+                "Skipping test: Windows requires Developer Mode or Admin rights to create symlinks"
+            );
+            return;
+        }
+        Err(e) => panic!("Failed to create symlink: {}", e),
+    }
 
     let params = CallToolRequestParams {
         name: "sandboxed_shell".into(),
@@ -169,17 +181,20 @@ async fn red_team_symlink_escape_blocked() {
     let result = client.call_tool(params).await;
     assert!(
         result.is_err(),
-        "SECURITY: Symlink escape to /etc should be blocked"
+        "SECURITY: Symlink escape outside sandbox should be blocked"
     );
     client.cancel().await.unwrap();
 }
 
 /// Test that symlinks to user home directory are blocked
 #[tokio::test]
-#[cfg(unix)]
 async fn red_team_symlink_to_home_blocked() {
     init_test_logging();
+
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir as symlink;
 
     let temp_dir = TempDir::new().unwrap();
     let tools_dir = get_workspace_tools_dir();
@@ -192,10 +207,27 @@ async fn red_team_symlink_to_home_blocked() {
         .unwrap();
 
     // Create symlink to home directory
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/Shared".to_string());
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| {
+            if cfg!(windows) {
+                "C:\\Users\\Public".to_string()
+            } else {
+                "/Users/Shared".to_string()
+            }
+        });
     let malicious_link = temp_dir.path().join("home_link");
     let _ = fs::remove_file(&malicious_link);
-    symlink(&home, &malicious_link).expect("Failed to create symlink");
+    match symlink(&home, &malicious_link) {
+        Ok(_) => {}
+        Err(e) if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied => {
+            println!(
+                "Skipping test: Windows requires Developer Mode or Admin rights to create symlinks"
+            );
+            return;
+        }
+        Err(e) => panic!("Failed to create symlink: {}", e),
+    }
 
     let params = CallToolRequestParams {
         name: "sandboxed_shell".into(),

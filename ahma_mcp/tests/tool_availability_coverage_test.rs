@@ -37,7 +37,6 @@ fn build_subcommand(
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 fn build_nested_subcommand(
     name: &str,
     nested: Vec<SubcommandConfig>,
@@ -361,22 +360,28 @@ async fn test_evaluate_tool_with_unavailable_command() -> Result<()> {
 }
 
 #[tokio::test]
-#[cfg(not(target_os = "windows"))]
 async fn test_evaluate_subcommand_disabled_when_probe_fails() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let mut tool = base_tool("bash");
-    tool.name = "bash_tool".to_string();
+    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_arg = if cfg!(target_os = "windows") {
+        "-Command"
+    } else {
+        "-c"
+    };
+
+    let mut tool = base_tool(shell_prog);
+    tool.name = format!("{}_tool", shell_prog);
     tool.availability_check = Some(AvailabilityCheck {
-        command: Some("bash".to_string()),
-        args: vec!["-c".to_string(), "exit 0".to_string()],
+        command: Some(shell_prog.to_string()),
+        args: vec![shell_arg.to_string(), "exit 0".to_string()],
         ..Default::default()
     });
     tool.subcommand = Some(vec![
         build_subcommand(
             "ok_sub",
             Some(AvailabilityCheck {
-                command: Some("bash".to_string()),
-                args: vec!["-c".to_string(), "exit 0".to_string()],
+                command: Some(shell_prog.to_string()),
+                args: vec![shell_arg.to_string(), "exit 0".to_string()],
                 ..Default::default()
             }),
             None,
@@ -385,8 +390,8 @@ async fn test_evaluate_subcommand_disabled_when_probe_fails() -> Result<()> {
         build_subcommand(
             "fail_sub",
             Some(AvailabilityCheck {
-                command: Some("bash".to_string()),
-                args: vec!["-c".to_string(), "exit 1".to_string()],
+                command: Some(shell_prog.to_string()),
+                args: vec![shell_arg.to_string(), "exit 1".to_string()],
                 ..Default::default()
             }),
             Some("Fix this"),
@@ -394,13 +399,14 @@ async fn test_evaluate_subcommand_disabled_when_probe_fails() -> Result<()> {
         ),
     ]);
 
+    let tool_name = tool.name.clone();
     let mut configs = HashMap::new();
-    configs.insert(tool.name.clone(), tool);
+    configs.insert(tool_name.clone(), tool);
 
     let sandbox = ahma_mcp::sandbox::Sandbox::new_test();
     let summary = evaluate_tool_availability(shell_pool, configs, Path::new("."), &sandbox).await?;
 
-    let config = summary.filtered_configs.get("bash_tool").unwrap();
+    let config = summary.filtered_configs.get(&tool_name).unwrap();
     assert!(config.enabled, "Parent tool should remain enabled");
 
     let subs = config.subcommand.as_ref().unwrap();
@@ -453,22 +459,28 @@ async fn test_evaluate_already_disabled_subcommand_not_probed() -> Result<()> {
 }
 
 #[tokio::test]
-#[cfg(not(target_os = "windows"))]
 async fn test_evaluate_nested_subcommands() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let mut tool = base_tool("bash");
+    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_arg = if cfg!(target_os = "windows") {
+        "-Command"
+    } else {
+        "-c"
+    };
+
+    let mut tool = base_tool(shell_prog);
     tool.name = "nested_tool".to_string();
     tool.availability_check = Some(AvailabilityCheck {
-        command: Some("bash".to_string()),
-        args: vec!["-c".to_string(), "exit 0".to_string()],
+        command: Some(shell_prog.to_string()),
+        args: vec![shell_arg.to_string(), "exit 0".to_string()],
         ..Default::default()
     });
 
     let nested_child = build_subcommand(
         "child",
         Some(AvailabilityCheck {
-            command: Some("bash".to_string()),
-            args: vec!["-c".to_string(), "exit 1".to_string()], // Will fail
+            command: Some(shell_prog.to_string()),
+            args: vec![shell_arg.to_string(), "exit 1".to_string()], // Will fail
             ..Default::default()
         }),
         Some("fix nested child"),
@@ -479,14 +491,15 @@ async fn test_evaluate_nested_subcommands() -> Result<()> {
 
     tool.subcommand = Some(vec![parent_sub]);
 
+    let tool_name = tool.name.clone();
     let mut configs = HashMap::new();
-    configs.insert(tool.name.clone(), tool);
+    configs.insert(tool_name.clone(), tool);
 
     let sandbox = ahma_mcp::sandbox::Sandbox::new_test();
     let summary = evaluate_tool_availability(shell_pool, configs, Path::new("."), &sandbox).await?;
 
     // The nested child should be disabled
-    let config = summary.filtered_configs.get("nested_tool").unwrap();
+    let config = summary.filtered_configs.get(&tool_name).unwrap();
     let parent = config
         .subcommand
         .as_ref()
@@ -508,25 +521,32 @@ async fn test_evaluate_nested_subcommands() -> Result<()> {
 }
 
 #[tokio::test]
-#[cfg(not(target_os = "windows"))]
 async fn test_evaluate_custom_success_exit_codes() -> Result<()> {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let mut tool = base_tool("bash");
+    let shell_prog = ahma_mcp::shell_pool::platform_shell_program();
+    let shell_arg = if cfg!(target_os = "windows") {
+        "-Command"
+    } else {
+        "-c"
+    };
+
+    let mut tool = base_tool(shell_prog);
     tool.name = "exit_code_tool".to_string();
     tool.availability_check = Some(AvailabilityCheck {
-        command: Some("bash".to_string()),
-        args: vec!["-c".to_string(), "exit 42".to_string()],
+        command: Some(shell_prog.to_string()),
+        args: vec![shell_arg.to_string(), "exit 42".to_string()],
         success_exit_codes: Some(vec![42, 43, 44]), // Accept 42 as success
         ..Default::default()
     });
 
+    let tool_name = tool.name.clone();
     let mut configs = HashMap::new();
-    configs.insert(tool.name.clone(), tool);
+    configs.insert(tool_name.clone(), tool);
 
     let sandbox = ahma_mcp::sandbox::Sandbox::new_test();
     let summary = evaluate_tool_availability(shell_pool, configs, Path::new("."), &sandbox).await?;
 
-    let config = summary.filtered_configs.get("exit_code_tool").unwrap();
+    let config = summary.filtered_configs.get(&tool_name).unwrap();
     assert!(
         config.enabled,
         "Tool should remain enabled when exit code matches success_exit_codes"

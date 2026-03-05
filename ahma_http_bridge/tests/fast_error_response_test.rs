@@ -224,16 +224,35 @@ async fn timed_request_with_session(
 // Test: Missing Session ID returns fast 400
 // =============================================================================
 
+macro_rules! setup_fast_error_test {
+    ($client:ident) => {
+        if should_skip_in_nested_sandbox() {
+            eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
+            return;
+        }
+
+        let _server = spawn_test_server().await.expect("Failed to spawn server");
+        CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
+        let $client = Client::new();
+
+        // Wait a moment for the server to stabilize if it just started
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    ($client:ident, $session:ident) => {
+        setup_fast_error_test!($client);
+        let $session = match initialize_session(&$client).await {
+            Some(id) => id,
+            None => {
+                eprintln!("WARNING️  Could not initialize session, skipping test");
+                return;
+            }
+        };
+    };
+}
+
 #[tokio::test]
 async fn test_missing_session_id_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
+    setup_fast_error_test!(client);
 
     // Call tools/call without session ID - should return 400 immediately
     let request = JsonRpcRequest {
@@ -277,26 +296,7 @@ async fn test_missing_session_id_returns_fast_error() {
 
 #[tokio::test]
 async fn test_invalid_tool_name_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
-
-    // Wait a moment for the server to stabilize if it just started
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // First establish a session
-    let session_id = match initialize_session(&client).await {
-        Some(id) => id,
-        None => {
-            eprintln!("WARNING️  Could not initialize session, skipping test");
-            return;
-        }
-    };
+    setup_fast_error_test!(client, session_id);
 
     // Call a nonexistent tool
     let request = JsonRpcRequest {
@@ -352,26 +352,7 @@ async fn test_invalid_tool_name_returns_fast_error() {
 
 #[tokio::test]
 async fn test_invalid_subcommand_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
-
-    // Wait a moment for the server to stabilize if it just started
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // First establish a session
-    let session_id = match initialize_session(&client).await {
-        Some(id) => id,
-        None => {
-            eprintln!("WARNING️  Could not initialize session, skipping test");
-            return;
-        }
-    };
+    setup_fast_error_test!(client, session_id);
 
     // Call a valid tool with invalid subcommand
     let request = JsonRpcRequest {
@@ -421,26 +402,7 @@ async fn test_invalid_subcommand_returns_fast_error() {
 
 #[tokio::test]
 async fn test_invalid_method_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
-
-    // Wait a moment for the server to stabilize if it just started
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // First establish a session
-    let session_id = match initialize_session(&client).await {
-        Some(id) => id,
-        None => {
-            eprintln!("WARNING️  Could not initialize session, skipping test");
-            return;
-        }
-    };
+    setup_fast_error_test!(client, session_id);
 
     // Call an invalid method
     let request = JsonRpcRequest {
@@ -485,14 +447,7 @@ async fn test_invalid_method_returns_fast_error() {
 
 #[tokio::test]
 async fn test_malformed_json_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
+    setup_fast_error_test!(client);
 
     let url = get_test_url();
     let start = Instant::now();
@@ -531,26 +486,7 @@ async fn test_malformed_json_returns_fast_error() {
 
 #[tokio::test]
 async fn test_missing_required_args_returns_fast_error() {
-    if should_skip_in_nested_sandbox() {
-        eprintln!("Skipping strict sandbox fast-error test in nested sandbox environment");
-        return;
-    }
-
-    let _server = spawn_test_server().await.expect("Failed to spawn server");
-    CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-    let client = Client::new();
-
-    // Wait a moment for the server to stabilize if it just started
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // First establish a session
-    let session_id = match initialize_session(&client).await {
-        Some(id) => id,
-        None => {
-            eprintln!("WARNING️  Could not initialize session, skipping test");
-            return;
-        }
-    };
+    setup_fast_error_test!(client, session_id);
 
     // Call a tool that requires subcommand, without providing one
     let request = JsonRpcRequest {

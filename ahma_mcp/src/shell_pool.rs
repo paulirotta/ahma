@@ -193,7 +193,7 @@ impl ShellError {
 /// on all other platforms we use `bash`.
 ///
 /// Also used by `mcp_service` handlers to build progress descriptions.
-pub(crate) fn platform_shell_program() -> &'static str {
+pub fn platform_shell_program() -> &'static str {
     #[cfg(target_os = "windows")]
     {
         "pwsh"

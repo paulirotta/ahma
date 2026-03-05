@@ -74,25 +74,39 @@ pub fn parse_file_uri(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(decoded.into_owned()))
 }
 
-/// Encode a filesystem path as a file:// URI.
+/// Encode a filesystem path as a file:// URI path component.
+///
+/// Produces RFC 8089-compatible URIs.  On Windows, drive-letter paths
+/// (`C:\Users\…`) are converted to the canonical `/C:/Users/…` form so
+/// that the drive letter appears in the *path* component, not the
+/// authority.  This is required for correct round-trip parsing via
+/// `url::Url::parse` → `url.to_file_path()`.
 pub fn encode_file_uri(path: &Path) -> String {
     let mut path_str = path.to_string_lossy().into_owned();
 
-    // Strip Windows extended prefix
+    // Strip Windows extended-length prefix (\\?\) if present.
     if path_str.starts_with(r"\\?\") {
         path_str = path_str[4..].to_string();
     }
 
-    // Convert backslashes to forward slashes
+    // Normalise path separators to forward slashes.
     path_str = path_str.replace('\\', "/");
 
-    let mut out = String::with_capacity(path_str.len() + 8);
+    let mut out = String::with_capacity(path_str.len() + 10);
     out.push_str("file://");
 
+    // On Windows a drive-letter path looks like "C:/Users/…".
+    // RFC 8089 §2 requires the path to start with "/" so that it occupies
+    // the path component, not the authority.  Insert the leading slash here
+    // so we produce "file:///C:/Users/…" (or "file://localhost/C:/Users/…").
     #[cfg(target_os = "windows")]
-    if path_str.chars().nth(1) == Some(':') {
-        // Windows drive paths typically have a leading slash in URIs
-        out.push('/');
+    {
+        let is_drive = path_str.len() >= 2
+            && path_str.as_bytes()[0].is_ascii_alphabetic()
+            && path_str.as_bytes()[1] == b':';
+        if is_drive {
+            out.push('/');
+        }
     }
 
     for b in path_str.as_bytes() {
@@ -107,6 +121,7 @@ pub fn encode_file_uri(path: &Path) -> String {
                 | b'_'
                 | b'~'
                 | b'/'
+                | b':'  // keep colon for Windows drive letters (e.g. C:/)
         );
         if keep {
             out.push(b as char);

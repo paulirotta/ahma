@@ -26,7 +26,9 @@ fn test_sandbox_lifecycle_notifications() {
         cmd.env("AHMA_NO_SANDBOX", "1");
     }
     #[cfg(windows)]
-    cmd.env("AHMA_NO_SANDBOX", "1");
+    if ahma_mcp::sandbox::check_windows_sandbox_available().is_err() {
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
 
     let mut child = cmd
         .stdin(Stdio::piped())

@@ -116,15 +116,26 @@ jobs:
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache sccache artifacts
+        if: runner.os != 'Windows'
         uses: actions/cache@v5
         with:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
-            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: sccache-action
+        uses: mozilla-actions/sccache-action@v2
+
+      - name: Configure sccache environment
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
+          fi
+
 
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
@@ -150,16 +161,9 @@ jobs:
             echo "cargo-edit is already installed"
           fi
 
-      - name: Install sccache
-        run: |
-          if ! command -v sccache &> /dev/null; then
-            echo "sccache not found, installing..."
-            cargo binstall sccache --no-confirm || cargo install sccache
-          else
-            echo "sccache is already installed"
-          fi
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          sccache --show-stats
+      - name: Show sccache stats
+        run: sccache --show-stats
+
 
       - name: Cargo Build
         run: |
@@ -257,15 +261,26 @@ jobs:
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache sccache artifacts
+        if: runner.os != 'Windows'
         uses: actions/cache@v5
         with:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
-            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: sccache-action
+        uses: mozilla-actions/sccache-action@v2
+
+      - name: Configure sccache environment
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
+          fi
+
 
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
@@ -291,16 +306,9 @@ jobs:
             echo "cargo-edit is already installed"
           fi
 
-      - name: Install sccache
-        run: |
-          if ! command -v sccache &> /dev/null; then
-            echo "sccache not found, installing..."
-            cargo binstall sccache --no-confirm || cargo install sccache
-          else
-            echo "sccache is already installed"
-          fi
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          sccache --show-stats
+      - name: Show sccache stats
+        run: sccache --show-stats
+
 
       - name: Cargo Test (excluding Android/Gradle tests)
         run: |
@@ -375,6 +383,7 @@ jobs:
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache sccache artifacts
+        if: runner.os != 'Windows'
         uses: actions/cache@v5
         with:
           path: |
@@ -384,18 +393,22 @@ jobs:
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: sccache-action
+        uses: mozilla-actions/sccache-action@v2
+
+      - name: Configure sccache environment
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
+          fi
+
+
       - uses: cargo-bins/cargo-binstall@main
 
-      - name: Install sccache
-        run: |
-          if ! command -v sccache &> /dev/null; then
-            echo "sccache not found, installing..."
-            cargo binstall sccache --no-confirm || cargo install sccache
-          else
-            echo "sccache is already installed"
-          fi
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          sccache --show-stats
+      - name: Show sccache stats
+        run: sccache --show-stats
+
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -504,22 +517,23 @@ jobs:
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: sccache-action
+        uses: mozilla-actions/sccache-action@v2
+
+      - name: Configure sccache environment
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+
+
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
 
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Install sccache
-        run: |
-          if ! command -v sccache &> /dev/null; then
-            echo "sccache not found, installing..."
-            cargo binstall sccache --no-confirm || cargo install sccache
-          else
-            echo "sccache is already installed"
-          fi
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          sccache --show-stats
+      - name: Show sccache stats
+        run: sccache --show-stats
+
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -688,16 +702,29 @@ jobs:
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache sccache artifacts
+        if: runner.os != 'Windows' && !matrix.use_cross
         uses: actions/cache@v5
         with:
           path: |
             ~/.cache/sccache
             ~/Library/Caches/Mozilla.sccache
-            ~/AppData/Local/Mozilla/sccache
           key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-
             sccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: sccache-action
+        if: "!matrix.use_cross"
+        uses: mozilla-actions/sccache-action@v2
+
+      - name: Configure sccache environment
+        if: "!matrix.use_cross"
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
+          fi
+
 
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
@@ -705,16 +732,10 @@ jobs:
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Install sccache
-        run: |
-          if ! command -v sccache &> /dev/null; then
-            echo "sccache not found, installing..."
-            cargo binstall sccache --no-confirm || cargo install sccache
-          else
-            echo "sccache is already installed"
-          fi
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          sccache --show-stats
+      - name: Show sccache stats
+        if: "!matrix.use_cross"
+        run: sccache --show-stats
+
 
       - name: Install cross (for cross-compilation)
         if: matrix.use_cross

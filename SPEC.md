@@ -798,6 +798,27 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 
 | Feature | Status | Description |
 |---------|--------|-------------|
+| MTDF Validation | PASS | Validate tool configs against JSON schema |
+| Error reporting | PASS | Concise, actionable error messages |
+
+---
+
+## 13. CI Caching Strategy
+
+To maintain high performance and avoid cache bloat, the following strategies are employed in GitHub Actions:
+
+### 13.1 Daily Rotation
+- **R13.1.1**: All caches **must** use a daily rotating key (e.g., `...-day${{ steps.day-number.outputs.day }}`) to ensure they contain only current files and do not grow indefinitely.
+- **R13.1.2**: `restore-keys` **must** be used to fall back to the most recent previous cache (from earlier in the day or a previous day).
+
+### 13.2 Distributed Caching (sccache)
+- **R13.2.1**: **sccache** **must** be used as the compiler wrapper across all CI jobs.
+- **R13.2.2**: The **GitHub Actions Backend** (`SCCACHE_GHA_ENABLED: "true"`) **must** be used for `sccache` to allow atomic uploads of object files directly to the GHA cache API.
+- **R13.2.3**: `SCCACHE_DIRECT: "true"` **should** be enabled for Windows runners to optimize compiler invocation.
+
+### 13.3 Cargo Registry Caching
+- **R13.3.1**: The Cargo registry (`~/.cargo/registry`) and git database (`~/.cargo/git`) **must** be cached using `actions/cache` or specialized actions, adhering to the Daily Rotation rule.
+
 | Schema validation | PASS | Validate tool configs against MTDF |
 | CLI interface | PASS | `ahma_validate <file>` |
 | Clear error messages | PASS | Actionable validation errors |

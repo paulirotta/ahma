@@ -34,6 +34,20 @@ async fn call_test_tool(
         .await?)
 }
 
+fn get_result_text(result: &rmcp::model::CallToolResult) -> &str {
+    result
+        .content
+        .first()
+        .and_then(|c| c.as_text())
+        .map(|t| t.text.as_str())
+        .unwrap_or("")
+}
+
+async fn build_test_client() -> Result<rmcp::service::RunningService<rmcp::service::RoleClient, ()>>
+{
+    ClientBuilder::new().tools_dir(".ahma").build().await
+}
+
 // ============================================================================
 // Client Initialization and Process Spawning Tests
 // ============================================================================
@@ -42,7 +56,7 @@ async fn call_test_tool(
 #[tokio::test]
 async fn test_client_start_process_with_tools_dir() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Verify client is functional by listing tools (using the MCP protocol)
     let tools = client.list_all_tools().await?;
@@ -129,24 +143,21 @@ async fn test_client_start_process_with_log_to_stderr() -> Result<()> {
 #[tokio::test]
 async fn test_client_status_no_operations() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     let result = call_test_tool(&client, "status", json!({})).await?;
     assert!(!result.content.is_empty());
 
-    if let Some(content) = result.content.first()
-        && let Some(text_content) = content.as_text()
-    {
-        // Should indicate operations status
-        assert!(
-            text_content.text.contains("Operations")
-                || text_content.text.contains("active")
-                || text_content.text.contains("completed")
-                || text_content.text.contains("No"),
-            "Expected status output, got: {}",
-            text_content.text
-        );
-    }
+    let text = get_result_text(&result);
+    // Should indicate operations status
+    assert!(
+        text.contains("Operations")
+            || text.contains("active")
+            || text.contains("completed")
+            || text.contains("No"),
+        "Expected status output, got: {}",
+        text
+    );
     Ok(())
 }
 
@@ -154,7 +165,7 @@ async fn test_client_status_no_operations() -> Result<()> {
 #[tokio::test]
 async fn test_client_status_with_id() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Query status for a nonexistent operation
     let result = call_test_tool(&client, "status", json!({ "id": "nonexistent_op_12345" })).await?;
@@ -172,7 +183,7 @@ async fn test_client_status_with_id() -> Result<()> {
 #[tokio::test]
 async fn test_client_await_no_pending() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     let result = call_test_tool(&client, "await", json!({})).await?;
     // Should return quickly indicating nothing to await
@@ -184,7 +195,7 @@ async fn test_client_await_no_pending() -> Result<()> {
 #[tokio::test]
 async fn test_client_await_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     let result = call_test_tool(&client, "await", json!({ "id": "nonexistent_op_67890" })).await?;
     // Should handle gracefully
@@ -201,7 +212,7 @@ async fn test_client_await_nonexistent_operation() -> Result<()> {
 async fn test_async_operation_lifecycle() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Start an async operation (short sleep)
     let start_result = call_test_tool(
@@ -213,23 +224,20 @@ async fn test_async_operation_lifecycle() -> Result<()> {
 
     assert!(!start_result.content.is_empty());
 
-    if let Some(content) = start_result.content.first()
-        && let Some(text_content) = content.as_text()
-    {
-        // Check if it started as async (contains operation ID)
-        if text_content.text.contains("ID:") {
-            // Extract operation ID
-            let op_id = extract_op_id(&text_content.text);
+    let text = get_result_text(&start_result);
+    // Check if it started as async (contains operation ID)
+    if text.contains("ID:") {
+        // Extract operation ID
+        let op_id = extract_op_id(text);
 
-            // Check status while running
-            let status_result =
-                call_test_tool(&client, "status", json!({ "id": op_id.clone() })).await?;
-            assert!(!status_result.content.is_empty());
+        // Check status while running
+        let status_result =
+            call_test_tool(&client, "status", json!({ "id": op_id.clone() })).await?;
+        assert!(!status_result.content.is_empty());
 
-            // Await completion
-            let await_result = call_test_tool(&client, "await", json!({ "id": op_id })).await?;
-            assert!(!await_result.content.is_empty());
-        }
+        // Await completion
+        let await_result = call_test_tool(&client, "await", json!({ "id": op_id })).await?;
+        assert!(!await_result.content.is_empty());
     }
     Ok(())
 }
@@ -239,7 +247,7 @@ async fn test_async_operation_lifecycle() -> Result<()> {
 async fn test_multiple_async_operations() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Start two async operations
     let result1 = call_test_tool(
@@ -279,7 +287,7 @@ async fn test_multiple_async_operations() -> Result<()> {
 async fn test_sandboxed_shell_execution() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Run a simple command
     let result = call_test_tool(
@@ -301,7 +309,7 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
 
     init_test_logging();
 
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Use the workspace's target directory which is inside the sandbox
     let tools_dir = get_workspace_tools_dir();
@@ -338,7 +346,7 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
 #[tokio::test]
 async fn test_call_nonexistent_tool() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     let result = call_test_tool(
         &client,
@@ -355,7 +363,7 @@ async fn test_call_nonexistent_tool() -> Result<()> {
 #[tokio::test]
 async fn test_list_tools_format() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let client = build_test_client().await?;
 
     // Verify by listing tools
     let tools = client.list_all_tools().await?;
