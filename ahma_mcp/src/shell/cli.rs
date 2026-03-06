@@ -122,6 +122,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_temp_files: bool,
 
+    /// Add system temp directory to sandbox scopes (explicit temp access for testing/dynamic workflows)
+    #[arg(long)]
+    pub tmp: bool,
+
     /// Sandbox scope directories (multiple allowed)
     #[arg(long = "sandbox-scope")]
     pub sandbox_scope: Vec<PathBuf>,
@@ -189,6 +193,7 @@ pub async fn run() -> Result<()> {
 
     // Resolve sandbox policy from flags/env.
     let no_sandbox_requested = cli.no_sandbox || env_flag_enabled("AHMA_NO_SANDBOX");
+    let tmp_access_requested = cli.tmp || env_flag_enabled("AHMA_TMP_ACCESS");
 
     #[allow(unused_mut)] // mut needed for macOS nested sandbox detection
     let mut no_sandbox = no_sandbox_requested;
@@ -289,6 +294,33 @@ pub async fn run() -> Result<()> {
         let cwd = std::env::current_dir()
             .context("Failed to get current working directory for sandbox scope")?;
         Some(vec![cwd])
+    };
+
+    // Add temp directory to scopes if --tmp flag or AHMA_TMP_ACCESS env var is set
+    // Note: --no-temp-files takes precedence and will block temp access at validation time
+    let sandbox_scopes = if tmp_access_requested {
+        if let Some(mut scopes) = sandbox_scopes {
+            let temp_dir = std::env::temp_dir();
+            if let Ok(canonical_temp) = dunce::canonicalize(&temp_dir) {
+                if !scopes.contains(&canonical_temp) {
+                    tracing::info!(
+                        "Adding temp directory to sandbox scopes via --tmp: {:?}",
+                        canonical_temp
+                    );
+                    scopes.push(canonical_temp);
+                }
+            } else {
+                tracing::warn!(
+                    "Could not canonicalize temp directory {:?}, skipping --tmp scope addition",
+                    temp_dir
+                );
+            }
+            Some(scopes)
+        } else {
+            sandbox_scopes
+        }
+    } else {
+        sandbox_scopes
     };
 
     // Create the Sandbox instance

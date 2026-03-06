@@ -5,7 +5,8 @@
             "command": "ahma_mcp",
             "args": [
                 "--log-to-stderr",
-                "--rust"
+                "--rust",
+                "--tmp"
             ]
         }
     }

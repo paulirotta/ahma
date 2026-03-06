@@ -84,6 +84,16 @@ fn assert_blocked_shell_result<E: std::fmt::Debug>(
     }
 }
 
+fn create_non_tmp_tempdir() -> TempDir {
+    // Landlock adds broad /tmp access unless --no-temp-files is enabled.
+    // For "outside scope" tests we need fixtures outside /tmp.
+    let base = std::env::current_dir().expect("failed to get current directory");
+    tempfile::Builder::new()
+        .prefix("ahma-redteam-outside-")
+        .tempdir_in(base)
+        .expect("failed to create non-/tmp temporary directory")
+}
+
 // =============================================================================
 // RED TEAM TEST 1: Path Traversal Attacks
 // =============================================================================
@@ -364,9 +374,11 @@ async fn red_team_global_read_access_blocked() {
 
     // macOS seatbelt cannot scope file reads — skip read-restriction assertion.
     if cfg!(target_os = "macos") {
-        println!("Skipping read-restriction assertion on macOS: seatbelt subpath rules for \
+        println!(
+            "Skipping read-restriction assertion on macOS: seatbelt subpath rules for \
                   reads cannot coexist with bash startup on macOS 26+ (APFS/Cryptex issue). \
-                  Write restriction is still enforced.");
+                  Write restriction is still enforced."
+        );
         return;
     }
 
@@ -380,7 +392,7 @@ async fn red_team_global_read_access_blocked() {
         .await
         .unwrap();
 
-    let outside_dir = TempDir::new().unwrap();
+    let outside_dir = create_non_tmp_tempdir();
     let outside_file = outside_dir.path().join("secret.txt");
     std::fs::write(&outside_file, "secret content").unwrap();
 
@@ -420,7 +432,7 @@ async fn red_team_livelog_symlink_read_allowed() {
     let log_dir = temp_dir.path().join("log");
     std::fs::create_dir_all(&log_dir).unwrap();
 
-    let outside_dir = TempDir::new().unwrap();
+    let outside_dir = create_non_tmp_tempdir();
     let outside_target = outside_dir.path().join("secret.log");
     std::fs::write(&outside_target, "livelog secret content").unwrap();
 
@@ -504,13 +516,8 @@ async fn red_team_livelog_symlink_read_allowed() {
     }
 
     // 3. We MUST NOT be able to WRITE to the explicit target file.
-    //    NOTE: On macOS, `TempDir::new()` places both the sandbox scope and the
-    //    outside_dir under `/private/var/folders/`, which is covered by `temp_rules`
-    //    `(allow file-write* (subpath "/private/var/folders"))`.  Therefore the write
-    //    to outside_target succeeds on macOS not because of livelog, but because temp_rules
-    //    already grant broad write access to all temp dirs.  The livelog feature itself
-    //    does not add write permissions (it only adds to read_scopes); this invariant
-    //    can be verified on Linux where Landlock scopes writes precisely.
+    //    The core livelog invariant is Linux-focused: livelog must remain read-only and
+    //    must not expand write scope to external files.
     let params3 = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
             "command": format!("echo hax > {}", outside_target.display()),
@@ -530,8 +537,8 @@ async fn red_team_livelog_symlink_read_allowed() {
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS temp_rules cover all of /private/var/folders/; the write succeeds
-        // via temp_rules (not because of livelog).  Skip assertion.
+        // Keep write assertion skipped on macOS; seatbelt behavior in this area can vary
+        // depending on runner image and platform constraints.
         let _ = client.call_tool(params3).await;
     }
 

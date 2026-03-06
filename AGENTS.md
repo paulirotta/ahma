@@ -349,6 +349,35 @@ When running inside another sandbox (Cursor, VS Code, Docker):
 - Outer sandbox still provides security
 - Use `--no-sandbox` to suppress detection warnings
 
+### Temp Directory Access (`--tmp`)
+
+The `--tmp` flag (or `AHMA_TMP_ACCESS=1` environment variable) adds the system temp directory to the sandbox scope as an explicit read/write scope. This is useful for testing and dynamic workflows that require temp file access.
+
+**When to use:**
+- Testing workflows that require temp file access
+- Tools that legitimately need temp storage (compilers, build systems)
+- Development environments where temp access is needed
+
+**When NOT to use:**
+- Production deployments handling sensitive data
+- When `--no-temp-files` provides sufficient security
+
+**Flag interactions:**
+
+| Flag Combination | Behavior |
+|-----------------|----------|
+| (default) | Temp access via implicit platform rules |
+| `--tmp` | Temp dir added as formal scope (explicit) |
+| `--no-temp-files` | Temp access blocked entirely |
+| `--tmp --no-temp-files` | `--no-temp-files` takes precedence (blocked) |
+
+**Security considerations:**
+
+1. **Shared temp directory**: `/tmp` (or equivalent) is shared by all users/processes. Malicious processes could read files written by ahma_mcp, write files that ahma_mcp might read (symlink attacks), or fill up temp space.
+2. **Symlink attacks**: Mitigated by `dunce::canonicalize` which resolves symlinks before validation.
+3. **Predictable paths**: Tools using predictable temp file names are vulnerable to TOCTOU attacks. Use `mktemp` with random suffixes.
+4. **Cross-session data leakage**: Temp files may persist across sessions. Clean up sensitive temp files after use.
+
 ### Windows Platform Development
 
 > **Status**: Runtime (PowerShell shell pool, path model) is `in-progress`.
