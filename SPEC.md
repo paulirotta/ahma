@@ -189,6 +189,7 @@ The sandbox scope defines the root directory boundary. AI has **full read/write 
   - `notifications/sandbox/configured`: When sandbox is successfully initialized from roots.
   - `notifications/sandbox/failed`: When sandbox initialization fails (payload: `{"error": "message"}`).
   - `notifications/sandbox/terminated`: When the session ends (payload: `{"reason": "reason"}`).
+- **R5.7**: **Path Canonicalization**: All paths **must** be canonicalized using `dunce::canonicalize` before validation to prevent symlink escape attacks. This resolves symlinks to their real targets and normalizes paths, ensuring that a symlink pointing outside the sandbox cannot be used to bypass security. The `dunce` crate is used instead of `std::fs::canonicalize` to avoid the Windows `\\?\` extended-length path prefix that can cause compatibility issues with some APIs.
 
 ### R6: Platform-Specific Enforcement
 

@@ -19,6 +19,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+dunce = { workspace = true }
 rust-code-analysis = { git = "https://github.com/paulirotta/rust-code-analysis.git", branch = "minimal-submodules" }
 serde = { version = "1.0", features = ["derive"] }
 tempfile = { workspace = true }

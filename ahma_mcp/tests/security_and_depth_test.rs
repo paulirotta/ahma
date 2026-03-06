@@ -37,8 +37,9 @@ async fn test_toctou_symlink_swap_detection() -> Result<()> {
     for i in 0..10 {
         // Validation should succeed initially
         let validated = validate_path(&link_path, &sandbox_root).await?;
-        let real_validated = fs::canonicalize(&validated)?;
-        let real_sandbox_root = fs::canonicalize(&sandbox_root)?;
+        // Use dunce::canonicalize to prevent symlink escapes and avoid Windows \\?\ prefix
+        let real_validated = dunce::canonicalize(&validated)?;
+        let real_sandbox_root = dunce::canonicalize(&sandbox_root)?;
         assert!(real_validated.starts_with(&real_sandbox_root));
 
         // Rapidly swap the link to an unsafe target

@@ -40,8 +40,9 @@ pub fn normalize_path_for_comparison(path: &str) -> String {
 /// come from a shell command on Windows.
 pub fn paths_equivalent(haystack: &str, needle: &Path) -> bool {
     let norm_hay = normalize_path_for_comparison(haystack);
-    // Resolve Windows 8.3 short paths (e.g., RUNNER~1) to long names if possible
-    let needle_str = if let Ok(canonical) = needle.canonicalize() {
+    // Resolve Windows 8.3 short paths (e.g., RUNNER~1) to long names if possible.
+    // Use dunce::canonicalize to avoid Windows \\?\ prefix and prevent symlink escapes.
+    let needle_str = if let Ok(canonical) = dunce::canonicalize(needle) {
         canonical.to_string_lossy().into_owned()
     } else {
         needle.to_string_lossy().into_owned()

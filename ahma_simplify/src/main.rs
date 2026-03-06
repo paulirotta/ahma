@@ -86,9 +86,7 @@ fn main() -> Result<()> {
         return run_verify(verify_path, &cli.output, &cli.directory, &cli.extensions);
     }
 
-    let directory = cli
-        .directory
-        .canonicalize()
+    let directory = dunce::canonicalize(&cli.directory)
         .context("Failed to canonicalize directory")?;
     prepare_output_directory(&cli.output)?;
 
@@ -273,8 +271,7 @@ fn run_verify(
     } else {
         std::env::current_dir()?.join(verify_path)
     };
-    let canonical_verify = abs_verify
-        .canonicalize()
+    let canonical_verify = dunce::canonicalize(&abs_verify)
         .with_context(|| format!("File not found: {}", verify_path.display()))?;
 
     let baseline = find_baseline_metrics(output_dir, &canonical_verify)?;
@@ -291,7 +288,7 @@ fn run_verify(
 
     let rel_path = analysis::get_relative_path(
         &canonical_verify,
-        &base_dir.canonicalize().unwrap_or(base_dir.to_path_buf()),
+        &dunce::canonicalize(base_dir).unwrap_or(base_dir.to_path_buf()),
     );
     print_verification(
         &rel_path.to_string_lossy(),

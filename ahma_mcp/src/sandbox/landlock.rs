@@ -13,9 +13,11 @@ pub fn enforce_landlock_sandbox(
         ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
     };
 
-    let abi = ABI::V3;
+    let abi = ABI::V1.best_supported();
     let access_all = AccessFs::from_all(abi);
     let access_read = AccessFs::from_read(abi);
+
+    tracing::info!("Enforcing Landlock sandbox using ABI: {:?}", abi);
 
     let mut ruleset = Ruleset::default()
         .handle_access(access_all)
@@ -52,6 +54,14 @@ pub fn enforce_landlock_sandbox(
     let status = ruleset
         .restrict_self()
         .context("Failed to apply Landlock restrictions")?;
+
+    if status.ruleset == landlock::RestrictionStatus::No {
+        return Err(anyhow::anyhow!(
+            "Failed to enforce Landlock sandbox: enforcement was refused by kernel (status: {:?}). \
+             Ensure your kernel supports Landlock and the process has sufficient privileges.",
+            status
+        ));
+    }
 
     tracing::info!(
         "Landlock sandbox enforced for scopes: {:?} (status: {:?})",

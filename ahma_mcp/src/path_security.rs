@@ -10,17 +10,20 @@
 
 use anyhow::{Result, anyhow};
 use std::path::{Component, Path, PathBuf};
-use tokio::fs;
 
-/// Canonicalize `path` and strip any Windows verbatim `\\?\` prefix.
+/// Canonicalize `path` using `dunce::canonicalize` to prevent symlink escapes.
 ///
-/// Uses `tokio::fs::canonicalize` for symlink resolution, then
-/// `dunce::simplified` to remove the extended-length path prefix that Windows
-/// sometimes adds. This prevents UNC verbatim paths from appearing in command
-/// arguments or working-directory values where some OS APIs reject them.
+/// Uses `dunce::canonicalize` which resolves symlinks and normalizes paths
+/// while avoiding the Windows `\\?\` extended-length path prefix that
+/// `std::fs::canonicalize` produces. This is critical for security as it
+/// ensures symlinks are fully resolved before path validation.
+///
+/// Runs in a blocking task since `dunce::canonicalize` is synchronous.
 async fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
-    let canonical = fs::canonicalize(path).await?;
-    Ok(dunce::simplified(&canonical).to_path_buf())
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || dunce::canonicalize(&path))
+        .await
+        .map_err(std::io::Error::other)?
 }
 
 /// Validates that a path is within the specified root directory.
@@ -101,6 +104,7 @@ mod tests {
     use super::*;
     use crate::test_utils::path_helpers::{test_abs, test_root};
     use tempfile::TempDir;
+    use tokio::fs;
 
     #[tokio::test]
     async fn test_validate_path_inside() -> Result<()> {

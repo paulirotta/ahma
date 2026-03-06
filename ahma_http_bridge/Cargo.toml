@@ -47,6 +47,7 @@ opentelemetry = [
 
 [dev-dependencies]
 ahma_mcp = { path = "../ahma_mcp" }
+dunce.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["json", "stream"] }
 serial_test = "3.4.0"

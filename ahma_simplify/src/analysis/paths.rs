@@ -5,10 +5,9 @@ use std::path::{Path, PathBuf};
 // ---------------------------------------------------------------------------
 
 pub fn get_relative_path(path: &Path, base_dir: &Path) -> PathBuf {
-    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let abs_base = base_dir
-        .canonicalize()
-        .unwrap_or_else(|_| base_dir.to_path_buf());
+    // Use dunce::canonicalize to avoid Windows \\?\ prefix issues
+    let abs_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let abs_base = dunce::canonicalize(base_dir).unwrap_or_else(|_| base_dir.to_path_buf());
     abs_path
         .strip_prefix(&abs_base)
         .map(|p| p.to_path_buf())
