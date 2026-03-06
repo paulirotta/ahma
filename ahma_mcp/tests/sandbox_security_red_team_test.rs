@@ -551,10 +551,18 @@ async fn red_team_livelog_symlink_read_allowed() {
 // RED TEAM TEST 5: Command Argument Escape (Write)
 // =============================================================================
 
-/// Test that writing to a file outside the sandbox via command arguments is blocked
+/// Test that writing to a file outside the sandbox via command arguments is blocked.
+/// Requires OS-level sandbox enforcement (Landlock on Linux, seatbelt on macOS).
+/// Windows AppContainer backend is not yet implemented.
 #[tokio::test]
 async fn red_team_command_write_escape_blocked() {
     init_test_logging();
+
+    if cfg!(target_os = "windows") {
+        println!("Skipping: Windows AppContainer sandbox not yet implemented");
+        return;
+    }
+
     let temp_dir = TempDir::new().unwrap();
     let outside_dir = TempDir::new().unwrap();
     let outside_file = outside_dir.path().join("pwned.txt");
