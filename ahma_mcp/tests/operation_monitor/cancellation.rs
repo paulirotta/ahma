@@ -36,7 +36,7 @@ async fn test_operation_cancellation_functionality() {
     // Create sandbox with temp_dir and /tmp
     let scopes = vec![temp_dir.path().to_path_buf(), std::env::temp_dir()];
     let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false).unwrap());
+        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
 
     // Create adapter
     let adapter = Arc::new(

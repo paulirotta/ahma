@@ -44,7 +44,6 @@
 //! For production: `init_logging("info", true)` (logs to file without colors)
 
 use anyhow::Result;
-use directories::ProjectDirs;
 #[cfg(feature = "opentelemetry")]
 use opentelemetry::trace::TracerProvider;
 #[cfg(feature = "opentelemetry")]
@@ -83,19 +82,37 @@ pub fn init_logging(log_level: &str, log_to_file: bool) -> Result<()> {
             .unwrap_or_else(|_| EnvFilter::new(format!("{log_level},ahma_mcp=debug")));
 
         // Attempt to log to a file, fall back to stderr.
-        if log_to_file && let Some(proj_dirs) = ProjectDirs::from("com", "AhmaMcp", "ahma_mcp") {
-            let log_dir = proj_dirs.cache_dir();
+        if log_to_file {
+            let log_dir = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("log");
 
             // Test if we can actually write to the log directory before calling
             // tracing_appender::rolling::daily, which panics on permission errors
             // in tracing-appender 0.2.4+.
-            let can_write = test_write_permission(log_dir);
+            let can_write = test_write_permission(&log_dir);
+
+            if can_write {
+                // Delete old standard `.log` files in `log/` to wipe previous logs.
+                // Do not delete directories or symlinks.
+                if let Ok(entries) = std::fs::read_dir(&log_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Ok(meta) = std::fs::symlink_metadata(&path)
+                            && meta.is_file()
+                            && path.extension().is_some_and(|e| e == "log")
+                        {
+                            let _ = std::fs::remove_file(path);
+                        }
+                    }
+                }
+            }
 
             // Try to create the file appender, fall back to stderr if it fails
             // Use catch_unwind to handle panics from tracing_appender
             let file_appender_result = if can_write {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    tracing_appender::rolling::daily(log_dir, "ahma_mcp.log")
+                    tracing_appender::rolling::daily(&log_dir, "ahma_mcp.log")
                 }))
             } else {
                 Err(Box::new("Cannot write to log directory") as Box<dyn std::any::Any + Send>)

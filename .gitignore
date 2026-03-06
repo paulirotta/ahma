@@ -33,3 +33,7 @@ coverage.json
 # Rust Code Analysis Results
 analysis_results/
 CODE_SIMPLICITY.*
+
+# Local Ahma Logs
+/log
+log/

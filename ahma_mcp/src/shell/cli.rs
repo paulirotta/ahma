@@ -138,6 +138,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_progressive_disclosure: bool,
 
+    /// Safe live log monitoring: evaluate symlinks in /log to configure read-only scopes
+    #[arg(long)]
+    pub livelog: bool,
+
     /// Working directories for sandbox scope when using --defer-sandbox.
     /// Required when MCP client may not provide workspace roots.
     /// Example: --working-directories "/path/to/project1,/path/to/project2"
@@ -289,7 +293,7 @@ pub async fn run() -> Result<()> {
 
     // Create the Sandbox instance
     let sandbox = if let Some(scopes) = sandbox_scopes {
-        let s = sandbox::Sandbox::new(scopes.clone(), sandbox_mode, cli.no_temp_files)
+        let s = sandbox::Sandbox::new(scopes.clone(), sandbox_mode, cli.no_temp_files, cli.livelog)
             .context("Failed to initialize sandbox")?;
 
         tracing::info!("Sandbox scopes initialized: {:?}", scopes);
@@ -299,7 +303,11 @@ pub async fn run() -> Result<()> {
         {
             if sandbox_mode == sandbox::SandboxMode::Strict
                 && !cli.defer_sandbox
-                && let Err(e) = sandbox::enforce_landlock_sandbox(&s.scopes(), s.is_no_temp_files())
+                && let Err(e) = sandbox::enforce_landlock_sandbox(
+                    &s.scopes(),
+                    s.read_scopes(),
+                    s.is_no_temp_files(),
+                )
             {
                 tracing::error!("Failed to enforce Landlock sandbox: {}", e);
                 return Err(e);

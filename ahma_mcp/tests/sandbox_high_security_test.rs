@@ -9,7 +9,7 @@ fn test_high_security_mode_enforcement() {
     let scope = temp.path().to_path_buf();
 
     // Enable high security mode (no temp files)
-    let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, true).unwrap();
+    let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, true, false).unwrap();
 
     assert!(sandbox.is_no_temp_files());
 

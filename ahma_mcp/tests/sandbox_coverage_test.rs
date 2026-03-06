@@ -29,7 +29,7 @@ fn test_validate_path_basic() {
     let tmp_dir = TempDir::new().unwrap();
     let root = tmp_dir.path().to_path_buf();
 
-    let sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, false).unwrap();
+    let sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, false, false).unwrap();
 
     // Allowed path
     let file_path = root.join("test.txt");
@@ -57,7 +57,7 @@ fn test_validate_path_no_temp_files_violation() {
     let root = tmp_dir.path().to_path_buf();
 
     // Enable no_temp_files
-    let _sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, true).unwrap();
+    let _sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, true, false).unwrap();
 
     // Even if /tmp is in scope (unlikely but if added), it should be blocked by HighSecurityViolation logic
     // But logic says: if scopes.iter().any... THEN check high security.
@@ -69,7 +69,7 @@ fn test_validate_path_no_temp_files_violation() {
         let tmp_root = PathBuf::from("/tmp");
         if tmp_root.exists() {
             let sandbox_lax =
-                Sandbox::new(vec![tmp_root.clone()], SandboxMode::Strict, true).unwrap();
+                Sandbox::new(vec![tmp_root.clone()], SandboxMode::Strict, true, false).unwrap();
 
             let file_in_tmp = tmp_root.join("test_security.txt");
             // It is in scope /tmp, but blocked by no_temp_files policy
@@ -91,7 +91,7 @@ fn test_validate_path_no_temp_files_violation() {
 fn test_validate_path_symlink_traversal() {
     let tmp_dir = TempDir::new().unwrap();
     let root = tmp_dir.path().to_path_buf();
-    let sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, false).unwrap();
+    let sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, false, false).unwrap();
 
     // Create a dir inside root
     let safe_dir = root.join("safe");

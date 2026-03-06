@@ -48,7 +48,7 @@ async fn test_mcp_cancellation_does_not_trigger_canceled_canceled_message() {
     // Create sandbox with temp_dir as root + /tmp
     let scopes = vec![temp_dir.path().to_path_buf(), std::env::temp_dir()];
     let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false).unwrap());
+        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
 
     // Create adapter
     let adapter = Arc::new(

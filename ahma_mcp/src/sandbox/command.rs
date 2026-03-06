@@ -85,6 +85,7 @@ impl Sandbox {
                     args,
                     working_dir,
                     &scope,
+                    &self.read_scopes,
                 );
             }
             #[cfg(not(target_os = "windows"))]

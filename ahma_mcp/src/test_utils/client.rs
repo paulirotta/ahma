@@ -81,6 +81,7 @@ pub struct ClientBuilder {
     extra_env: Vec<(String, String)>,
     working_dir: Option<PathBuf>,
     no_sandbox: bool,
+    livelog: bool,
     skip_availability_probes: bool,
 }
 
@@ -89,6 +90,7 @@ impl ClientBuilder {
         Self {
             no_sandbox: true,               // Default to permissive for tests (legacy behavior)
             skip_availability_probes: true, // Skip slow availability probes in tests by default
+            livelog: false,
             ..Default::default()
         }
     }
@@ -134,6 +136,11 @@ impl ClientBuilder {
 
     pub fn no_sandbox(mut self, enabled: bool) -> Self {
         self.no_sandbox = enabled;
+        self
+    }
+
+    pub fn livelog(mut self, enabled: bool) -> Self {
+        self.livelog = enabled;
         self
     }
 
@@ -194,6 +201,9 @@ impl ClientBuilder {
                 cmd.arg("--no-sandbox");
             } else {
                 cmd.arg("--sandbox-scope").arg(working_dir);
+                if self.livelog {
+                    cmd.arg("--livelog");
+                }
             }
             if self.skip_availability_probes {
                 cmd.arg("--skip-availability-probes");

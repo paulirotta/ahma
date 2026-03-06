@@ -178,6 +178,7 @@ impl AhmaMcpService {
                         if !self.adapter.sandbox().is_test_mode() {
                             if let Err(e) = crate::sandbox::enforce_landlock_sandbox(
                                 &new_scopes,
+                                self.adapter.sandbox().read_scopes(),
                                 self.adapter.sandbox().is_no_temp_files(),
                             ) {
                                 tracing::error!(

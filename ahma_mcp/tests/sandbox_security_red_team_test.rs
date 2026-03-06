@@ -266,13 +266,13 @@ async fn red_team_shell_metacharacters_in_path() {
 /// Test that no_temp_files mode is properly set on Sandbox
 #[test]
 fn red_team_no_temp_files_flag_setting() {
-    let sandbox = Sandbox::new(vec![], SandboxMode::Strict, true).unwrap();
+    let sandbox = Sandbox::new(vec![], SandboxMode::Strict, true, false).unwrap();
     assert!(
         sandbox.is_no_temp_files(),
         "no_temp_files should be enabled"
     );
 
-    let sandbox_default = Sandbox::new(vec![], SandboxMode::Strict, false).unwrap();
+    let sandbox_default = Sandbox::new(vec![], SandboxMode::Strict, false, false).unwrap();
     assert!(
         !sandbox_default.is_no_temp_files(),
         "no_temp_files should be disabled by default"
@@ -280,12 +280,12 @@ fn red_team_no_temp_files_flag_setting() {
 }
 
 // =============================================================================
-// DOCUMENTATION: Known Security Limitations
+// RED TEAM TEST 7: Global Read Access Prevention (Uniform Strictness)
 // =============================================================================
 
-/// Document: Read access is allowed everywhere (KNOWN LIMITATION)
+/// Test that reading a file outside the sandbox is universally blocked (including macOS)
 #[tokio::test]
-async fn documented_limitation_read_access_unrestricted() {
+async fn red_team_global_read_access_blocked() {
     init_test_logging();
     let temp_dir = TempDir::new().unwrap();
     let tools_dir = get_workspace_tools_dir();
@@ -297,54 +297,172 @@ async fn documented_limitation_read_access_unrestricted() {
         .await
         .unwrap();
 
-    // Note: We're testing from within the sandbox scope, but the command
-    // attempts to READ a file outside. On macOS with Seatbelt, this succeeds
-    // because file-read* is allowed everywhere.
-    //
-    // This is a KNOWN LIMITATION, not a bug.
+    let outside_dir = TempDir::new().unwrap();
+    let outside_file = outside_dir.path().join("secret.txt");
+    std::fs::write(&outside_file, "secret content").unwrap();
+
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
-            "command": "test -r /etc/passwd && echo 'readable' || echo 'not readable'"
+            "command": format!("cat {}", outside_file.display()),
+            "execution_mode": "Synchronous"
         }))
         .unwrap(),
     );
+
     let result = client.call_tool(params).await;
 
-    // The command should succeed (sandbox allows running in current dir)
-    // The output will show if /etc/passwd is readable
-    // On macOS, it WILL be readable (known limitation)
-    if let Ok(response) = result {
-        let _ = response;
+    // Command should fail or return error exit code
+    if let Ok(tools_res) = result {
+        for content in tools_res.content {
+            if let Some(text) = content.as_text() {
+                let res_json: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+                let exit_code = res_json
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+
+                assert!(
+                    exit_code != 0,
+                    "SECURITY: Should not be able to read file outside sandbox on any platform. Exit: {}",
+                    exit_code
+                );
+            }
+        }
     }
+
     client.cancel().await.unwrap();
 }
 
-/// Document: Network access is unrestricted (KNOWN LIMITATION)
+// =============================================================================
+// RED TEAM TEST 8: LiveLog Symlink Targeted Read Expansion
+// =============================================================================
+
+/// Test that --livelog grants precise read-only access to a target symlink, but blocks writes and blocks neighboring files.
 #[tokio::test]
-async fn documented_limitation_network_unrestricted() {
+async fn red_team_livelog_symlink_read_allowed() {
     init_test_logging();
-    let temp_dir = TempDir::new().unwrap();
+
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir as symlink;
+
+    let temp_dir = TempDir::new().unwrap(); // sandbox scope
+    let log_dir = temp_dir.path().join("log");
+    std::fs::create_dir_all(&log_dir).unwrap();
+
+    let outside_dir = TempDir::new().unwrap();
+    let outside_target = outside_dir.path().join("secret.log");
+    std::fs::write(&outside_target, "livelog secret content").unwrap();
+
+    let outside_forbidden = outside_dir.path().join("forbidden.log");
+    std::fs::write(&outside_forbidden, "forbidden content").unwrap();
+
+    let malicious_link = log_dir.join("live.log");
+    match symlink(&outside_target, &malicious_link) {
+        Ok(_) => {}
+        Err(e) if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied => {
+            println!(
+                "Skipping test: Windows requires Developer Mode or Admin rights to create symlinks"
+            );
+            return;
+        }
+        Err(e) => panic!("Failed to create symlink: {}", e),
+    }
+
     let tools_dir = get_workspace_tools_dir();
     let client = ClientBuilder::new()
         .tools_dir(&tools_dir)
         .working_dir(temp_dir.path())
         .no_sandbox(false)
+        .livelog(true) // Enable the feature we are testing
         .build()
         .await
         .unwrap();
 
-    // Test that network access works (e.g., DNS lookup)
-    // This documents that network is unrestricted
+    // 1. We MUST be able to read the explicit target file via its absolute path.
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
-            // Use a simple network test that doesn't actually transfer data
-            "command": "ping -c 1 -t 1 127.0.0.1 2>/dev/null || echo 'network test'"
+            "command": format!("cat {}", outside_target.display()),
+            "execution_mode": "Synchronous"
         }))
         .unwrap(),
     );
     let result = client.call_tool(params).await;
-    // Just document that network commands can run - this is a known limitation
-    let _ = result;
+    let mut read_succeeded = false;
+    if let Ok(tools_res) = result {
+        for content in tools_res.content {
+            if let Some(text) = content.as_text() {
+                let res_json: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+                let exit_code = res_json
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                assert_eq!(
+                    exit_code, 0,
+                    "SECURITY: Valid livelog symlink target read was blocked"
+                );
+                let stdout = res_json
+                    .get("stdout")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                assert!(stdout.contains("livelog secret content"));
+                read_succeeded = true;
+            }
+        }
+    }
+    assert!(read_succeeded, "Read command did not complete successfully");
+
+    // 2. We MUST NOT be able to read neighboring files in the external directory.
+    let params2 = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": format!("cat {}", outside_forbidden.display()),
+            "execution_mode": "Synchronous"
+        }))
+        .unwrap(),
+    );
+    let result2 = client.call_tool(params2).await;
+    if let Ok(tools_res) = result2 {
+        for content in tools_res.content {
+            if let Some(text) = content.as_text() {
+                let res_json: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+                let exit_code = res_json
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                assert_ne!(
+                    exit_code, 0,
+                    "SECURITY: Livelog should not grant directory access"
+                );
+            }
+        }
+    }
+
+    // 3. We MUST NOT be able to WRITE to the explicit target file.
+    let params3 = CallToolRequestParams::new("sandboxed_shell").with_arguments(
+        serde_json::from_value(json!({
+            "command": format!("echo hax > {}", outside_target.display()),
+            "execution_mode": "Synchronous"
+        }))
+        .unwrap(),
+    );
+    let result3 = client.call_tool(params3).await;
+    if let Ok(tools_res) = result3 {
+        for content in tools_res.content {
+            if let Some(text) = content.as_text() {
+                let res_json: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+                let exit_code = res_json
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                assert_ne!(
+                    exit_code, 0,
+                    "SECURITY: Livelog target should be strictly read-only"
+                );
+            }
+        }
+    }
+
     client.cancel().await.unwrap();
 }
 

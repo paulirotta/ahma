@@ -173,7 +173,7 @@ These tools are always available regardless of JSON configuration:
 
 ## 4. Security - Kernel-Enforced Sandboxing
 
-The sandbox scope defines the root directory boundary. AI has **full read/write access** within the sandbox but **zero write access** outside it. Read access outside the sandbox depends on the platform (Linux: strict, macOS: permissive).
+The sandbox scope defines the root directory boundary. AI has **full read/write access** within the sandbox but **zero read/write access** outside it. Read access outside the sandbox is strictly limited to necessary system binaries across all platforms (Linux, macOS, Windows) and explicitly granted feature scopes (see `--livelog`).
 
 ### R5: Sandbox Scope
 
@@ -201,8 +201,8 @@ The sandbox scope defines the root directory boundary. AI has **full read/write 
 #### R6.2: macOS (Seatbelt)
 
 - **R6.2.1**: Uses `sandbox-exec` with Seatbelt profiles (SBPL).
-- **R6.2.2**: Profile uses `(deny default)` with allowed writes **strictly limited** to the sandbox scope and necessary temp paths.
-- **R6.2.3**: **Read Limitation**: Due to macOS Seatbelt mechanism and system tool requirements, read access is generally allowed globally on macOS. The security guarantee is **write isolation**.
+- **R6.2.2**: Profile uses `(deny default)` with allowed reads and writes **strictly limited** to the sandbox scope, necessary system paths, and necessary temp paths.
+- **R6.2.3**: **Read Limitation**: The security guarantee is **read and write isolation**. By default, it operates identical to Landlock: standard system binaries (`/usr`, `/etc`, `~/.cargo`) are whitelisted for read/execute, and all other paths outside the scope are denied.
 - **R6.2.4**: **CRITICAL**: `/var` is symlink to `/private/var` on macOS; profiles **must** use real paths.
 
 #### R6.3: Windows (AppContainer / Job Objects) — _in-progress_
@@ -263,6 +263,22 @@ The planned implementation uses two mechanisms in order of preference:
 - **R7.1**: System **must** detect when running inside another sandbox (Cursor, VS Code, Docker).
 - **R7.2**: Upon detection, system **must** exit with instructions to use `--no-sandbox` or `AHMA_NO_SANDBOX=1`.
 - **R7.3**: When `--no-sandbox` is used, outer sandbox provides security; Ahma's internal sandbox is disabled.
+
+---
+
+## 5. File System Contracts and Features
+
+### R8: Project Logging (`/log` directory)
+
+- **R8.1**: All ahma_mcp and execution logs **must** be placed in the `log/` directory at the root of the (primary) configured sandbox scope, rather than global user cache directories (`~/.cache`).
+- **R8.2**: When the project is built or the server initialized, the `log/` directory is created if it does not exist, and old `.log` files are deleted to wipe previous logs.
+
+### R9: Safe Live Log Monitoring (`--livelog`)
+
+- **R9.1**: The `--livelog` feature flag enables safe read-only access to specific log files located outside the sandbox scope without compromising the sandbox contract.
+- **R9.2**: **Mechanisms**: During initialization (and ONLY at initialization), the system scans the `log/` directories of all configured sandbox roots for symbolic links. The targets of these symlinks are evaluated.
+- **R9.3**: **Enforcement**: The resolved physical paths of those symlinks are dynamically added to the sandbox profile (across Linux, macOS, and Windows) as **read-only scopes**.
+- **R9.4**: **Abuse Prevention**: Since symlinks are only resolved and granted access at startup, hostile entities or rogue AI cannot abuse this later by creating new symlinks to sensitive files (e.g. `/etc/passwd`). Existing files placed in read-only scopes are tightly controlled by the system operator running `ahma_mcp --livelog`.
 
 ---
 

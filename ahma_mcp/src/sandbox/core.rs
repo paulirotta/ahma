@@ -9,6 +9,7 @@ use super::types::{SandboxMode, ScopesGuard};
 /// The security context for the Ahma session.
 pub struct Sandbox {
     pub(super) scopes: std::sync::RwLock<Vec<PathBuf>>,
+    pub(super) read_scopes: Vec<PathBuf>,
     pub(super) mode: SandboxMode,
     pub(super) no_temp_files: bool,
 }
@@ -17,6 +18,7 @@ impl Clone for Sandbox {
     fn clone(&self) -> Self {
         Self {
             scopes: std::sync::RwLock::new(self.scopes.read().unwrap().clone()),
+            read_scopes: self.read_scopes.clone(),
             mode: self.mode,
             no_temp_files: self.no_temp_files,
         }
@@ -27,6 +29,7 @@ impl std::fmt::Debug for Sandbox {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sandbox")
             .field("scopes", &self.scopes.read().unwrap())
+            .field("read_scopes", &self.read_scopes)
             .field("mode", &self.mode)
             .field("no_temp_files", &self.no_temp_files)
             .finish()
@@ -35,7 +38,12 @@ impl std::fmt::Debug for Sandbox {
 
 impl Sandbox {
     /// Create a new Sandbox with the given scopes.
-    pub fn new(scopes: Vec<PathBuf>, mode: SandboxMode, no_temp_files: bool) -> Result<Self> {
+    pub fn new(
+        scopes: Vec<PathBuf>,
+        mode: SandboxMode,
+        no_temp_files: bool,
+        livelog: bool,
+    ) -> Result<Self> {
         let canonicalized = scopes::canonicalize_scopes(
             scopes,
             mode,
@@ -43,8 +51,35 @@ impl Sandbox {
              Example: --sandbox-scope /home/user/project",
         )?;
 
+        let mut read_scopes = Vec::new();
+
+        if livelog && mode != SandboxMode::Test {
+            for scope in &canonicalized {
+                let log_dir = scope.join("log");
+                if let Ok(entries) = std::fs::read_dir(&log_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Ok(meta) = std::fs::symlink_metadata(&path)
+                            && meta.is_symlink()
+                            && path.extension().is_some_and(|e| e == "log")
+                            && let Ok(target) = std::fs::read_link(&path)
+                            && let Ok(canonical_target) = dunce::canonicalize(log_dir.join(&target))
+                            && canonical_target.is_file()
+                        {
+                            tracing::info!(
+                                "Adding --livelog read-only scope for symlink target: {}",
+                                canonical_target.display()
+                            );
+                            read_scopes.push(canonical_target);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             scopes: std::sync::RwLock::new(canonicalized),
+            read_scopes,
             mode,
             no_temp_files,
         })
@@ -54,6 +89,7 @@ impl Sandbox {
     pub fn new_test() -> Self {
         Self {
             scopes: std::sync::RwLock::new(vec![PathBuf::from("/")]),
+            read_scopes: Vec::new(),
             mode: SandboxMode::Test,
             no_temp_files: false,
         }
@@ -85,6 +121,11 @@ impl Sandbox {
     /// Get the allowed scopes.
     pub fn scopes(&self) -> ScopesGuard<'_> {
         ScopesGuard(self.scopes.read().unwrap())
+    }
+
+    /// Get the read-only scopes (for --livelog symlink targets).
+    pub fn read_scopes(&self) -> &[PathBuf] {
+        &self.read_scopes
     }
 
     /// Check if a path is within any of the sandbox scopes.

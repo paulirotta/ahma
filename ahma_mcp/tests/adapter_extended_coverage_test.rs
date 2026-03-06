@@ -31,7 +31,7 @@ async fn create_adapter_with_root(root: std::path::PathBuf) -> Arc<Adapter> {
     let monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool_config = ShellPoolConfig::default();
     let shell_pool = Arc::new(ShellPoolManager::new(shell_pool_config));
-    let sandbox = Arc::new(Sandbox::new(vec![root], SandboxMode::Test, false).unwrap());
+    let sandbox = Arc::new(Sandbox::new(vec![root], SandboxMode::Test, false, false).unwrap());
 
     Arc::new(Adapter::new(monitor, shell_pool, sandbox).unwrap())
 }
@@ -701,8 +701,15 @@ async fn test_async_cancellation_before_execution() {
     let monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool_config = ShellPoolConfig::default();
     let shell_pool = Arc::new(ShellPoolManager::new(shell_pool_config));
-    let sandbox =
-        Arc::new(Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Test, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
     let adapter = Arc::new(Adapter::new(monitor.clone(), shell_pool, sandbox).unwrap());
 
     // Start a slow operation
@@ -765,8 +772,15 @@ async fn test_async_with_callback_none() {
     let monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool_config = ShellPoolConfig::default();
     let shell_pool = Arc::new(ShellPoolManager::new(shell_pool_config));
-    let sandbox =
-        Arc::new(Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Test, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
     let adapter = Arc::new(Adapter::new(monitor.clone(), shell_pool, sandbox).unwrap());
 
     let op_id = adapter
@@ -819,8 +833,15 @@ async fn test_async_timeout_path() {
     let monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool_config = ShellPoolConfig::default();
     let shell_pool = Arc::new(ShellPoolManager::new(shell_pool_config));
-    let sandbox =
-        Arc::new(Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Test, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
     let adapter = Arc::new(Adapter::new(monitor.clone(), shell_pool, sandbox).unwrap());
 
     let op_id = adapter

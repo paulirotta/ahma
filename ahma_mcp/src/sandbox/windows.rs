@@ -96,14 +96,16 @@ pub fn create_windows_sandboxed_command(
     args: &[String],
     working_dir: &Path,
     scope: &Path,
+    read_scopes: &[PathBuf],
 ) -> anyhow::Result<tokio::process::Command> {
     #[cfg(target_os = "windows")]
     {
-        create_appcontainer_command(program, args, working_dir, scope)
+        create_appcontainer_command(program, args, working_dir, scope, read_scopes)
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = scope;
+        let _ = read_scopes;
         let mut cmd = tokio::process::Command::new(program);
         cmd.args(args).current_dir(working_dir);
         Ok(cmd)
@@ -286,6 +288,7 @@ fn create_appcontainer_command(
     args: &[String],
     working_dir: &Path,
     scope: &Path,
+    read_scopes: &[PathBuf],
 ) -> anyhow::Result<tokio::process::Command> {
     // These imports are unused until raw_attribute stabilizes and the
     // AppContainer launch code is re-enabled.
@@ -329,8 +332,15 @@ fn create_appcontainer_command(
         } else {
             // Grant `scope` full access for the container SID.
             if !sid.is_null() {
-                if let Err(e) = set_scope_dacl_for_container(scope, sid) {
+                if let Err(e) = set_scope_dacl_for_container(scope, sid, true) {
                     tracing::warn!("Failed to set scope DACL for AppContainer: {e}");
+                }
+
+                // Grant `read_scopes` read-only access.
+                for read_scope in read_scopes {
+                    if let Err(e) = set_scope_dacl_for_container(read_scope, sid, false) {
+                        tracing::warn!("Failed to set read_scope DACL for AppContainer: {e}");
+                    }
                 }
 
                 // tokio::process::Command defers spawning, so any pointers passed to
@@ -401,6 +411,7 @@ fn create_appcontainer_command(
 fn set_scope_dacl_for_container(
     scope: &Path,
     container_sid: *mut core::ffi::c_void,
+    full_access: bool,
 ) -> anyhow::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
@@ -408,7 +419,15 @@ fn set_scope_dacl_for_container(
         ACL, ACL_REVISION, AddAccessAllowedAce, DACL_SECURITY_INFORMATION, GetLengthSid,
         InitializeAcl,
     };
-    use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ,
+    };
+
+    let access_mask = if full_access {
+        FILE_ALL_ACCESS
+    } else {
+        FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
+    };
 
     unsafe {
         let sid_len = GetLengthSid(container_sid) as usize;
@@ -422,7 +441,7 @@ fn set_scope_dacl_for_container(
             anyhow::bail!("InitializeAcl failed: {err}");
         }
 
-        if AddAccessAllowedAce(acl_ptr, ACL_REVISION as u32, FILE_ALL_ACCESS, container_sid) == 0 {
+        if AddAccessAllowedAce(acl_ptr, ACL_REVISION as u32, access_mask, container_sid) == 0 {
             let err = std::io::Error::last_os_error();
             anyhow::bail!("AddAccessAllowedAce failed: {err}");
         }

@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 /// Apply Landlock sandbox restrictions to the current process.
 #[cfg(target_os = "linux")]
-pub fn enforce_landlock_sandbox(scopes: &[PathBuf], no_temp_files: bool) -> Result<()> {
+pub fn enforce_landlock_sandbox(
+    scopes: &[PathBuf],
+    read_scopes: &[PathBuf],
+    no_temp_files: bool,
+) -> Result<()> {
     use anyhow::Context;
     use landlock::{
         ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
@@ -27,6 +31,15 @@ pub fn enforce_landlock_sandbox(scopes: &[PathBuf], no_temp_files: bool) -> Resu
                 access_all,
             ))
             .context("Failed to add Landlock rule for sandbox scope")?;
+    }
+
+    // Add explicit read_scopes target files (for --livelog)
+    for read_scope in read_scopes {
+        if let Ok(fd) = PathFd::new(read_scope) {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(fd, access_read))
+                .context("Failed to add Landlock rule for read-only scope")?;
+        }
     }
 
     add_landlock_system_rules(&mut ruleset, access_read)?;
@@ -107,6 +120,10 @@ fn add_landlock_temp_rules(
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn enforce_landlock_sandbox(_scopes: &[PathBuf], _no_temp_files: bool) -> Result<()> {
+pub fn enforce_landlock_sandbox(
+    _scopes: &[PathBuf],
+    _read_scopes: &[PathBuf],
+    _no_temp_files: bool,
+) -> Result<()> {
     Ok(())
 }

@@ -39,20 +39,36 @@ fn test_is_test_mode_on_sandbox_instance() {
     assert!(sandbox.is_test_mode());
 
     let temp = tempdir().unwrap();
-    let sandbox_strict =
-        Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Strict, false).unwrap();
+    let sandbox_strict = Sandbox::new(
+        vec![temp.path().to_path_buf()],
+        SandboxMode::Strict,
+        false,
+        false,
+    )
+    .unwrap();
     assert!(!sandbox_strict.is_test_mode());
 }
 
 #[test]
 fn test_is_no_temp_files_on_sandbox_instance() {
     let temp = tempdir().unwrap();
-    let sandbox = Sandbox::new(vec![temp.path().to_path_buf()], SandboxMode::Strict, true).unwrap();
+    let sandbox = Sandbox::new(
+        vec![temp.path().to_path_buf()],
+        SandboxMode::Strict,
+        true,
+        false,
+    )
+    .unwrap();
     assert!(sandbox.is_no_temp_files());
 
     let temp2 = tempdir().unwrap();
-    let sandbox_default =
-        Sandbox::new(vec![temp2.path().to_path_buf()], SandboxMode::Strict, false).unwrap();
+    let sandbox_default = Sandbox::new(
+        vec![temp2.path().to_path_buf()],
+        SandboxMode::Strict,
+        false,
+        false,
+    )
+    .unwrap();
     assert!(!sandbox_default.is_no_temp_files());
 }
 
@@ -62,7 +78,7 @@ fn test_is_no_temp_files_on_sandbox_instance() {
 fn test_path_validation_in_scope() {
     let temp = tempdir().unwrap();
     let scope = temp.path().to_path_buf();
-    let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, false).unwrap();
+    let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, false, false).unwrap();
 
     let valid_path = scope.join("test.txt");
     assert!(sandbox.validate_path(&valid_path).is_ok());
@@ -72,7 +88,7 @@ fn test_path_validation_in_scope() {
 fn test_path_validation_outside_scope() {
     let temp = tempdir().unwrap();
     let scope = temp.path().to_path_buf();
-    let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false).unwrap();
+    let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, false).unwrap();
 
     let outside_path = PathBuf::from("/etc/passwd");
     assert!(sandbox.validate_path(&outside_path).is_err());
@@ -88,7 +104,8 @@ fn test_path_validation_accepts_symlink_alias_scope_for_nonexistent_nested_path(
     let alias_root = temp.path().join("alias_root");
     std::os::unix::fs::symlink(&real_root, &alias_root).unwrap();
 
-    let sandbox = Sandbox::new(vec![alias_root.clone()], SandboxMode::Strict, false).unwrap();
+    let sandbox =
+        Sandbox::new(vec![alias_root.clone()], SandboxMode::Strict, false, false).unwrap();
 
     // `nested` does not exist, so path resolution falls back to lexical normalization.
     // The alias scope must still be accepted.
