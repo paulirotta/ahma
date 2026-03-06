@@ -248,6 +248,7 @@ The planned implementation uses two mechanisms in order of preference:
   the server should emit a clear startup error if `pwsh` is absent.
 - **R6.3.7**: All existing integration tests that exercise sandbox gating logic **must**
   pass on Windows CI with no `#[ignore]` waivers.
+- **R6.3.8**: **Cross-Platform Test Scripts**: When tests dynamically generate and execute scripts (e.g., to verify log monitoring or stdout capture), they **must** provide equivalent logic for both `bash` (Unix) and `PowerShell` (Windows). Tests **must not** rely on `bash.exe` or `sh.exe` being present on Windows (avoids WSL dependencies). All such tests **must** use a uniform helper method (e.g., `write_cross_platform_script`) to ensure consistency and prevent platform-specific leaks.
 
 ##### Windows path model
 

@@ -78,16 +78,29 @@ fn count_log_alerts(updates: &[ProgressUpdate]) -> usize {
         .count()
 }
 
-fn write_script(temp_dir: &std::path::Path, name: &str, content: &str) -> String {
-    let script_path = temp_dir.join(name);
-    std::fs::write(&script_path, content).unwrap();
+#[allow(unused_variables)]
+fn write_cross_platform_script(
+    temp_dir: &std::path::Path,
+    name_base: &str,
+    bash_content: &str,
+    ps1_content: &str,
+) -> String {
     #[cfg(windows)]
     {
-        let path_str = script_path.to_string_lossy().replace("\\", "/");
-        format!("bash {}", path_str)
+        let name = format!("{}.ps1", name_base);
+        let script_path = temp_dir.join(&name);
+        std::fs::write(&script_path, ps1_content).unwrap();
+        let path_str = script_path.to_string_lossy();
+        format!(
+            "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {}",
+            path_str
+        )
     }
     #[cfg(not(windows))]
     {
+        let name = format!("{}.sh", name_base);
+        let script_path = temp_dir.join(&name);
+        std::fs::write(&script_path, bash_content).unwrap();
         format!("bash {}", script_path.display())
     }
 }
@@ -108,10 +121,11 @@ async fn streaming_stderr_error_triggers_log_alert() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "emit_error.sh",
+        "emit_error",
         "#!/bin/bash\necho 'error[E0308]: mismatched types' >&2\n",
+        "[Console]::Error.WriteLine('error[E0308]: mismatched types')\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -157,10 +171,11 @@ async fn streaming_stdout_error_triggers_when_monitoring_both() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "emit_stdout_error.sh",
+        "emit_stdout_error",
         "#!/bin/bash\necho 'ERROR: something failed'\n",
+        "Write-Output 'ERROR: something failed'\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -193,10 +208,11 @@ async fn streaming_no_alert_when_output_is_clean() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "clean.sh",
+        "clean",
         "#!/bin/bash\necho 'hello world'\n",
+        "Write-Output 'hello world'\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -230,10 +246,11 @@ async fn streaming_warn_level_triggers_on_warning() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "emit_warn.sh",
+        "emit_warn",
         "#!/bin/bash\necho 'warning: unused variable' >&2\n",
+        "[Console]::Error.WriteLine('warning: unused variable')\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -273,10 +290,11 @@ async fn streaming_error_level_ignores_warnings() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "warn_only.sh",
+        "warn_only",
         "#!/bin/bash\necho 'warning: unused variable' >&2\n",
+        "[Console]::Error.WriteLine('warning: unused variable')\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -310,10 +328,11 @@ async fn streaming_no_monitor_uses_batch_path() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "batch.sh",
+        "batch",
         "#!/bin/bash\necho 'error: something' >&2\necho done\n",
+        "[Console]::Error.WriteLine('error: something')\nWrite-Output 'done'\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -352,8 +371,9 @@ async fn streaming_alert_includes_context_lines() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let script = "#!/bin/bash\nfor i in $(seq 1 5); do echo \"info: compiling module $i\" >&2; done\necho 'error[E0277]: the trait bound is not satisfied' >&2\n";
-    let cmd = write_script(temp_dir.path(), "context.sh", script);
+    let bash_script = "#!/bin/bash\nfor i in $(seq 1 5); do echo \"info: compiling module $i\" >&2; done\necho 'error[E0277]: the trait bound is not satisfied' >&2\n";
+    let ps1_script = "1..5 | ForEach-Object { [Console]::Error.WriteLine(\"info: compiling module $_\") }\n[Console]::Error.WriteLine('error[E0277]: the trait bound is not satisfied')\n";
+    let cmd = write_cross_platform_script(temp_dir.path(), "context", bash_script, ps1_script);
     let result = adapter
         .execute_async_in_dir_with_options(
             "test_context",
@@ -400,8 +420,9 @@ async fn streaming_multiline_errors_with_rate_limit() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let script = "#!/bin/bash\necho 'error[E0308]: mismatched types' >&2\necho 'error[E0277]: trait bound' >&2\necho 'error[E0599]: no method' >&2\n";
-    let cmd = write_script(temp_dir.path(), "multi_error.sh", script);
+    let bash_script = "#!/bin/bash\necho 'error[E0308]: mismatched types' >&2\necho 'error[E0277]: trait bound' >&2\necho 'error[E0599]: no method' >&2\n";
+    let ps1_script = "[Console]::Error.WriteLine('error[E0308]: mismatched types')\n[Console]::Error.WriteLine('error[E0277]: trait bound')\n[Console]::Error.WriteLine('error[E0599]: no method')\n";
+    let cmd = write_cross_platform_script(temp_dir.path(), "multi_error", bash_script, ps1_script);
     let result = adapter
         .execute_async_in_dir_with_options(
             "test_rate_limit",
@@ -438,10 +459,11 @@ async fn streaming_stderr_only_ignores_stdout_patterns() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "stdout_error.sh",
+        "stdout_error",
         "#!/bin/bash\necho 'error[E0308]: type mismatch'\n",
+        "Write-Output 'error[E0308]: type mismatch'\n",
     );
     let result = adapter
         .execute_async_in_dir_with_options(
@@ -475,10 +497,11 @@ async fn streaming_final_result_redacts_sensitive_output() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "secret_output.sh",
+        "secret_output",
         "#!/bin/bash\necho 'token=supersecret123'\necho 'Authorization: Bearer abcdefghijklmnop' >&2\n",
+        "Write-Output 'token=supersecret123'\n[Console]::Error.WriteLine('Authorization: Bearer abcdefghijklmnop')\n",
     );
 
     let result = adapter
@@ -512,10 +535,11 @@ async fn streaming_final_result_is_bounded_and_marks_truncation() {
     let temp_dir = tempdir().unwrap();
     let working_dir = temp_dir.path().to_str().unwrap();
     let (callback, updates) = TestCallback::new();
-    let cmd = write_script(
+    let cmd = write_cross_platform_script(
         temp_dir.path(),
-        "many_lines.sh",
+        "many_lines",
         "#!/bin/bash\nfor i in $(seq 1 7000); do echo \"line-$i\"; done\n",
+        "1..7000 | ForEach-Object { Write-Output \"line-$_\" }\n",
     );
 
     let result = adapter
