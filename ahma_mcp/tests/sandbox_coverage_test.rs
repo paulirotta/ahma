@@ -93,19 +93,25 @@ fn test_validate_path_symlink_traversal() {
     let root = tmp_dir.path().to_path_buf();
     let sandbox = Sandbox::new(vec![root.clone()], SandboxMode::Strict, false, false).unwrap();
 
-    // Create a dir inside root
     let safe_dir = root.join("safe");
     std::fs::create_dir(&safe_dir).unwrap();
 
-    // Create a symlink pointing OUTSIDE
-    #[cfg(unix)]
-    let outside_target = std::env::temp_dir();
     let symlink = safe_dir.join("shortcut_out");
+    let outside_target = std::env::temp_dir();
 
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside_target, &symlink).unwrap();
 
-    // Trying to access symlink -> should resolve to outside -> fail
+    #[cfg(windows)]
+    match std::os::windows::fs::symlink_dir(&outside_target, &symlink) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            println!("Skipping: Windows requires Developer Mode or Admin rights for symlinks");
+            return;
+        }
+        Err(e) => panic!("Failed to create symlink: {e}"),
+    }
+
     let res = sandbox.validate_path(&symlink);
     assert!(res.is_err());
 }

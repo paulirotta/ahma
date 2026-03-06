@@ -86,8 +86,8 @@ fn main() -> Result<()> {
         return run_verify(verify_path, &cli.output, &cli.directory, &cli.extensions);
     }
 
-    let directory = dunce::canonicalize(&cli.directory)
-        .context("Failed to canonicalize directory")?;
+    let directory =
+        dunce::canonicalize(&cli.directory).context("Failed to canonicalize directory")?;
     prepare_output_directory(&cli.output)?;
 
     let is_workspace = is_cargo_workspace(&cli.directory);

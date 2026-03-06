@@ -369,6 +369,7 @@ fn red_team_no_temp_files_flag_setting() {
 /// are allowed.  Write access remains restricted.  Read restriction is enforced on Linux
 /// via Landlock.
 #[tokio::test]
+#[ignore = "requires enforced Landlock; run with --ignored on kernels where Landlock is active"]
 async fn red_team_global_read_access_blocked() {
     init_test_logging();
 
@@ -420,6 +421,7 @@ async fn red_team_global_read_access_blocked() {
 
 /// Test that --livelog grants precise read-only access to a target symlink, but blocks writes and blocks neighboring files.
 #[tokio::test]
+#[ignore = "requires enforced Landlock; run with --ignored on kernels where Landlock is active"]
 async fn red_team_livelog_symlink_read_allowed() {
     init_test_logging();
 

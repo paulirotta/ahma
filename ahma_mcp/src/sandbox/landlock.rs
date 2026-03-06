@@ -13,10 +13,9 @@ pub fn enforce_landlock_sandbox(
         ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
     };
 
-    let abi = [ABI::V6, ABI::V5, ABI::V4, ABI::V3, ABI::V2, ABI::V1]
-        .into_iter()
-        .find(|a| a.is_supported())
-        .unwrap_or(ABI::V1);
+    // Request V5 features; the Compatible trait automatically downgrades
+    // unsupported access flags on older kernels.
+    let abi = ABI::V5;
     let access_all = AccessFs::from_all(abi);
     let access_read = AccessFs::from_read(abi);
 
