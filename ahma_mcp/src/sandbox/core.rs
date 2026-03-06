@@ -215,6 +215,15 @@ impl Sandbox {
                 }
                 .into());
             }
+
+            if let Ok(temp_dir) = dunce::canonicalize(std::env::temp_dir())
+                && canonical.starts_with(&temp_dir)
+            {
+                return Err(SandboxError::HighSecurityViolation {
+                    path: original_path.to_path_buf(),
+                }
+                .into());
+            }
         }
         Ok(())
     }
