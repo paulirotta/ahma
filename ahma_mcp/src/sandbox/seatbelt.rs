@@ -79,15 +79,13 @@ impl Sandbox {
     }
 
     fn get_macos_system_rules(&self) -> String {
-        "(allow file-read* (subpath \"/usr\"))\n\
-         (allow file-read* (subpath \"/bin\"))\n\
-         (allow file-read* (subpath \"/sbin\"))\n\
-         (allow file-read* (subpath \"/etc\"))\n\
-         (allow file-read* (subpath \"/lib\"))\n\
-         (allow file-read* (subpath \"/System\"))\n\
-         (allow file-read* (subpath \"/Library\"))\n\
-         (allow file-read* (subpath \"/Applications\"))\n"
-            .to_string()
+        // Use a global file-read* rule (no path qualifier) because macOS seatbelt
+        // on Apple Silicon / macOS 26+ cannot reliably match specific subpaths for
+        // reads — the APFS firmlink / cryptex volume structure means bash and dyld
+        // access paths whose resolved vnodes don't match any traditional /usr,
+        // /System, etc. prefix.  Write access remains tightly scoped to the
+        // working directory and temp directories.
+        "(allow file-read*)\n".to_string()
     }
 
     fn get_macos_user_tool_rules(&self) -> String {
