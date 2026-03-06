@@ -20,12 +20,13 @@ fn test_high_security_mode_enforcement() {
     let valid_path = first_scope.join("test.txt");
     let result = sandbox.validate_path(&valid_path);
 
-    let is_temp_scope = first_scope.to_string_lossy().starts_with("/tmp")
-        || first_scope.to_string_lossy().starts_with("/private/tmp")
-        || first_scope.to_string_lossy().starts_with("/var/folders")
-        || first_scope
-            .to_string_lossy()
-            .starts_with("/private/var/folders");
+    let is_temp_scope = if let Ok(sys_temp) = dunce::canonicalize(std::env::temp_dir()) {
+        dunce::canonicalize(first_scope)
+            .map(|s| s.starts_with(&sys_temp))
+            .unwrap_or(false)
+    } else {
+        false
+    };
 
     if is_temp_scope {
         // If the scope is a temp dir, it should be blocked in high security mode
