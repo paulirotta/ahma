@@ -13,10 +13,76 @@ use ahma_mcp::test_utils as common;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, CallToolResult};
 use serde_json::json;
 use std::fs;
 use tempfile::TempDir;
+
+fn result_text(result: &CallToolResult) -> String {
+    result
+        .content
+        .iter()
+        .filter_map(|content| content.as_text().map(|text| text.text.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn blocked_shell_result_indicates_failure(result: &CallToolResult) -> bool {
+    if result.is_error.unwrap_or(false) {
+        return true;
+    }
+
+    let text = result_text(result);
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+        let exit_code = json.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(0);
+        let stderr = json
+            .get("stderr")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let stdout = json
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        return exit_code != 0
+            || stderr.contains("permission denied")
+            || stderr.contains("outside the sandbox")
+            || stderr.contains("no such file or directory")
+            || stdout.contains("permission denied")
+            || stdout.contains("outside the sandbox")
+            || stdout.contains("no such file or directory");
+    }
+
+    let lower = text.to_ascii_lowercase();
+    lower.contains("command failed")
+        || lower.contains("failed")
+        || lower.contains("permission denied")
+        || lower.contains("outside the sandbox")
+        || lower.contains("no such file or directory")
+        || lower.contains("high-security mode")
+}
+
+fn assert_blocked_shell_result<E: std::fmt::Debug>(
+    result: Result<CallToolResult, E>,
+    leaked_content: &str,
+    message: &str,
+) {
+    match result {
+        Err(_) => {}
+        Ok(result) => {
+            let text = result_text(&result);
+            assert!(
+                !text.contains(leaked_content),
+                "{message}: blocked command leaked sensitive content. Output: {text}"
+            );
+            assert!(
+                blocked_shell_result_indicates_failure(&result),
+                "{message}: expected blocked command to be marked as failure. Output: {text}"
+            );
+        }
+    }
+}
 
 // =============================================================================
 // RED TEAM TEST 1: Path Traversal Attacks
@@ -297,8 +363,7 @@ async fn red_team_global_read_access_blocked() {
     init_test_logging();
 
     // macOS seatbelt cannot scope file reads — skip read-restriction assertion.
-    #[cfg(target_os = "macos")]
-    {
+    if cfg!(target_os = "macos") {
         println!("Skipping read-restriction assertion on macOS: seatbelt subpath rules for \
                   reads cannot coexist with bash startup on macOS 26+ (APFS/Cryptex issue). \
                   Write restriction is still enforced.");
@@ -328,12 +393,10 @@ async fn red_team_global_read_access_blocked() {
     );
 
     let result = client.call_tool(params).await;
-
-    // On Linux (Landlock), reading outside the scope fails → the shell exits non-zero
-    // → execute_sync_in_dir returns Err → execute_shell_sync returns McpError → Err here.
-    assert!(
-        result.is_err(),
-        "SECURITY: Should not be able to read file outside sandbox scope"
+    assert_blocked_shell_result(
+        result,
+        "secret content",
+        "SECURITY: Should not be able to read file outside sandbox scope",
     );
 
     client.cancel().await.unwrap();
@@ -427,10 +490,10 @@ async fn red_team_livelog_symlink_read_allowed() {
     #[cfg(not(target_os = "macos"))]
     {
         let result2 = client.call_tool(params2).await;
-        // On Linux, Landlock blocks reading outside scope → non-zero exit → Err.
-        assert!(
-            result2.is_err(),
-            "SECURITY: Livelog should not grant access to neighboring files outside scope"
+        assert_blocked_shell_result(
+            result2,
+            "forbidden content",
+            "SECURITY: Livelog should not grant access to neighboring files outside scope",
         );
     }
     #[cfg(target_os = "macos")]

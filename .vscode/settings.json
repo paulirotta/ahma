@@ -17,7 +17,12 @@
         "statusBar.foreground": "#15202b",
         "statusBarItem.hoverBackground": "#a5822e",
         "statusBarItem.remoteBackground": "#c9a03d",
-        "statusBarItem.remoteForeground": "#15202b"
+        "statusBarItem.remoteForeground": "#15202b",
+        "commandCenter.border": "#15202b99",
+        "titleBar.activeBackground": "#c9a03d",
+        "titleBar.activeForeground": "#15202b",
+        "titleBar.inactiveBackground": "#c9a03d99",
+        "titleBar.inactiveForeground": "#15202b99"
     },
     "peacock.color": "#c9a03d",
     "markdownlint.enable": false,

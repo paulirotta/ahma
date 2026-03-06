@@ -252,7 +252,9 @@ fn roots_handshake_timeout() -> Duration {
 
 fn post_roots_configured_grace_timeout() -> Duration {
     if coverage_mode() {
-        Duration::from_secs(60)
+        // Coverage instrumentation can delay sandbox setup well after roots/list
+        // has been answered, so reuse the full handshake window here.
+        roots_handshake_timeout()
     } else if cfg!(windows) {
         Duration::from_secs(45)
     } else {
