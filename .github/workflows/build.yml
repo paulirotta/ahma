@@ -124,15 +124,19 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Rust cache fallback (Windows)
+        if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-fallback-build
+
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
-          fi
+          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
 
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
@@ -148,9 +152,11 @@ jobs:
           cargo build --locked
 
       - name: Cargo Clippy
+        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --locked
 
       - name: Cargo Clippy Tests
+        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --tests --locked
 
       - name: Cargo Doc
@@ -247,15 +253,19 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Rust cache fallback (Windows)
+        if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-fallback-test
+
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Configure sccache environment
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
-          fi
+          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
 
       - name: Setup Cargo Binstall
         uses: cargo-bins/cargo-binstall@main
@@ -640,6 +650,12 @@ jobs:
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Rust cache fallback (Windows native)
+        if: runner.os == 'Windows' && !matrix.use_cross
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-fallback-release
+
       - name: sccache-action
         if: "!matrix.use_cross"
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -648,9 +664,7 @@ jobs:
         if: "!matrix.use_cross"
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "SCCACHE_DIRECT=true" >> $GITHUB_ENV
-          fi
+          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
 
 
       - name: Setup Cargo Binstall
