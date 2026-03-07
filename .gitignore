@@ -34,6 +34,6 @@ coverage.json
 analysis_results/
 CODE_SIMPLICITY.*
 
-# Local Ahma Logs
-/log
-log/
+# Local Ahma Logs and temporary files during development
+log
+temp

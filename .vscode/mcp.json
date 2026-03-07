@@ -4,10 +4,8 @@
             "type": "stdio",
             "command": "ahma_mcp",
             "args": [
-                "--rust",
-                "--simplify",
-                "--fileutils",
-                "--tmp"
+                "--tmp",
+                "--livelog"
             ]
         }
     }

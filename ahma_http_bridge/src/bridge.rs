@@ -702,10 +702,9 @@ for line in sys.stdin:
             .expect("SSE mark should succeed");
 
         // Wait for the subprocess to confirm sandbox configuration (Active state).
-        // Windows CI runners can have higher scheduling and process startup jitter.
-        let sandbox_active_timeout_secs = if cfg!(target_os = "windows") { 20 } else { 5 };
+        // Use generous timeout for all platforms (CI environments are slower and more variable).
         tokio::time::timeout(
-            std::time::Duration::from_secs(sandbox_active_timeout_secs),
+            std::time::Duration::from_secs(20),
             session.wait_for_sandbox_active(),
         )
         .await
