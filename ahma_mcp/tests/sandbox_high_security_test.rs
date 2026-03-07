@@ -1,60 +1,37 @@
 use ahma_mcp::sandbox::{Sandbox, SandboxMode};
-use std::path::Path;
-use tempfile::tempdir;
+use ahma_mcp::test_utils::path_helpers::{test_out_of_scope_path, test_temp_path};
 
 #[test]
 fn test_high_security_mode_enforcement() {
-    // Initialize sandbox with a temp dir
-    let temp = tempdir().unwrap();
-    let scope = temp.path().to_path_buf();
+    // Use the crate directory as a non-temp scope so that paths inside it
+    // are not rejected by the no_temp_files policy.
+    let scope = dunce::canonicalize(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))).unwrap();
 
-    // Enable high security mode (no temp files)
     let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, true, false).unwrap();
-
     assert!(sandbox.is_no_temp_files());
 
-    let current_scopes = sandbox.scopes();
-    let first_scope = &current_scopes[0];
-
-    // 1. Valid path in scope should be allowed UNLESS it's a temp dir and high security is on
-    let valid_path = first_scope.join("test.txt");
+    // 1. Path inside the (non-temp) scope should be allowed
+    let valid_path = scope.join("Cargo.toml");
     let result = sandbox.validate_path(&valid_path);
-
-    let is_temp_scope = if let Ok(sys_temp) = dunce::canonicalize(std::env::temp_dir()) {
-        dunce::canonicalize(first_scope)
-            .map(|s| s.starts_with(&sys_temp))
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if is_temp_scope {
-        // If the scope is a temp dir, it should be blocked in high security mode
-        assert!(
-            result.is_err(),
-            "Path in temp scope should be blocked in high security mode"
-        );
-    } else {
-        assert!(
-            result.is_ok(),
-            "Valid path in non-temp scope should be allowed: {:?}",
-            result.err()
-        );
-    }
-
-    // 2. Path in /tmp should be blocked
-    let tmp_path = Path::new("/tmp/test.txt");
-    let result = sandbox.validate_path(tmp_path);
     assert!(
-        result.is_err(),
-        "Path in /tmp should be blocked in high security mode"
+        result.is_ok(),
+        "Valid path in non-temp scope should be allowed: {:?}",
+        result.err()
     );
 
-    // 3. Path in /dev should be blocked
-    let dev_path = Path::new("/dev/null");
-    let result = sandbox.validate_path(dev_path);
+    // 2. Path in the system temp dir should be blocked (out of scope AND temp)
+    let tmp_path = test_temp_path("high_security_test.txt");
+    let result = sandbox.validate_path(&tmp_path);
     assert!(
         result.is_err(),
-        "Path in /dev should be blocked in high security mode"
+        "Path in system temp dir should be blocked in high security mode"
+    );
+
+    // 3. Path completely outside scope should be blocked
+    let outside_path = test_out_of_scope_path();
+    let result = sandbox.validate_path(&outside_path);
+    assert!(
+        result.is_err(),
+        "Path outside sandbox scope should be blocked"
     );
 }

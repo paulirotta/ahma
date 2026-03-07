@@ -161,20 +161,20 @@ mod tests {
     #[tokio::test]
     async fn test_validate_path_symlink_escape_blocked() -> Result<()> {
         let temp = TempDir::new()?;
-        let root = temp.path();
+        let _root = temp.path();
         #[cfg(unix)]
         let outside = temp.path().parent().unwrap();
 
         // Create a symlink inside root pointing outside
         #[cfg(unix)]
-        let link_path = root.join("escape_link");
+        let link_path = _root.join("escape_link");
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside, &link_path)?;
 
         #[cfg(unix)]
         {
             // Trying to access via symlink should fail
-            let result = validate_path(&link_path.join("anything"), root).await;
+            let result = validate_path(&link_path.join("anything"), _root).await;
             assert!(result.is_err(), "Symlink escape should be blocked");
         }
         Ok(())

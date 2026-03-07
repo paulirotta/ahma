@@ -156,6 +156,21 @@ Tests are organized into three categories:
 - **Deterministic**: Same input always produces same output
 - **Documented**: Test names describe what they verify
 
+### Cross-Platform Test Checklist
+
+All tests run on Linux, macOS, **and Windows** CI. Follow these rules to avoid platform-specific breakage:
+
+- **Never hardcode `/tmp`, `/var/folders`, or `/dev/null`** in tests. Use `test_utils::path_helpers`:
+  - `test_temp_path("name")` — path inside `std::env::temp_dir()` (works on all platforms)
+  - `test_out_of_scope_path()` — guaranteed outside any sandbox scope
+  - `test_blocked_device_path()` — platform device path (`/dev/null` or `NUL`)
+  - `test_abs(&["a","b"])` and `test_root()` — platform-rooted absolute paths
+- **Never hardcode `/bin/sh`, `/bin/bash`, or bash-specific syntax** (e.g. `>&2`, `2>&1`) in shell command strings sent through the tool pipeline. On Windows the shell is `pwsh` (PowerShell), which uses different redirection syntax.
+- **Prefer `std::env::temp_dir()`** over `/tmp` for any temp-related logic.
+- **Use `Path`/`PathBuf` APIs** instead of string manipulation for path separators — never assume `/` or `\\`.
+- **Avoid `#[cfg(unix)]` gating when cross-platform alternatives exist.** If a test is genuinely Unix-only (e.g. uses `std::os::unix::fs::symlink`), gating is correct. But never gate a test that could be rewritten with cross-platform APIs.
+- **Be aware that `Path::starts_with` is case-sensitive on Windows** even though the filesystem is case-insensitive. Use `dunce::canonicalize` on both sides of comparisons.
+
 ### Hard Invariants (Do Not “Test Around” These)
 
 #### MCP Streamable HTTP Handshake (HTTP Bridge)

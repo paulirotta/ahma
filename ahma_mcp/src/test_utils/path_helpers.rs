@@ -11,6 +11,14 @@
 //! Using these helpers instead of hard-coding `/a/b/c` strings lets every
 //! normalization test run without a `#[cfg(unix)]` guard.
 //!
+//! ## Additional helpers
+//!
+//! | Helper                      | Purpose                                           |
+//! |-----------------------------|---------------------------------------------------|
+//! | [`test_temp_path`]          | Path inside system temp dir (for temp-blocked tests) |
+//! | [`test_out_of_scope_path`]  | Absolute path guaranteed outside any sandbox scope |
+//! | [`test_blocked_device_path`]| Platform device path (`/dev/null` / `NUL`)         |
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -63,4 +71,57 @@ pub fn test_abs(components: &[&str]) -> PathBuf {
         p = p.join(c);
     }
     p
+}
+
+/// Returns a path inside the system temp directory.
+///
+/// Use this instead of hard-coding `/tmp/…` — on Windows the system temp dir
+/// is typically `C:\Users\<user>\AppData\Local\Temp`.
+///
+/// ```rust,ignore
+/// let p = test_temp_path("my_test_file.txt");
+/// assert!(p.starts_with(std::env::temp_dir()));
+/// ```
+pub fn test_temp_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(name)
+}
+
+/// Returns an absolute path guaranteed to be outside any realistic sandbox scope.
+///
+/// Useful for asserting that out-of-scope access is rejected.
+///
+/// * Unix    → `/nonexistent_scope/file.txt`
+/// * Windows → `Z:\nonexistent_scope\file.txt`
+pub fn test_out_of_scope_path() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/nonexistent_scope/file.txt")
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from("Z:\\nonexistent_scope\\file.txt")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        PathBuf::from("/nonexistent_scope/file.txt")
+    }
+}
+
+/// Returns a platform-appropriate device/special path for blocked-path testing.
+///
+/// * Unix    → `/dev/null`
+/// * Windows → `NUL`
+pub fn test_blocked_device_path() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/dev/null")
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from("NUL")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        PathBuf::from("/dev/null")
+    }
 }

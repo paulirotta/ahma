@@ -11,6 +11,7 @@ use ahma_http_bridge::DEFAULT_HANDSHAKE_TIMEOUT_SECS;
 use ahma_http_bridge::session::{
     McpRoot, SessionManager, SessionManagerConfig, SessionTerminationReason,
 };
+use ahma_mcp::test_utils::path_helpers::test_temp_path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,7 +56,7 @@ fn test_file_uri(relative_path: &str) -> (String, PathBuf) {
 /// Test creating many sessions concurrently
 #[tokio::test]
 async fn test_concurrent_session_creation() {
-    let default_scope = PathBuf::from("/tmp/stress_test");
+    let default_scope = test_temp_path("stress_test");
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope)));
 
     let num_sessions = 50;
@@ -124,7 +125,7 @@ async fn test_concurrent_session_creation() {
 /// Test concurrent session creation and termination (race condition stress)
 #[tokio::test]
 async fn test_concurrent_creation_and_termination() {
-    let default_scope = PathBuf::from("/tmp/race_test");
+    let default_scope = test_temp_path("race_test");
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope)));
 
     let num_iterations = 20;
@@ -164,7 +165,7 @@ async fn test_concurrent_creation_and_termination() {
 /// Test sandbox locking races
 #[tokio::test]
 async fn test_concurrent_sandbox_lock_attempts() {
-    let default_scope = PathBuf::from("/tmp/lock_race_test");
+    let default_scope = test_temp_path("lock_race_test");
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope)));
 
     // Create a single session
@@ -218,7 +219,7 @@ async fn test_concurrent_sandbox_lock_attempts() {
 /// Test many sessions with independent sandbox scopes
 #[tokio::test]
 async fn test_many_independent_sandbox_scopes() {
-    let default_scope = PathBuf::from("/tmp/multi_scope_test");
+    let default_scope = test_temp_path("multi_scope_test");
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope.clone())));
 
     let num_sessions = 20;
@@ -287,7 +288,7 @@ async fn test_many_independent_sandbox_scopes() {
 /// Test session termination with all termination reasons
 #[tokio::test]
 async fn test_termination_reasons() {
-    let default_scope = PathBuf::from("/tmp/term_reasons_test");
+    let default_scope = test_temp_path("term_reasons_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let reasons = vec![
@@ -319,7 +320,7 @@ async fn test_termination_reasons() {
 /// Test rapid session lifecycle (create, lock, terminate in quick succession)
 #[tokio::test]
 async fn test_rapid_session_lifecycle() {
-    let default_scope = PathBuf::from("/tmp/rapid_lifecycle_test");
+    let default_scope = test_temp_path("rapid_lifecycle_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let num_cycles = 100;
@@ -355,7 +356,7 @@ async fn test_rapid_session_lifecycle() {
 /// Test handle_roots_changed on sessions without locked sandbox
 #[tokio::test]
 async fn test_roots_changed_before_lock() {
-    let default_scope = PathBuf::from("/tmp/roots_changed_test");
+    let default_scope = test_temp_path("roots_changed_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let session_id = session_manager.create_session().await.unwrap();
@@ -372,7 +373,7 @@ async fn test_roots_changed_before_lock() {
 /// Test get_session for non-existent session
 #[tokio::test]
 async fn test_get_nonexistent_session() {
-    let default_scope = PathBuf::from("/tmp/nonexistent_test");
+    let default_scope = test_temp_path("nonexistent_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let result = session_manager.get_session("nonexistent-session-id");
@@ -385,7 +386,7 @@ async fn test_get_nonexistent_session() {
 /// Test session_exists for various scenarios
 #[tokio::test]
 async fn test_session_exists_scenarios() {
-    let default_scope = PathBuf::from("/tmp/exists_test");
+    let default_scope = test_temp_path("exists_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     // Non-existent session
@@ -406,7 +407,7 @@ async fn test_session_exists_scenarios() {
 /// Test duplicate termination (should be idempotent or error gracefully)
 #[tokio::test]
 async fn test_duplicate_termination() {
-    let default_scope = PathBuf::from("/tmp/dup_term_test");
+    let default_scope = test_temp_path("dup_term_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let session_id = session_manager.create_session().await.unwrap();
@@ -428,7 +429,7 @@ async fn test_duplicate_termination() {
 /// Test URI parsing edge cases
 #[tokio::test]
 async fn test_uri_parsing_edge_cases() {
-    let default_scope = PathBuf::from("/tmp/uri_test");
+    let default_scope = test_temp_path("uri_test");
     let session_manager = create_test_session_manager(Some(default_scope.clone()));
 
     #[cfg(not(target_os = "windows"))]
@@ -498,7 +499,7 @@ async fn test_uri_parsing_edge_cases() {
 /// Test timeout behavior with long operations (simulated)
 #[tokio::test]
 async fn test_session_operations_with_timeout() {
-    let default_scope = PathBuf::from("/tmp/timeout_test");
+    let default_scope = test_temp_path("timeout_test");
     let session_manager = Arc::new(create_test_session_manager(Some(default_scope)));
 
     let session_id = session_manager.create_session().await.unwrap();
@@ -559,7 +560,7 @@ async fn test_empty_roots_rejected() {
 /// Test multiple roots - should use first root's path
 #[tokio::test]
 async fn test_multiple_roots_uses_first() {
-    let default_scope = PathBuf::from("/tmp/multi_roots_test");
+    let default_scope = test_temp_path("multi_roots_test");
     let session_manager = create_test_session_manager(Some(default_scope));
 
     let session_id = session_manager.create_session().await.unwrap();
