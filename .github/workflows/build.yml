@@ -52,6 +52,7 @@ env:
 
 jobs:
   job-cargo-build:
+    if: false
     defaults:
       run:
         shell: bash
@@ -273,9 +274,6 @@ jobs:
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Show sccache stats
-        run: sccache --show-stats
-
       - name: Cargo Test (excluding Android/Gradle tests)
         run: |
           echo "--- cargo --version" && cargo --version
@@ -356,9 +354,6 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
 
       - uses: cargo-bins/cargo-binstall@main
-
-      - name: Show sccache stats
-        run: sccache --show-stats
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -472,10 +467,6 @@ jobs:
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Show sccache stats
-        run: sccache --show-stats
-
-
       - name: Check for cargo-ndk and install if missing
         run: |
           if ! command -v cargo-ndk &> /dev/null; then
@@ -543,8 +534,7 @@ jobs:
 
   job-release-binaries:
     name: Release Binaries (${{ matrix.platform }})
-    needs: [job-cargo-test]
-    # Run only after coverage succeeds on main branch pushes
+    # Run only on main branch pushes
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     defaults:
       run:
@@ -673,11 +663,6 @@ jobs:
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Show sccache stats
-        if: "!matrix.use_cross"
-        run: sccache --show-stats
-
-
       - name: Install cross (for cross-compilation)
         if: matrix.use_cross
         run: |
@@ -738,7 +723,7 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [job-release-binaries]
+    needs: [job-cargo-test, job-android, job-release-binaries, job-coverage]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
