@@ -4,8 +4,6 @@
             "type": "stdio",
             "command": "ahma_mcp",
             "args": [
-                "--log-to-stderr",
-                "--rust",
                 "--tmp"
             ]
         }
