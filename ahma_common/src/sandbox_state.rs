@@ -223,37 +223,39 @@ mod tests {
     use std::time::Duration;
     use tokio::time::timeout;
 
+    fn test_scope() -> PathBuf {
+        std::env::temp_dir().join("ahma_test_scope")
+    }
+
     #[test]
     fn test_valid_transitions() {
+        let scope = test_scope();
         let sm = SandboxStateMachine::new();
         assert!(matches!(sm.current(), SandboxState::AwaitingRoots));
 
-        sm.transition_to_configuring(vec![PathBuf::from("/tmp")])
-            .unwrap();
+        sm.transition_to_configuring(vec![scope.clone()]).unwrap();
         assert!(matches!(
             sm.current(),
-            SandboxState::Configuring { scopes } if scopes == vec![PathBuf::from("/tmp")]
+            SandboxState::Configuring { scopes } if scopes == vec![scope.clone()]
         ));
 
         sm.transition_to_active().unwrap();
         assert!(matches!(
             sm.current(),
-            SandboxState::Active { scopes } if scopes == vec![PathBuf::from("/tmp")]
+            SandboxState::Active { scopes } if scopes == vec![scope]
         ));
     }
 
     #[test]
     fn test_invalid_transition_awaiting_to_active() {
         let sm = SandboxStateMachine::new();
-        // Can't go directly to Active from AwaitingRoots
         assert!(sm.transition_to_active().is_err());
     }
 
     #[test]
     fn test_failed_transition() {
         let sm = SandboxStateMachine::new();
-        sm.transition_to_configuring(vec![PathBuf::from("/tmp")])
-            .unwrap();
+        sm.transition_to_configuring(vec![test_scope()]).unwrap();
         sm.transition_to_failed("Test error".to_string()).unwrap();
 
         assert!(matches!(
@@ -261,37 +263,35 @@ mod tests {
             SandboxState::Failed { error } if error == "Test error"
         ));
 
-        // Can't transition from failed
         assert!(sm.transition_to_terminated().is_err());
     }
 
     #[tokio::test]
     async fn test_wait_for_active_immediate() {
-        let sm = SandboxStateMachine::new_active(vec![PathBuf::from("/home/user")]);
+        let scope = std::env::temp_dir().join("ahma_home_user");
+        let sm = SandboxStateMachine::new_active(vec![scope.clone()]);
         let result = sm.wait_for_active().await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), vec![PathBuf::from("/home/user")]);
+        assert_eq!(result.unwrap(), vec![scope]);
     }
 
     #[tokio::test]
     async fn test_wait_for_active_delayed() {
+        let scope = std::env::temp_dir().join("ahma_project");
+        let expected = scope.clone();
         let sm = SandboxStateMachine::new();
         let sm_clone = sm.clone();
 
-        // Spawn a task that will transition to active after a delay
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            sm_clone
-                .transition_to_configuring(vec![PathBuf::from("/project")])
-                .unwrap();
+            sm_clone.transition_to_configuring(vec![scope]).unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
             sm_clone.transition_to_active().unwrap();
         });
 
-        // Wait should complete when active
         let result = timeout(Duration::from_secs(1), sm.wait_for_active()).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().unwrap(), vec![PathBuf::from("/project")]);
+        assert_eq!(result.unwrap().unwrap(), vec![expected]);
     }
 
     #[tokio::test]
@@ -316,14 +316,10 @@ mod tests {
         let sm = SandboxStateMachine::new();
         let mut rx = sm.subscribe();
 
-        // Initial state
         assert!(matches!(*rx.borrow(), SandboxState::AwaitingRoots));
 
-        // Transition
-        sm.transition_to_configuring(vec![PathBuf::from("/tmp")])
-            .unwrap();
+        sm.transition_to_configuring(vec![test_scope()]).unwrap();
 
-        // Subscriber should see the update
         assert!(rx.has_changed().unwrap());
         assert!(matches!(
             &*rx.borrow_and_update(),

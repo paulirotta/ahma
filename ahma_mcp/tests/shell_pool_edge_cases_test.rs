@@ -513,6 +513,7 @@ async fn test_shell_pool_exit_code_capture() {
 // ============================================================================
 
 /// Test that stderr is captured separately from stdout
+#[cfg(unix)]
 #[tokio::test]
 async fn test_shell_pool_stderr_capture() {
     let temp_dir = TempDir::new().unwrap();

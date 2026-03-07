@@ -432,12 +432,12 @@ async fn test_execute_async_with_empty_options() {
     adapter.shutdown().await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_sync_execution_with_complex_error_handling() {
     init_test_logging();
     let (adapter, temp_dir) = create_simple_test_adapter().await;
 
-    // Test sync execution with command that produces stderr but exits successfully
     let result = adapter
         .execute_sync_in_dir(
             "sh",
@@ -455,18 +455,17 @@ async fn test_sync_execution_with_complex_error_handling() {
         )
         .await;
 
-    // The command might succeed or fail, but it should handle gracefully
     assert!(result.is_ok() || result.is_err());
 
     adapter.shutdown().await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_sync_execution_stderr_only() {
     init_test_logging();
     let (adapter, temp_dir) = create_simple_test_adapter().await;
 
-    // Test command that only outputs to stderr
     let result = adapter
         .execute_sync_in_dir(
             "sh",
@@ -481,8 +480,6 @@ async fn test_sync_execution_stderr_only() {
         )
         .await;
 
-    // The command might fail or succeed depending on shell behavior
-    // What matters is that it doesn't panic and handles the case gracefully
     assert!(result.is_ok() || result.is_err());
 
     adapter.shutdown().await;

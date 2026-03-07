@@ -461,7 +461,7 @@ mod tests {
             server_command: "custom_server".to_string(),
             server_args: vec!["--arg1".to_string(), "value1".to_string()],
             enable_colored_output: false,
-            default_sandbox_scope: Some(PathBuf::from("/tmp")),
+            default_sandbox_scope: Some(std::env::temp_dir()),
             handshake_timeout_secs: 10,
         };
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:8080");

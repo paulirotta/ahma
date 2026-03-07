@@ -11,6 +11,7 @@
 
 use ahma_http_bridge::DEFAULT_HANDSHAKE_TIMEOUT_SECS;
 use ahma_http_bridge::session::{McpRoot, SessionManager, SessionManagerConfig};
+use ahma_mcp::test_utils::path_helpers::{test_abs, test_temp_path};
 use std::path::PathBuf;
 
 /// Test that --no-temp-files is properly passed through server_args
@@ -27,7 +28,7 @@ fn test_no_temp_files_flag_in_server_args() {
     let config = SessionManagerConfig {
         server_command: "ahma_mcp".to_string(),
         server_args: server_args.clone(),
-        default_scope: Some(PathBuf::from("/tmp/test")),
+        default_scope: Some(test_temp_path("test")),
         enable_colored_output: false,
         handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
     };
@@ -72,7 +73,7 @@ fn test_sandbox_scope_from_file_uri() {
 /// Test that SessionManagerConfig properly stores the default scope
 #[test]
 fn test_session_manager_config_default_scope() {
-    let default_scope = PathBuf::from("/Users/test/fallback_workspace");
+    let default_scope = test_abs(&["Users", "test", "fallback_workspace"]);
 
     let config = SessionManagerConfig {
         server_command: "ahma_mcp".to_string(),
@@ -95,7 +96,7 @@ async fn test_session_isolation_creates_separate_sessions() {
     let config = SessionManagerConfig {
         server_command: "echo".to_string(), // Use echo as safe subprocess
         server_args: vec!["test".to_string()],
-        default_scope: Some(PathBuf::from("/tmp/isolation_test")),
+        default_scope: Some(test_temp_path("isolation_test")),
         enable_colored_output: false,
         handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
     };
@@ -131,7 +132,7 @@ async fn test_sandbox_lock_immutability() {
     let config = SessionManagerConfig {
         server_command: "echo".to_string(),
         server_args: vec![],
-        default_scope: Some(PathBuf::from("/tmp/lock_test")),
+        default_scope: Some(test_temp_path("lock_test")),
         enable_colored_output: false,
         handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
     };
@@ -198,29 +199,21 @@ async fn test_sandbox_lock_immutability() {
 /// This is a unit test for scope validation logic
 #[test]
 fn test_sandbox_scope_validation_logic() {
-    // Test that paths are validated against scope
-    let sandbox_scope = PathBuf::from("/Users/test/project");
+    let sandbox_scope = test_abs(&["Users", "test", "project"]);
 
-    // Path inside sandbox
-    let valid_path = PathBuf::from("/Users/test/project/src/main.rs");
+    let valid_path = test_abs(&["Users", "test", "project", "src", "main.rs"]);
     assert!(
         valid_path.starts_with(&sandbox_scope),
         "Path inside sandbox should be valid"
     );
 
-    // Path outside sandbox
-    let invalid_path = PathBuf::from("/Users/test/other_project/secrets.txt");
+    let invalid_path = test_abs(&["Users", "test", "other_project", "secrets.txt"]);
     assert!(
         !invalid_path.starts_with(&sandbox_scope),
         "Path outside sandbox should be invalid"
     );
 
-    // Path traversal attempt
-    let _traversal_path = PathBuf::from("/Users/test/project/../other_project/secrets.txt");
-    // Note: This test just shows the path structure. Actual validation uses
-    // canonicalization which resolves the .. and then checks.
-    // After canonicalization, this would become /Users/test/other_project/secrets.txt
-    let canonicalized = PathBuf::from("/Users/test/other_project/secrets.txt");
+    let canonicalized = test_abs(&["Users", "test", "other_project", "secrets.txt"]);
     assert!(
         !canonicalized.starts_with(&sandbox_scope),
         "Canonicalized traversal path should be outside sandbox"
@@ -233,7 +226,7 @@ async fn test_multi_root_workspace_sandbox() {
     let config = SessionManagerConfig {
         server_command: "echo".to_string(),
         server_args: vec![],
-        default_scope: Some(PathBuf::from("/tmp/multi_root_test")),
+        default_scope: Some(test_temp_path("multi_root_test")),
         enable_colored_output: false,
         handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
     };
@@ -320,7 +313,7 @@ async fn test_empty_roots_rejected() {
 /// Test empty roots use explicit fallback scope when configured.
 #[tokio::test]
 async fn test_empty_roots_use_explicit_fallback_scope() {
-    let fallback_scope = PathBuf::from("/tmp/default_scope_test");
+    let fallback_scope = test_temp_path("default_scope_test");
 
     let config = SessionManagerConfig {
         server_command: "echo".to_string(),

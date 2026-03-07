@@ -157,9 +157,15 @@ async fn test_stderr_output_callback() -> Result<()> {
     init_test_logging();
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    // Command that writes to stderr
+    #[cfg(unix)]
+    let stderr_cmd = "echo 'stderr test' >&2";
+    #[cfg(windows)]
+    let stderr_cmd = "Write-Error 'stderr test'";
+    #[cfg(not(any(unix, windows)))]
+    let stderr_cmd = "echo 'stderr test' >&2";
+
     let shell_params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
-        json!({ "command": "echo 'stderr test' >&2" })
+        json!({ "command": stderr_cmd })
             .as_object()
             .unwrap()
             .clone(),

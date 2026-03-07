@@ -109,8 +109,7 @@ async fn test_multiline_argument_with_echo() {
     )));
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
 
-    // Create a sandbox with root scope
-    let scopes = vec![std::path::PathBuf::from("/")];
+    let scopes = vec![ahma_mcp::test_utils::path_helpers::test_root()];
     let sandbox =
         Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
 
