@@ -24,7 +24,7 @@ mod flag_combination_tests {
     /// Test --sync flag behavior
     #[test]
     fn test_ahma_mcp_sync_flag() {
-        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -46,7 +46,7 @@ mod flag_combination_tests {
     /// Test --debug flag behavior
     #[test]
     fn test_ahma_mcp_debug_flag() {
-        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -68,7 +68,7 @@ mod flag_combination_tests {
     /// Test --log-to-stderr flag behavior
     #[test]
     fn test_ahma_mcp_log_to_stderr_flag() {
-        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -90,7 +90,7 @@ mod flag_combination_tests {
     /// Test --tools-dir flag with custom directory
     #[test]
     fn test_ahma_mcp_custom_tools_dir() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let tools_dir = temp_dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
@@ -156,7 +156,7 @@ mod flag_combination_tests {
     /// Test --sandbox-scope flag
     #[test]
     fn test_ahma_mcp_sandbox_scope_flag() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -178,7 +178,7 @@ mod flag_combination_tests {
     /// Test combining multiple flags
     #[test]
     fn test_ahma_mcp_multiple_flags() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -222,7 +222,7 @@ mod error_handling_tests {
     /// Test empty tools directory
     #[test]
     fn test_ahma_mcp_empty_tools_dir() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let tools_dir = temp_dir.path().join("empty_tools");
         std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
@@ -244,7 +244,7 @@ mod error_handling_tests {
     /// Test invalid JSON in tools directory
     #[test]
     fn test_ahma_mcp_invalid_tool_json() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let tools_dir = temp_dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
@@ -267,7 +267,7 @@ mod error_handling_tests {
     /// Test tool with missing required field
     #[test]
     fn test_ahma_mcp_incomplete_tool_config() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let tools_dir = temp_dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
@@ -296,7 +296,7 @@ mod error_handling_tests {
     /// Test tool that doesn't exist on system
     #[test]
     fn test_ahma_mcp_unavailable_command() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let tools_dir = temp_dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
@@ -349,7 +349,7 @@ mod mode_tests {
     /// Test --mode stdio requires proper environment
     #[test]
     fn test_ahma_mcp_stdio_mode_without_client() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -372,7 +372,7 @@ mod mode_tests {
     /// Test --mode http requires port specification
     #[test]
     fn test_ahma_mcp_http_mode_default_port() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -394,7 +394,7 @@ mod mode_tests {
     /// Test invalid mode
     #[test]
     fn test_ahma_mcp_invalid_mode() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
 
         let output = test_command(&binary)
@@ -425,7 +425,7 @@ mod cli_execution_tests {
     /// Test running a simple tool in CLI mode
     #[test]
     fn test_ahma_mcp_cli_simple_tool() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -455,7 +455,7 @@ mod cli_execution_tests {
     /// Test running tool with arguments
     #[test]
     fn test_ahma_mcp_cli_tool_with_args() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -483,7 +483,7 @@ mod cli_execution_tests {
     /// Test running tool in sync mode
     #[test]
     fn test_ahma_mcp_cli_sync_execution() {
-        let binary = build_binary("ahma_mcp", "ahma_mcp");
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -517,7 +517,7 @@ mod ahma_validate_extended_tests {
     /// Test validation in verbose mode
     #[test]
     fn test_ahma_validate_verbose_mode() {
-        let binary = build_binary("ahma_validate", "ahma_validate");
+        let binary = build_binary("ahma_validate", "ahma-validate");
 
         let output = Command::new(&binary)
             .args(["--help"])
@@ -549,7 +549,7 @@ mod ahma_validate_extended_tests {
     /// Test validation with specific file patterns
     #[test]
     fn test_ahma_validate_specific_files() {
-        let binary = build_binary("ahma_validate", "ahma_validate");
+        let binary = build_binary("ahma_validate", "ahma-validate");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -582,7 +582,7 @@ mod generate_schema_extended_tests {
     /// Test schema generation with custom output filename
     #[test]
     fn test_generate_schema_custom_filename() {
-        let binary = build_binary("generate_tool_schema", "generate_tool_schema");
+        let binary = build_binary("generate_tool_schema", "generate-tool-schema");
 
         let output = Command::new(&binary)
             .args(["--help"])
@@ -600,7 +600,7 @@ mod generate_schema_extended_tests {
     /// Test schema generation produces valid JSON Schema
     #[test]
     fn test_generate_schema_valid_json_schema() {
-        let binary = build_binary("generate_tool_schema", "generate_tool_schema");
+        let binary = build_binary("generate_tool_schema", "generate-tool-schema");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let workspace = workspace_dir();
 

@@ -58,7 +58,7 @@ fn roots_handshake_timeout() -> Duration {
 
 /// Build and get the ahma_mcp binary path
 fn get_ahma_mcp_binary() -> PathBuf {
-    ahma_mcp::test_utils::cli::build_binary_cached("ahma-mcp", "ahma-mcp")
+    ahma_mcp::test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp")
 }
 
 /// Start an HTTP bridge server with deferred sandbox (for roots/list testing)

@@ -49,7 +49,7 @@ fn find_available_port() -> u16 {
 }
 
 fn get_ahma_mcp_binary() -> PathBuf {
-    ahma_mcp::test_utils::cli::build_binary_cached("ahma-mcp", "ahma-mcp")
+    ahma_mcp::test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp")
 }
 
 async fn start_deferred_sandbox_server(
