@@ -38,7 +38,7 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
     // Find available port
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
 
-    let binary = cli::build_binary_cached("ahma_mcp", "ahma_mcp");
+    let binary = cli::build_binary_cached("ahma_mcp", "ahma-mcp");
 
     let temp_dir = TempDir::new()?;
     let tools_dir = temp_dir.path().join("tools");

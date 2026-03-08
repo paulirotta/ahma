@@ -693,18 +693,18 @@ jobs:
           mkdir -p dist
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             archive_name="ahma-release-${platform}.zip"
-            cp "target/${{ matrix.target }}/release/ahma_mcp.exe" dist/
-            cp "target/${{ matrix.target }}/release/ahma_simplify.exe" dist/
+            cp "target/${{ matrix.target }}/release/ahma-mcp.exe" dist/
+            cp "target/${{ matrix.target }}/release/ahma-simplify.exe" dist/
             cp README.md dist/
-            (cd dist && sha256sum ahma_mcp.exe ahma_simplify.exe > SHA256SUMS)
-            (cd dist && 7z a "../${archive_name}" ahma_mcp.exe ahma_simplify.exe SHA256SUMS README.md)
+            (cd dist && sha256sum ahma-mcp.exe ahma-simplify.exe > SHA256SUMS)
+            (cd dist && 7z a "../${archive_name}" ahma-mcp.exe ahma-simplify.exe SHA256SUMS README.md)
           else
             archive_name="ahma-release-${platform}.tar.gz"
-            cp target/${{ matrix.target }}/release/ahma_mcp dist/
-            cp target/${{ matrix.target }}/release/ahma_simplify dist/
+            cp target/${{ matrix.target }}/release/ahma-mcp dist/
+            cp target/${{ matrix.target }}/release/ahma-simplify dist/
             cp README.md dist/
-            (cd dist && shasum -a 256 ahma_mcp ahma_simplify > SHA256SUMS)
-            tar -czf "$archive_name" -C dist ahma_mcp ahma_simplify SHA256SUMS README.md
+            (cd dist && shasum -a 256 ahma-mcp ahma-simplify > SHA256SUMS)
+            tar -czf "$archive_name" -C dist ahma-mcp ahma-simplify SHA256SUMS README.md
           fi
           echo "archive_name=$archive_name" >> $GITHUB_OUTPUT
           echo "platform=$platform" >> $GITHUB_OUTPUT

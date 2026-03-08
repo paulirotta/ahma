@@ -74,7 +74,7 @@ impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
             bind_addr: "127.0.0.1:3000".parse().unwrap(),
-            server_command: "ahma_mcp".to_string(),
+            server_command: "ahma-mcp".to_string(),
             server_args: vec![],
             enable_colored_output: false,
             default_sandbox_scope: None,

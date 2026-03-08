@@ -90,7 +90,7 @@ pub fn resolve_binary_path() -> PathBuf {
     let debug_bin = ahma_mcp::test_utils::cli::get_binary_path("ahma-mcp", "ahma-mcp");
     // Construct sibling binary paths with the correct platform executable extension.
     let exe_ext = if cfg!(windows) { ".exe" } else { "" };
-    let bin_name = format!("ahma_mcp{exe_ext}");
+    let bin_name = format!("ahma-mcp{exe_ext}");
     let release_bin = debug_bin
         .parent()
         .and_then(|p| p.parent())

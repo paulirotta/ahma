@@ -18,7 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// Enables multiple IDE instances to share a single HTTP endpoint while maintaining
 /// separate sandbox scopes based on each client's workspace roots.
 #[derive(Parser, Debug)]
-#[command(name = "ahma_http_bridge")]
+#[command(name = "ahma-http-bridge")]
 #[command(version, about)]
 struct Args {
     /// Address to bind the HTTP server.
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("Debug mode detected - using local binary, colored output enabled");
                 (local_binary, true)
             } else {
-                ("ahma_mcp".to_string(), args.colored_output)
+                ("ahma-mcp".to_string(), args.colored_output)
             }
         }
     };
@@ -151,7 +151,7 @@ fn init_otel() -> Option<()> {
 }
 
 fn detect_local_debug_binary(base_dir: &Path) -> Option<String> {
-    let binary_path = base_dir.join("target").join("debug").join("ahma_mcp");
+    let binary_path = base_dir.join("target").join("debug").join("ahma-mcp");
     if binary_path.exists() {
         Some(binary_path.to_str()?.to_owned())
     } else {
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn detect_local_debug_binary_finds_existing_path() {
         let tmp = tempdir().unwrap();
-        let binary_path = tmp.path().join("target").join("debug").join("ahma_mcp");
+        let binary_path = tmp.path().join("target").join("debug").join("ahma-mcp");
         fs::create_dir_all(binary_path.parent().unwrap()).unwrap();
         fs::write(&binary_path, b"test").unwrap();
 

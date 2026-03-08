@@ -70,14 +70,14 @@ fn get_ahma_mcp_binary() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| workspace_dir.join("target"));
 
-    let binary_path = target_dir.join("debug/ahma_mcp");
+    let binary_path = target_dir.join("debug/ahma-mcp");
 
     // Optimization: Skip manual build if binary already exists to avoid
     // cargo lock contention during parallel testing (especially in CI).
     if !binary_path.exists() {
         let output = Command::new("cargo")
             .current_dir(&workspace_dir)
-            .args(["build", "--package", "ahma_mcp", "--bin", "ahma_mcp"])
+            .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
             .output()
             .expect("Failed to run cargo build");
 

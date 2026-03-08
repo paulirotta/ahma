@@ -10,10 +10,10 @@ MinimumOSVersion: "10.0.0.0"
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
-  - RelativeFilePath: ahma_mcp.exe
-    PortableCommandAlias: ahma_mcp
-  - RelativeFilePath: ahma_simplify.exe
-    PortableCommandAlias: ahma_simplify
+  - RelativeFilePath: ahma-mcp.exe
+    PortableCommandAlias: ahma-mcp
+  - RelativeFilePath: ahma-simplify.exe
+    PortableCommandAlias: ahma-simplify
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/paulirotta/ahma/releases/download/latest/ahma-release-windows-x86_64.zip
@@ -24,8 +24,8 @@ InstallModes:
 InstallerSwitches:
   Custom: ""
 Commands:
-  - ahma_mcp
-  - ahma_simplify
+  - ahma-mcp
+  - ahma-simplify
 ReleaseNotesUrl: https://github.com/paulirotta/ahma/releases/tag/latest
 ManifestType: installer
 ManifestVersion: 1.9.0

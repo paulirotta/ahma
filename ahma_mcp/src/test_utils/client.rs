@@ -41,7 +41,7 @@ fn get_test_binary_path() -> PathBuf {
 
             // Check for debug binary
             let workspace = get_workspace_dir();
-            let bin_name = format!("ahma_mcp{}", std::env::consts::EXE_SUFFIX);
+            let bin_name = format!("ahma-mcp{}", std::env::consts::EXE_SUFFIX);
 
             // Check CARGO_TARGET_DIR
             if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {

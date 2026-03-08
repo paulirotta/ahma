@@ -53,7 +53,7 @@ fn build_ahma_mcp_binary() -> PathBuf {
 
     let output = Command::new("cargo")
         .current_dir(&workspace_dir)
-        .args(["build", "--package", "ahma_mcp", "--bin", "ahma_mcp"])
+        .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
         .output()
         .expect("Failed to build ahma_mcp");
 
@@ -64,7 +64,7 @@ fn build_ahma_mcp_binary() -> PathBuf {
         );
     }
 
-    workspace_dir.join("target").join("debug").join("ahma_mcp")
+    workspace_dir.join("target").join("debug").join("ahma-mcp")
 }
 
 /// Skip helper macro - prints message and returns early if sandbox-exec unavailable
