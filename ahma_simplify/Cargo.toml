@@ -1,5 +1,5 @@
 [package]
-name = "ahma_simplify"
+name = "ahma-simplify"
 description = "Code simplicity metrics aggregator using the rust-code-analysis library"
 authors.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ name = "ahma_simplify"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ahma_simplify"
+name = "ahma-simplify"
 path = "src/main.rs"
 
 [dependencies]

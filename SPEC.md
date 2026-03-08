@@ -6,7 +6,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Core Tool Execution | tests-pass | `ahma_mcp` adapter executes CLI tools via MTDF JSON |
+| Core Tool Execution | tests-pass | `ahma-mcp` adapter executes CLI tools via MTDF JSON |
 | Async-First Operations | tests-pass | Operations return `id`, push results via MCP notifications |
 | Shell Pool | tests-pass | Pre-warmed bash/PowerShell shells for 5-20ms command startup latency |
 | Linux Sandbox (Landlock) | tests-pass | Kernel-level FS sandboxing on Linux 5.13+ |
@@ -29,8 +29,8 @@
 | MCP Callback Notifications | tests-pass | Push async results via `notifications/progress` |
 | HTTP MCP Client | tests-pass | Connect to external HTTP MCP servers |
 | OAuth 2.0 + PKCE | tests-pass | Authentication for HTTP MCP servers |
-| `ahma_validate` CLI | tests-pass | Validate tool configs against MTDF schema |
-| `generate_tool_schema` CLI | tests-pass | Generate MTDF JSON schema |
+| `ahma-validate` CLI | tests-pass | Validate tool configs against MTDF schema |
+| `generate-tool-schema` CLI | tests-pass | Generate MTDF JSON schema |
 | Graceful Shutdown | tests-pass | 10-second grace period for operation completion |
 | Unified Shell Output | tests-pass | stderr redirected to stdout (`2>&1`) |
 | Logging (File + Stderr) | tests-pass | Daily rolling logs, `--log-to-stderr` for debug |
@@ -271,7 +271,7 @@ The planned implementation uses two mechanisms in order of preference:
 
 ### R8: Project Logging (`/log` directory)
 
-- **R8.1**: All ahma_mcp and execution logs **must** be placed in the `log/` directory at the root of the (primary) configured sandbox scope, rather than global user cache directories (`~/.cache`).
+- **R8.1**: All ahma-mcp and execution logs **must** be placed in the `log/` directory at the root of the (primary) configured sandbox scope, rather than global user cache directories (`~/.cache`).
 - **R8.2**: When the project is built or the server initialized, the `log/` directory is created if it does not exist, and old `.log` files are deleted to wipe previous logs.
 
 ### R9: Safe Live Log Monitoring (`--livelog`)
@@ -279,7 +279,7 @@ The planned implementation uses two mechanisms in order of preference:
 - **R9.1**: The `--livelog` feature flag enables safe read-only access to specific log files located outside the sandbox scope without compromising the sandbox contract.
 - **R9.2**: **Mechanisms**: During initialization (and ONLY at initialization), the system scans the `log/` directories of all configured sandbox roots for symbolic links. The targets of these symlinks are evaluated.
 - **R9.3**: **Enforcement**: The resolved physical paths of those symlinks are dynamically added to the sandbox profile (across Linux, macOS, and Windows) as **read-only scopes**.
-- **R9.4**: **Abuse Prevention**: Since symlinks are only resolved and granted access at startup, hostile entities or rogue AI cannot abuse this later by creating new symlinks to sensitive files (e.g. `/etc/passwd`). Existing files placed in read-only scopes are tightly controlled by the system operator running `ahma_mcp --livelog`.
+- **R9.4**: **Abuse Prevention**: Since symlinks are only resolved and granted access at startup, hostile entities or rogue AI cannot abuse this later by creating new symlinks to sensitive files (e.g. `/etc/passwd`). Existing files placed in read-only scopes are tightly controlled by the system operator running `ahma-mcp --livelog`.
 
 ---
 
@@ -361,12 +361,12 @@ Sequence tools chain multiple commands into a single workflow:
 Direct MCP server over stdio for IDE integration:
 
 ```bash
-ahma_mcp --mode stdio --tools-dir .ahma/tools
+ahma-mcp --mode stdio --tools-dir .ahma/tools
 ```
 
 Alternatively, standard tool configurations are bundled directly inside the binary. Enable them using CLI flags to activate built-in fallback definitions:
 ```bash
-ahma_mcp --mode stdio --rust --python --git --github --fileutils --simplify --gradle
+ahma-mcp --mode stdio --rust --python --git --github --fileutils --simplify --gradle
 ```
 
 Note: Core tools (`sandboxed_shell`, `await`, `status`, `cancel`) are always available without any flags.
@@ -380,13 +380,13 @@ HTTP server proxying to stdio MCP server:
 ```bash
 # Start on default port (3000)
 cd /path/to/project
-ahma_mcp --mode http
+ahma-mcp --mode http
 
 # Explicit sandbox scope
-ahma_mcp --mode http --sandbox-scope /path/to/project
+ahma-mcp --mode http --sandbox-scope /path/to/project
 
 # Custom port
-ahma_mcp --mode http --http-port 8080
+ahma-mcp --mode http --http-port 8080
 ```
 
 **Endpoints:**
@@ -403,14 +403,14 @@ ahma_mcp --mode http --http-port 8080
 Execute a single tool command:
 
 ```bash
-ahma_mcp --tool_name cargo --tool_args '{"subcommand": "build"}'
+ahma-mcp --tool_name cargo --tool_args '{"subcommand": "build"}'
 ```
 
 ### 6.4 List Tools Mode
 
 ```bash
-ahma_mcp --list-tools -- /path/to/ahma_mcp --tools-dir ./tools
-ahma_mcp --list-tools --http http://localhost:3000
+ahma-mcp --list-tools -- /path/to/ahma-mcp --tools-dir ./tools
+ahma-mcp --list-tools --http http://localhost:3000
 ```
 
 ---
@@ -419,7 +419,7 @@ ahma_mcp --list-tools --http http://localhost:3000
 
 ### R8: HTTP Bridge
 
-- **R8.1**: HTTP bridge mode via `ahma_mcp --mode http`.
+- **R8.1**: HTTP bridge mode via `ahma-mcp --mode http`.
 - **R8.2**: SSE at `/mcp` (GET) for server-to-client notifications.
 - **R8.3**: JSON-RPC via POST at `/mcp`.
 - **R8.4**: Auto-restart stdio subprocess if it crashes.
@@ -587,8 +587,8 @@ fs::write(&test_file, "test content").unwrap();
 
 ### 10.3 CLI Binary Integration Tests
 
-- All binaries (`ahma_mcp`, `ahma_validate`, `generate_tool_schema`) **must** have integration tests.
-- Tests in `ahma_mcp/tests/cli_binary_integration_test.rs`.
+- All binaries (`ahma-mcp`, `ahma-validate`, `generate-tool-schema`) **must** have integration tests.
+- Tests in `ahma-mcp/tests/cli_binary_integration_test.rs`.
 - Cover: `--help`, `--version`, basic functionality.
 
 ### 10.4 Test Utilities - Prevent Code Duplication
@@ -635,7 +635,7 @@ fs::write(&test_file, "test content").unwrap();
 ### 10.6 Testing Patterns and Helpers
 
 > [!IMPORTANT]
-> **ALL** integration tests MUST use the centralized helpers in `ahma_mcp/src/test_utils.rs`. Do NOT reinvent spawn logic, HTTP clients, or project scaffolding.
+> **ALL** integration tests MUST use the centralized helpers in `ahma-mcp/src/test_utils.rs`. Do NOT reinvent spawn logic, HTTP clients, or project scaffolding.
 
 #### R16.1: Project Scaffolding (`test_utils::test_project`)
 Use `create_rust_test_project` for all tests that need a filesystem. This ensures isolated unique directories via `tempfile` and no repository pollution.
@@ -774,7 +774,7 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 
 ## 12. Feature Requirements by Module
 
-### 12.1 ahma_mcp
+### 12.1 ahma-mcp
 
 | Feature | Status | Description |
 |---------|--------|-------------|
@@ -791,7 +791,7 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 | Sequence tools | PASS | Multi-command workflows |
 | Hot-reload | PASS | Watch tools directory |
 
-### 12.2 ahma_http_bridge
+### 12.2 ahma-http-bridge
 
 | Feature | Status | Description |
 |---------|--------|-------------|
@@ -802,7 +802,7 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 | Health endpoint | PASS | `/health` monitoring |
 | Session termination | PASS | DELETE with `Mcp-Session-Id` |
 
-### 12.3 ahma_http_mcp_client
+### 12.3 ahma-http-mcp-client
 
 | Feature | Status | Description |
 |---------|--------|-------------|
@@ -812,7 +812,7 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 | Token storage | PASS | Persist to temp directory |
 | Token refresh | PLANNED | Auto-refresh expired tokens |
 
-### 12.4 ahma_validate
+### 12.4 ahma-validate
 
 | Feature | Status | Description |
 |---------|--------|-------------|
@@ -838,7 +838,7 @@ To maintain high performance and avoid cache bloat, the following strategies are
 - **R13.3.1**: The Cargo registry (`~/.cargo/registry`) and git database (`~/.cargo/git`) **must** be cached using `actions/cache` or specialized actions, adhering to the Daily Rotation rule.
 
 | Schema validation | PASS | Validate tool configs against MTDF |
-| CLI interface | PASS | `ahma_validate <file>` |
+| CLI interface | PASS | `ahma-validate <file>` |
 | Clear error messages | PASS | Actionable validation errors |
 
 ---
@@ -854,7 +854,7 @@ rustup update stable
 # Build
 cargo build --release
 
-# The binary will be at target/release/ahma_mcp
+# The binary will be at target/release/ahma-mcp
 ```
 
 ### 13.2 mcp.json Configuration
@@ -865,7 +865,7 @@ cargo build --release
     "Ahma": {
       "type": "stdio",
       "cwd": "${workspaceFolder}",
-      "command": "/path/to/ahma_mcp/target/release/ahma_mcp",
+      "command": "/path/to/ahma-mcp/target/release/ahma-mcp",
       "args": ["--tools-dir", ".ahma/tools"]
     }
   }

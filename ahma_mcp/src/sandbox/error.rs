@@ -9,10 +9,10 @@ pub enum SandboxError {
     )]
     PathOutsideSandbox { path: PathBuf, scopes: Vec<PathBuf> },
 
-    #[error("Landlock is not available on this system (requires Linux kernel 5.13+)")]
+    #[error("Landlock is not available on this system (requires Linux kernel 5.13+ with Landlock LSM enabled). To run without sandboxing, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]")]
     LandlockNotAvailable,
 
-    #[error("macOS sandbox-exec is not available")]
+    #[error("macOS sandbox-exec is not available. To run without sandboxing, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]")]
     MacOSSandboxNotAvailable,
 
     #[error("Unsupported operating system: {0}")]
@@ -28,7 +28,7 @@ pub enum SandboxError {
     HighSecurityViolation { path: PathBuf },
 
     #[error(
-        "Nested sandbox detected - running inside another sandbox (e.g., Cursor, VS Code, Docker)"
+        "Nested sandbox detected - running inside another sandbox (e.g., Cursor, VS Code, Docker). To override, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]"
     )]
     NestedSandboxDetected,
 }

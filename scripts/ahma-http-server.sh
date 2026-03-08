@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ahma HTTP Server Script
 #
-# Launch ahma_http_bridge as an HTTP/SSE server for MCP clients.
+# Launch ahma-http-bridge as an HTTP/SSE server for MCP clients.
 # Uses session isolation mode by default: each connected IDE gets its own
 # sandbox scope derived from its workspace roots.
 #
@@ -54,7 +54,7 @@ fi
 TOOLS_DIR="${AHMA_TOOLS_DIR:-$PROJECT_ROOT/.ahma/tools}"
 
 echo
-echo "Starting ahma_mcp HTTP server..."
+echo "Starting ahma-mcp HTTP server..."
 echo "  Tools dir:     $TOOLS_DIR"
 echo "  Sandbox scope: $SANDBOX_SCOPE"
 echo "  Port:          3000"
@@ -67,7 +67,7 @@ echo "    Do not expose to untrusted networks."
 echo "-----------------------------------------------"
 echo
 
-(cd "$PROJECT_ROOT" && cargo run $RELEASE_FLAG -p ahma_mcp --bin ahma_mcp -- \
+(cd "$PROJECT_ROOT" && cargo run $RELEASE_FLAG -p ahma-mcp --bin ahma-mcp -- \
     --mode http \
     --http-port 3000 \
     --tools-dir "$TOOLS_DIR" \

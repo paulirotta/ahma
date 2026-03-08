@@ -24,7 +24,7 @@ mod flag_combination_tests {
     /// Test --sync flag behavior
     #[test]
     fn test_ahma_mcp_sync_flag() {
-        let binary = build_binary_cached("ahma_mcp", "ahma_mcp");
+        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -46,7 +46,7 @@ mod flag_combination_tests {
     /// Test --debug flag behavior
     #[test]
     fn test_ahma_mcp_debug_flag() {
-        let binary = build_binary_cached("ahma_mcp", "ahma_mcp");
+        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])
@@ -68,7 +68,7 @@ mod flag_combination_tests {
     /// Test --log-to-stderr flag behavior
     #[test]
     fn test_ahma_mcp_log_to_stderr_flag() {
-        let binary = build_binary_cached("ahma_mcp", "ahma_mcp");
+        let binary = build_binary_cached("ahma-mcp", "ahma-mcp");
 
         let output = test_command(&binary)
             .args(["--help"])

@@ -87,7 +87,7 @@ fn workspace_dir() -> PathBuf {
 pub fn resolve_binary_path() -> PathBuf {
     static BINARY_LOG_ONCE: std::sync::Once = std::sync::Once::new();
 
-    let debug_bin = ahma_mcp::test_utils::cli::get_binary_path("ahma_mcp", "ahma_mcp");
+    let debug_bin = ahma_mcp::test_utils::cli::get_binary_path("ahma-mcp", "ahma-mcp");
     // Construct sibling binary paths with the correct platform executable extension.
     let exe_ext = if cfg!(windows) { ".exe" } else { "" };
     let bin_name = format!("ahma_mcp{exe_ext}");
@@ -121,11 +121,11 @@ pub fn resolve_binary_path() -> PathBuf {
         .unwrap_or_else(|| {
             panic!(
                 "\n\
-                 FAIL ahma_mcp binary NOT FOUND in target directory.\n\n\
+                 FAIL ahma-mcp binary NOT FOUND in target directory.\n\n\
                  The integration tests require the server binary to be built first.\n\
-                 Please run: cargo build --package ahma_mcp --bin ahma_mcp\n\n\
+                 Please run: cargo build --package ahma-mcp --bin ahma-mcp\n\n\
                  Looked in: {:?}\n",
-                ahma_mcp::test_utils::cli::get_binary_path("ahma_mcp", "ahma_mcp")
+                ahma_mcp::test_utils::cli::get_binary_path("ahma-mcp", "ahma-mcp")
                     .parent()
                     .and_then(|p| p.parent())
             )
@@ -133,7 +133,7 @@ pub fn resolve_binary_path() -> PathBuf {
 
     BINARY_LOG_ONCE.call_once(|| {
         eprintln!(
-            "[TestServer] Using ahma_mcp binary: {}",
+            "[TestServer] Using ahma-mcp binary: {}",
             binary_path.display()
         );
     });

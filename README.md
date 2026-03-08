@@ -39,7 +39,7 @@ Raspberry Pi is supported with `--no-sandbox` until the kernel is updated to sup
 
 ## Installation Script
 
-The installation script detects your OS and architecture, downloads the latest release from GitHub, and installs `ahma_mcp` and `ahma_simplify` to your local bin directory.
+The installation script detects your OS and architecture, downloads the latest release from GitHub, and installs `ahma-mcp` and `ahma-simplify` to your local bin directory.
 
 **Supported platforms:** Linux x86_64, Linux ARM64, Linux ARMv7 (Raspberry Pi 2/3), macOS ARM64 (Apple Silicon), Windows x86_64 (in-progress). Musl builds are available for Linux x86_64 and ARM64 (auto-detected on Alpine/musl systems, or set `AHMA_PREFER_MUSL=1`). Windows releases are distributed as `.zip` archives.
 
@@ -63,8 +63,8 @@ irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 |
 git clone https://github.com/paulirotta/ahma.git
 cd ahma
 cargo build --release
-mv target/release/ahma_mcp /usr/local/bin/
-mv target/release/ahma_simplify /usr/local/bin/
+mv target/release/ahma-mcp /usr/local/bin/
+mv target/release/ahma-simplify /usr/local/bin/
 ```
 
 **Windows (PowerShell):**
@@ -73,7 +73,7 @@ mv target/release/ahma_simplify /usr/local/bin/
 git clone https://github.com/paulirotta/ahma.git
 cd ahma
 cargo build --release
-Copy-Item target\release\ahma_mcp.exe, target\release\ahma_simplify.exe "$HOME\.local\bin\"
+Copy-Item target\release\ahma-mcp.exe, target\release\ahma-simplify.exe "$HOME\.local\bin\"
 ```
 
 ## Concepts
@@ -144,10 +144,10 @@ cat /sys/kernel/security/lsm  # optional - shows active LSMs
 ```bash
 # Environment variable (preferred for mcp.json / CI setups)
 export AHMA_NO_SANDBOX=1
-ahma_mcp --mode http --tools-dir .ahma
+ahma-mcp --mode http --tools-dir .ahma
 
 # Or use the CLI flag
-ahma_mcp --no-sandbox --mode http --tools-dir .ahma
+ahma-mcp --no-sandbox --mode http --tools-dir .ahma
 ```
 
 - **Raspberry Pi OS**: Older kernels (pre-5.13) do not support Landlock. Ahma requires `--no-sandbox` (or `AHMA_NO_SANDBOX=1`) until the kernel is upgraded to a version that supports Landlock.
@@ -177,11 +177,11 @@ When running inside another sandboxed environment (like Cursor IDE, VS Code, or 
 
 ```bash
 # Via command-line flag
-ahma_mcp --no-sandbox
+ahma-mcp --no-sandbox
 
 # Via environment variable (useful for mcp.json configuration)
 export AHMA_NO_SANDBOX=1
-ahma_mcp
+ahma-mcp
 ```
 
 Example `mcp.json` for Cursor/VS Code:
@@ -191,7 +191,7 @@ Example `mcp.json` for Cursor/VS Code:
   "servers": {
     "Ahma": {
       "type": "stdio",
-      "command": "ahma_mcp",
+      "command": "ahma-mcp",
       "args": ["--tools-dir", ".ahma/tools"]
     }
   }
@@ -209,7 +209,7 @@ Example `mcp.json` for Antigravity:
       "command": "bash",
       "args": [
         "-c",
-        "ahma_mcp --simplify --rust --sandbox-scope $HOME/github"
+        "ahma-mcp --simplify --rust --sandbox-scope $HOME/github"
       ]
     }
   }
@@ -218,14 +218,14 @@ Example `mcp.json` for Antigravity:
 
 ## MCP Server Connection Modes
 
-`ahma_mcp` supports three modes of operation:
+`ahma-mcp` supports three modes of operation:
 
 ### 1. STDIO Mode (Default)
 
 Direct MCP server over stdio for integration with MCP clients:
 
 ```bash
-ahma_mcp --mode stdio --tools-dir ./tools
+ahma-mcp --mode stdio --tools-dir ./tools
 ```
 
 ### 2. HTTP Bridge Mode
@@ -235,17 +235,17 @@ HTTP server that proxies requests to the stdio MCP server:
 ```bash
 # Start HTTP bridge on default port (3000)
 # Clients that provide roots/list can lock sandbox from roots
-ahma_mcp --mode http
+ahma-mcp --mode http
 
 # Explicit sandbox scope for clients like Antigravity and LM Studio that do not send roots/list
-ahma_mcp --mode http --sandbox-scope /path/to/your/project
+ahma-mcp --mode http --sandbox-scope /path/to/your/project
 
 # Or via environment variable
 export AHMA_SANDBOX_SCOPE=/path/to/your/project
-ahma_mcp --mode http
+ahma-mcp --mode http
 
 # Custom port
-ahma_mcp --mode http --http-port 8080 --http-host 127.0.0.1
+ahma-mcp --mode http --http-port 8080 --http-host 127.0.0.1
 ```
 
 **Important**: In HTTP mode, sandbox scope is bound **per client session** via the MCP `roots/list` protocol.

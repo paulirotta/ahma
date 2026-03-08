@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-liner installer for ahma_mcp and ahma_simplify
+# One-liner installer for ahma-mcp and ahma-simplify
 # Usage: curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
 #
 # Supported platforms:
@@ -144,24 +144,24 @@ fi
 
 # Install binaries
 echo "Installing binaries to ${INSTALL_DIR}..."
-if [ -f "$TEMP_DIR/ahma_mcp" ]; then
-    mv "$TEMP_DIR/ahma_mcp" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/ahma_mcp"
+if [ -f "$TEMP_DIR/ahma-mcp" ]; then
+    mv "$TEMP_DIR/ahma-mcp" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/ahma-mcp"
 else
-    echo "Error: ahma_mcp binary not found in archive"
+    echo "Error: ahma-mcp binary not found in archive"
     exit 1
 fi
 
-if [ -f "$TEMP_DIR/ahma_simplify" ]; then
-    mv "$TEMP_DIR/ahma_simplify" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/ahma_simplify"
+if [ -f "$TEMP_DIR/ahma-simplify" ]; then
+    mv "$TEMP_DIR/ahma-simplify" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/ahma-simplify"
 fi
 
-"$INSTALL_DIR/ahma_mcp" --version
-if [ -x "$INSTALL_DIR/ahma_simplify" ]; then
-    "$INSTALL_DIR/ahma_simplify" --version
+"$INSTALL_DIR/ahma-mcp" --version
+if [ -x "$INSTALL_DIR/ahma-simplify" ]; then
+    "$INSTALL_DIR/ahma-simplify" --version
 fi
-echo "Success! Installed ahma_mcp and ahma_simplify to ${INSTALL_DIR}"
+echo "Success! Installed ahma-mcp and ahma-simplify to ${INSTALL_DIR}"
 echo ""
 echo "Please ensure ${INSTALL_DIR} is in your PATH:"
 echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""

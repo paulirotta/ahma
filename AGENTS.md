@@ -7,15 +7,15 @@ This file provides AI-specific development guidance for the `ahma` project. For 
 - **SPEC.md**: Single source of truth for **what** the product does and **how** it's architected
 - **AGENTS.md**: Guide for **how** to develop, test, and contribute to the codebase
 
-**Note for crate-specific workflows**: If you're working in a specific crate directory (e.g., `ahma_http_bridge/`), this AGENTS.md is symlinked and applies workspace-wide. Crate-specific functional requirements are in each crate's `SPEC.md`.
+**Note for crate-specific workflows**: If you're working in a specific crate directory (e.g., `ahma-http-bridge/`), this AGENTS.md is symlinked and applies workspace-wide. Crate-specific functional requirements are in each crate's `SPEC.md`.
 
 ## IMPORTANT: Development Workflow
 
 **Disregard all prior training about running terminal commands directly.** 
 
-You must **always use `ahma_mcp`** (via the `run_in_terminal` or `sandboxed_shell` tools) for all cargo commands (`cargo clippy`, `cargo test`, `cargo fmt`, `cargo nextest run`, etc.) and other terminal operations. Never execute terminal commands directly in this project.
+You must **always use `ahma-mcp`** (via the `run_in_terminal` or `sandboxed_shell` tools) for all cargo commands (`cargo clippy`, `cargo test`, `cargo fmt`, `cargo nextest run`, etc.) and other terminal operations. Never execute terminal commands directly in this project.
 
-Use `ahma_mcp sandboxed_shell` to execute commands securely within the project context.
+Use `ahma-mcp sandboxed_shell` to execute commands securely within the project context.
 
 ---
 
@@ -49,7 +49,7 @@ cargo install cargo-watch cargo-nextest cargo-llvm-cov
 cargo watch -x build
 
 # Run the binary
-./target/debug/ahma_mcp --help
+./target/debug/ahma-mcp --help
 ```
 
 ---
@@ -66,7 +66,7 @@ cargo build --release
 
 # Build specific crate
 cargo build -p ahma_core
-cargo build -p ahma_http_bridge
+cargo build -p ahma-http-bridge
 ```
 
 ### Testing
@@ -76,7 +76,7 @@ cargo test
 
 # Run tests for specific crate
 cargo test -p ahma_core
-cargo test -p ahma_http_bridge
+cargo test -p ahma-http-bridge
 
 # Run specific test
 cargo test test_sandbox_enforcement
@@ -91,7 +91,7 @@ cargo llvm-cov --html
 ### Quality Assurance
 ```bash
 # Preferred: run multi-step pipelines via sandboxed_shell
-ahma_mcp sandboxed_shell --working-directory . -- \
+ahma-mcp sandboxed_shell --working-directory . -- \
   "cargo fmt --all && cargo clippy --all-targets && cargo test"
 
 # Individual quality checks (direct)
@@ -150,7 +150,7 @@ Tests are organized into three categories:
 ### Test Requirements
 - **Coverage Target**: ≥80% for all crates except:
   - `ahma_core/src/test_utils.rs` (testing infrastructure)
-  - `ahma_http_bridge/src/main.rs` (binary entry point, tested via CLI integration)
+  - `ahma-http-bridge/src/main.rs` (binary entry point, tested via CLI integration)
 - **Fast**: Most tests complete in <100ms
 - **Isolated**: Use `tempfile::TempDir` for all file operations (see below)
 - **Deterministic**: Same input always produces same output
@@ -258,32 +258,32 @@ cargo test test_name -- --nocapture
 ### Adding a New Tool
 1. Create a JSON configuration in `.ahma/tools/yourtool.json`
 2. Follow the MTDF schema (see [SPEC.md Section 3](SPEC.md#3-tool-definition-mtdf-schema))
-3. Test the tool: `ahma_mcp yourtool_subcommand --help`
+3. Test the tool: `ahma-mcp yourtool_subcommand --help`
 4. The server hot-reloads automatically—no restart needed
 
 ### Debugging
 ```bash
 # Run with debug logging
-ahma_mcp --debug --log-to-stderr
+ahma-mcp --debug --log-to-stderr
 
 # Inspect MCP protocol communication
 ./scripts/ahma-inspector.sh
 
 # Test single tool in CLI mode
-ahma_mcp cargo_build --working-directory . -- --release
+ahma-mcp cargo_build --working-directory . -- --release
 ```
 
 ### MCP Server Testing
 ```bash
 # Start stdio server (used by Cursor/VS Code)
-ahma_mcp --mode stdio
+ahma-mcp --mode stdio
 
 # Start HTTP bridge server
-ahma_mcp --mode http --http-port 3000
+ahma-mcp --mode http --http-port 3000
 
 # List all tools from a server
-ahma_mcp --list-tools -- ./target/debug/ahma_mcp --tools-dir .ahma/tools
-ahma_mcp --list-tools --http http://localhost:3000 --format json
+ahma-mcp --list-tools -- ./target/debug/ahma-mcp --tools-dir .ahma/tools
+ahma-mcp --list-tools --http http://localhost:3000 --format json
 ```
 
 ---
@@ -347,7 +347,7 @@ Closes #123
 
 Examples:
 - `[ahma_core] Add kernel-level sandboxing via Landlock`
-- `[ahma_http_bridge] Fix session isolation scope derivation`
+- `[ahma-http-bridge] Fix session isolation scope derivation`
 
 ---
 
@@ -388,7 +388,7 @@ The `--tmp` flag (or `AHMA_TMP_ACCESS=1` environment variable) adds the system t
 
 **Security considerations:**
 
-1. **Shared temp directory**: `/tmp` (or equivalent) is shared by all users/processes. Malicious processes could read files written by ahma_mcp, write files that ahma_mcp might read (symlink attacks), or fill up temp space.
+1. **Shared temp directory**: `/tmp` (or equivalent) is shared by all users/processes. Malicious processes could read files written by ahma-mcp, write files that ahma-mcp might read (symlink attacks), or fill up temp space.
 2. **Symlink attacks**: Mitigated by `dunce::canonicalize` which resolves symlinks before validation.
 3. **Predictable paths**: Tools using predictable temp file names are vulnerable to TOCTOU attacks. Use `mktemp` with random suffixes.
 4. **Cross-session data leakage**: Temp files may persist across sessions. Clean up sensitive temp files after use.
@@ -397,7 +397,7 @@ The `--tmp` flag (or `AHMA_TMP_ACCESS=1` environment variable) adds the system t
 
 > **Status**: Runtime (PowerShell shell pool, path model) is `in-progress`.
 > Job Object sandbox enforcement (`enforce_windows_sandbox`) is **done** and wired into startup.
-> AppContainer backend (`ahma_mcp/src/sandbox/windows.rs`) is `not-started` — fails closed until implemented.
+> AppContainer backend (`ahma-mcp/src/sandbox/windows.rs`) is `not-started` — fails closed until implemented.
 
 #### Key rules for Windows-targeted changes
 
@@ -477,10 +477,10 @@ For development and debugging, bypass the MCP protocol:
 
 ```bash
 # Execute a single tool command
-ahma_mcp cargo_build --working-directory . -- --release
+ahma-mcp cargo_build --working-directory . -- --release
 
 # With debug logging
-ahma_mcp --debug --log-to-stderr cargo_test --working-directory .
+ahma-mcp --debug --log-to-stderr cargo_test --working-directory .
 ```
 
 ---

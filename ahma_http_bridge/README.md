@@ -29,7 +29,7 @@ cargo build --relese
     "mcpServers": {
         "ahma-stdio-debug-vscode": {
             "cwd": "${workspaceFolder}",
-            "command": "/path/to/ahma/target/release/ahma_mcp",
+            "command": "/path/to/ahma/target/release/ahma-mcp",
             "args": [
                 "--tools-dir",
                 "/path/to/ahma/.ahma",
@@ -50,7 +50,7 @@ cargo build --relese
   "mcpServers": {
     "ahma": {
       "cwd": "/path/to/working/directory",
-      "command": "/path/to/ahma/target/release/ahma_mcp",
+      "command": "/path/to/ahma/target/release/ahma-mcp",
       "args": [
         "--sync",
         "--tools-dir",
@@ -72,7 +72,7 @@ cargo build --relese
     "servers": {
         "ahma": {
             "cwd": "/path/to/working/directory",
-            "command": "/path/to/ahma/target/release/ahma_mcp",
+            "command": "/path/to/ahma/target/release/ahma-mcp",
             "args": [
                 "--sync",
                 "--tools-dir",
@@ -90,7 +90,7 @@ cargo build --relese
 async fn main() -> anyhow::Result<()> {
     let config = BridgeConfig {
         bind_addr: "127.0.0.1:3000".parse().unwrap(),
-        server_command: "ahma_mcp".to_string(),
+        server_command: "ahma-mcp".to_string(),
         server_args: vec!["--tools-dir".to_string(), "./tools".to_string()],
     
 ### Command Line
@@ -100,16 +100,16 @@ The bridge is integrated into the `ahma_shell` binary:
 ```bash
 # Start HTTP bridge on default port (3000)
 # Clients must provide roots/list unless explicit fallback scope is configured
-ahma_mcp --mode http
+ahma-mcp --mode http
 
 # Explicit fallback scope for clients without roots/list support
-ahma_mcp --mode http --sandbox-scope /path/to/project
+ahma-mcp --mode http --sandbox-scope /path/to/project
 
 # Start on custom port
-ahma_mcp --mode http --http-port 8080
+ahma-mcp --mode http --http-port 8080
 
 # Start with specific tools directory
-ahma_mcp --mode http --tools-dir ./my-tools
+ahma-mcp --mode http --tools-dir ./my-tools
 ```
 
 ## Port Configuration
@@ -132,7 +132,7 @@ If port 5721 is already in use when running tests, they will fail loudly. This i
 - Another test process is running concurrently
 - A previous test crashed and left an orphaned process
 
-To fix: Kill any existing ahma_mcp processes using port 5721.
+To fix: Kill any existing ahma-mcp processes using port 5721.
 
 ## Endpoints
 
@@ -285,7 +285,7 @@ The HTTP bridge implements a sandboxing security model to restrict AI-generated 
 For environments requiring stricter security, the `--no-temp-files` flag blocks writes to temp directories:
 
 ```bash
-ahma_http_bridge --no-temp-files
+ahma-http-bridge --no-temp-files
 ```
 
 This prevents data exfiltration via `/tmp` or `/var/folders` but breaks tools that require temp file access.
@@ -316,4 +316,4 @@ Security tests verify that sandbox escape attempts fail:
 - Absolute path escapes (`/etc/passwd`)
 - Command injection via path
 
-See `tests/sandbox_security_test.rs` and `ahma_mcp/tests/sandbox_security_red_team_test.rs`.
+See `tests/sandbox_security_test.rs` and `ahma-mcp/tests/sandbox_security_red_team_test.rs`.

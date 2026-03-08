@@ -2,15 +2,15 @@
 
 # Code Simplicity Metrics wrapper script
 #
-# This script runs the ahma_simplify tool to analyze code simplicity metrics
-# for any directory (not just the ahma_mcp repository).
+# This script runs the ahma-simplify tool to analyze code simplicity metrics
+# for any directory (not just the ahma-mcp repository).
 #
 # Usage:
 #   ./scripts/code-simplicity.sh [TARGET_DIR] [ADDITIONAL_ARGS...]
 #
 # Arguments:
 #   TARGET_DIR        - Directory to analyze (optional, defaults to current directory)
-#   ADDITIONAL_ARGS   - Additional arguments passed to ahma_simplify tool
+#   ADDITIONAL_ARGS   - Additional arguments passed to ahma-simplify tool
 #
 # Examples:
 #   ./scripts/code-simplicity.sh                    # Analyze current directory
@@ -50,7 +50,7 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd)" || {
     exit 1
 }
 
-# Shift to pass remaining arguments to ahma_simplify
+# Shift to pass remaining arguments to ahma-simplify
 shift || true
 
 echo "Analyzing: $TARGET_DIR"
@@ -76,4 +76,4 @@ cd "$AHMA_REPO_ROOT" || exit 1
 
 # Run the code simplicity aggregator on the target directory
 # Use --output-path to write files to the original working directory
-cargo run -p ahma_simplify -- "$TARGET_DIR" --html --open --output-path "$ORIGINAL_CWD" "${EXTRA_EXCLUDES[@]}" "$@"
+cargo run -p ahma-simplify -- "$TARGET_DIR" --html --open --output-path "$ORIGINAL_CWD" "${EXTRA_EXCLUDES[@]}" "$@"

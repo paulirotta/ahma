@@ -1,8 +1,8 @@
-# ahma_simplify — Requirements
+# ahma-simplify — Requirements
 
 ## Purpose
 
-`ahma_simplify` is a code simplicity metrics aggregator that uses the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) library to analyze source code and generate comprehensive simplicity reports (Markdown and HTML).
+`ahma-simplify` is a code simplicity metrics aggregator that uses the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) library to analyze source code and generate comprehensive simplicity reports (Markdown and HTML).
 
 It is a workspace member of the [Ahma](../SPEC.md) project.
 
@@ -67,4 +67,4 @@ It is a workspace member of the [Ahma](../SPEC.md) project.
 
 ## CI Integration
 
-The `job-coverage` step in `.github/workflows/build.yml` runs `ahma_simplify` and publishes `CODE_SIMPLICITY.md` / `CODE_SIMPLICITY.html` to GitHub Pages alongside the coverage report.
+The `job-coverage` step in `.github/workflows/build.yml` runs `ahma-simplify` and publishes `CODE_SIMPLICITY.md` / `CODE_SIMPLICITY.html` to GitHub Pages alongside the coverage report.

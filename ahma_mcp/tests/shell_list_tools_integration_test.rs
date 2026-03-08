@@ -8,7 +8,7 @@ use std::process::Command;
 
 /// Get the path to the pre-built ahma_mcp binary
 fn get_ahma_mcp_binary() -> PathBuf {
-    ahma_mcp::test_utils::cli::get_binary_path("ahma_mcp", "ahma_mcp")
+    ahma_mcp::test_utils::cli::get_binary_path("ahma-mcp", "ahma-mcp")
 }
 
 /// Test that the binary shows help for --list-tools

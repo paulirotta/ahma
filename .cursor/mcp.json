@@ -2,9 +2,10 @@
     "mcpServers": {
         "Ahma": {
             "type": "stdio",
-            "command": "ahma_mcp",
+            "command": "ahma-mcp",
             "args": [
-                "--tmp"
+                "--tmp",
+                "--livelog"
             ]
         }
     }

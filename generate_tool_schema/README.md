@@ -4,16 +4,16 @@ Utility for generating JSON schemas for Ahma tool configurations.
 
 ## Overview
 
-`generate_tool_schema` creates JSON schema definitions for tool configuration files, making it easier to validate and document tool definitions.
+`generate-tool-schema` creates JSON schema definitions for tool configuration files, making it easier to validate and document tool definitions.
 
 ## Usage
 
 ```bash
 # Generate schema in the default directory (docs/)
-cargo run -p generate_tool_schema
+cargo run -p generate-tool-schema
 
 # Generate schema in a custom directory
-cargo run -p generate_tool_schema -- ./schemas
+cargo run -p generate-tool-schema -- ./schemas
 ```
 
 ## Output

@@ -13,7 +13,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn build_binary() -> std::path::PathBuf {
-    build_binary_cached("ahma_mcp", "ahma_mcp")
+    build_binary_cached("ahma-mcp", "ahma-mcp")
 }
 
 // ============================================================================

@@ -1,4 +1,4 @@
-# ahma_simplify
+# ahma-simplify
 
 A code simplicity metrics aggregator that analyzes source code using the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) library and generates comprehensive simplicity reports.
 
@@ -7,36 +7,36 @@ Part of the [Ahma](../README.md) workspace.
 ## Installation
 
 ```bash
-# Install ahma_simplify (all analysis dependencies are compiled in)
-cargo install --path ahma_simplify
+# Install ahma-simplify (all analysis dependencies are compiled in)
+cargo install --path ahma-simplify
 ```
 
 ## Usage
 
 ```bash
 # Analyze a single crate
-ahma_simplify /path/to/crate
+ahma-simplify /path/to/crate
 
 # Analyze with HTML report
-ahma_simplify /path/to/project --html
+ahma-simplify /path/to/project --html
 
 # Custom output directory
-ahma_simplify /path/to/project -o my_results
+ahma-simplify /path/to/project -o my_results
 
 # Limit emergency items shown
-ahma_simplify /path/to/project --limit 5
+ahma-simplify /path/to/project --limit 5
 
 # Open report automatically
-ahma_simplify /path/to/project --html --open
+ahma-simplify /path/to/project --html --open
 
 # Analyze multiple languages (comma-separated list)
-ahma_simplify /path/to/project --extensions rs,py,js
+ahma-simplify /path/to/project --extensions rs,py,js
 
 # All supported languages example
-ahma_simplify /path/to/project --extensions rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs,java,go,css,html
+ahma-simplify /path/to/project --extensions rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs,java,go,css,html
 
 # Exclude custom paths (comma-separated list)
-ahma_simplify /path/to/project --exclude "**/generated/**,**/vendor/**"
+ahma-simplify /path/to/project --exclude "**/generated/**,**/vendor/**"
 
 # Convenience wrapper script (analyzes the whole repo)
 ./scripts/code-simplicity.sh
@@ -119,15 +119,15 @@ Analyzes multiple languages using a comma-separated list of extensions via the `
 
 Example usage:
 ```bash
-ahma_simplify . --extensions rs,py,js
+ahma-simplify . --extensions rs,py,js
 ```
 
 ## Development
 
 ```bash
 # Run tests
-cargo test -p ahma_simplify
+cargo test -p ahma-simplify
 
 # Build
-cargo build -p ahma_simplify --release
+cargo build -p ahma-simplify --release
 ```

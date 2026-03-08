@@ -26,7 +26,7 @@ cargo run --example stress_test
 cargo run --example stress_test -- --port 8080 --duration 120 --async-clients 5
 
 # Use a pre-built binary instead of cargo run
-cargo run --example stress_test -- --binary ./target/release/ahma_mcp
+cargo run --example stress_test -- --binary ./target/release/ahma-mcp
 
 # See all options
 cargo run --example stress_test -- --help

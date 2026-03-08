@@ -1,17 +1,17 @@
 [package]
 edition.workspace = true
 license.workspace = true
-name = "generate_tool_schema"
+name = "generate-tool-schema"
 readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [[bin]]
-name = "generate_tool_schema"
+name = "generate-tool-schema"
 path = "src/main.rs"
 
 [dependencies]
-ahma_mcp = { path = "../ahma_mcp" }
+ahma-mcp = { path = "../ahma_mcp" }
 schemars = "1.2"
 serde_json = "1.0"
 

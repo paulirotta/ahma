@@ -3,18 +3,18 @@
 version = 4
 
 [[package]]
-name = "ahma_common"
-version = "0.5.0"
+name = "ahma-common"
+version = "0.5.1"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
-name = "ahma_http_bridge"
-version = "0.5.0"
+name = "ahma-http-bridge"
+version = "0.5.1"
 dependencies = [
- "ahma_common",
- "ahma_mcp",
+ "ahma-common",
+ "ahma-mcp",
  "anyhow",
  "axum",
  "bytes",
@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma_http_mcp_client"
-version = "0.5.0"
+name = "ahma-http-mcp-client"
+version = "0.5.1"
 dependencies = [
- "ahma_common",
+ "ahma-common",
  "anyhow",
  "async-stream",
  "async-trait",
@@ -71,11 +71,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma_mcp"
-version = "0.5.0"
+name = "ahma-mcp"
+version = "0.5.1"
 dependencies = [
- "ahma_http_bridge",
- "ahma_http_mcp_client",
+ "ahma-http-bridge",
+ "ahma-http-mcp-client",
  "anyhow",
  "async-trait",
  "chrono",
@@ -111,8 +111,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma_simplify"
-version = "0.5.0"
+name = "ahma-simplify"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -128,10 +128,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma_validate"
-version = "0.5.0"
+name = "ahma-validate"
+version = "0.5.1"
 dependencies = [
- "ahma_mcp",
+ "ahma-mcp",
  "anyhow",
  "clap",
  "serde_json",
@@ -973,10 +973,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate_tool_schema"
-version = "0.5.0"
+name = "generate-tool-schema"
+version = "0.5.1"
 dependencies = [
- "ahma_mcp",
+ "ahma-mcp",
  "schemars",
  "serde_json",
  "tempfile",
@@ -1510,9 +1510,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libredox"
@@ -2052,9 +2052,9 @@ dependencies = [
 
 [[package]]
 name = "process-wrap"
-version = "9.0.3"
+version = "9.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccd9713fe2c91c3c85ac388b31b89de339365d2c995146e630b5e0da9d06526a"
+checksum = "2e842efad9119158434d193c6682e2ebee4b44d6ad801d7b349623b3f57cdf55"
 dependencies = [
  "futures",
  "indexmap",

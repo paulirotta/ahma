@@ -80,7 +80,7 @@ echo
 
 # Step 1: Build the project
 echo -e "${CYAN}Building project (release mode)...${NC}"
-cargo build --release -p ahma_mcp --bin ahma_mcp 2>&1 | tail -5
+cargo build --release -p ahma-mcp --bin ahma-mcp 2>&1 | tail -5
 echo -e "${GREEN}OK Build complete${NC}"
 echo
 
@@ -97,7 +97,7 @@ SANDBOX_SCOPE="$PROJECT_ROOT"
 # Start server in background, capturing output
 if $VERBOSE; then
     # Verbose: show all server output
-    "$PROJECT_ROOT/target/release/ahma_mcp" \
+    "$PROJECT_ROOT/target/release/ahma-mcp" \
         --mode http \
         --http-port 0 \
         --sync \
@@ -107,7 +107,7 @@ if $VERBOSE; then
         2>&1 | tee "$TEMP_PORT_FILE" &
 else
     # Normal: only capture, don't show
-    "$PROJECT_ROOT/target/release/ahma_mcp" \
+    "$PROJECT_ROOT/target/release/ahma-mcp" \
         --mode http \
         --http-port 0 \
         --sync \
@@ -195,21 +195,21 @@ fi
 echo
 echo -e "${CYAN}═══ Session Stress Tests (session_stress_test.rs) ═══${NC}"
 echo
-cargo nextest run -p ahma_http_bridge --test session_stress_test 2>&1 || {
+cargo nextest run -p ahma-http-bridge --test session_stress_test 2>&1 || {
     echo -e "${YELLOW}WARNING️  Some session stress tests may have failed${NC}"
 }
 
 echo
 echo -e "${CYAN}═══ Handshake State Machine Tests ═══${NC}"
 echo
-cargo nextest run -p ahma_http_bridge --test handshake_state_machine_test 2>&1 || {
+cargo nextest run -p ahma-http-bridge --test handshake_state_machine_test 2>&1 || {
     echo -e "${YELLOW}WARNING️  Some handshake tests may have failed${NC}"
 }
 
 echo
 echo -e "${CYAN}═══ Concurrent Tool Call Tests (normally ignored) ═══${NC}"
 echo
-cargo nextest run -p ahma_http_bridge --test sse_tool_integration_test $TEST_FILTER 2>&1 || {
+cargo nextest run -p ahma-http-bridge --test sse_tool_integration_test $TEST_FILTER 2>&1 || {
     echo -e "${YELLOW}WARNING️  Some concurrent tool tests may have failed${NC}"
 }
 

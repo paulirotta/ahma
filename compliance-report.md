@@ -10,15 +10,15 @@
 
 | Module | Status | Confirmed | Mismatches | Notes |
 |--------|--------|-----------|------------|-------|
-| `ahma_mcp` | WARN Partial | R1-R5, R7.1-R7.5, R15-R17, R19 | R6.9, R7.6 | Nested sandbox handling, workspace config |
-| `ahma_http_bridge` | WARN Partial | R8.1-R8.4.6, R8.4.8+ | R8.4.7 | Missing HTTP DELETE endpoint |
-| `ahma_http_mcp_client` | COMPLIANT | R9.3-R9.8 | None | OAuth PKCE, token persistence |
-| `ahma_validate` | COMPLIANT | R5.2, R6.4 | None | MTDF validation, exit codes |
-| `generate_tool_schema` | COMPLIANT | R6.5 | None | Schema generation |
+| `ahma-mcp` | WARN Partial | R1-R5, R7.1-R7.5, R15-R17, R19 | R6.9, R7.6 | Nested sandbox handling, workspace config |
+| `ahma-http-bridge` | WARN Partial | R8.1-R8.4.6, R8.4.8+ | R8.4.7 | Missing HTTP DELETE endpoint |
+| `ahma-http-mcp-client` | COMPLIANT | R9.3-R9.8 | None | OAuth PKCE, token persistence |
+| `ahma-validate` | COMPLIANT | R5.2, R6.4 | None | MTDF validation, exit codes |
+| `generate-tool-schema` | COMPLIANT | R6.5 | None | Schema generation |
 
 ---
 
-# Module: ahma_mcp
+# Module: ahma-mcp
 
 ## OK Requirements Confirmed
 
@@ -26,14 +26,14 @@
 
 | Req | Description | Status | Evidence |
 |-----|-------------|--------|----------|
-| R1.1 | JSON tool definitions | OK | `ahma_mcp/src/config.rs` defines `ToolConfig`, `SubcommandConfig` |
+| R1.1 | JSON tool definitions | OK | `ahma-mcp/src/config.rs` defines `ToolConfig`, `SubcommandConfig` |
 | R1.2 | Directory scanning | OK | `load_tool_configs()` in `config.rs` |
-| R1.3 | Startup validation | OK | `ahma_mcp/src/schema_validation.rs` `MtdfValidator` |
+| R1.3 | Startup validation | OK | `ahma-mcp/src/schema_validation.rs` `MtdfValidator` |
 | R1.4 | Hot-reload + notification | OK | `mcp_service/mod.rs:202-259` `start_config_watcher()` uses `notify` crate, calls `notify_tool_list_changed()` at line 191 |
 
 **Evidence excerpt:**
 
-```191:198:ahma_mcp/src/mcp_service/mod.rs
+```191:198:ahma-mcp/src/mcp_service/mod.rs
         if let Some(peer) = peer_opt {
             if let Err(e) = peer.notify_tool_list_changed().await {
                 tracing::error!("Failed to send tools/list_changed notification: {}", e);
@@ -55,7 +55,7 @@
 
 **Evidence excerpt (async default):**
 
-```1437:1443:ahma_mcp/src/mcp_service/mod.rs
+```1437:1443:ahma-mcp/src/mcp_service/mod.rs
             } else {
                 // Default to ASYNCHRONOUS mode
                 crate::adapter::ExecutionMode::AsyncResultPush
@@ -68,7 +68,7 @@
 
 | Req | Description | Status | Evidence |
 |-----|-------------|--------|----------|
-| R4.1 | Pre-warmed shell pool | OK | `ahma_mcp/src/shell_pool.rs` `ShellPoolManager` |
+| R4.1 | Pre-warmed shell pool | OK | `ahma-mcp/src/shell_pool.rs` `ShellPoolManager` |
 | R4.2 | Background replenishment | OK | `start_background_tasks()` in shell_pool.rs |
 
 ---
@@ -77,7 +77,7 @@
 
 | Req | Description | Status | Evidence |
 |-----|-------------|--------|----------|
-| R5.1 | Schema generation | OK | `schemars::schema_for!(ToolConfig)` in generate_tool_schema |
+| R5.1 | Schema generation | OK | `schemars::schema_for!(ToolConfig)` in generate-tool-schema |
 | R5.2 | Startup validation | OK | `MtdfValidator::validate_tool_config()` |
 | R5.3 | `format: "path"` support | OK | `adapter.rs:937-953` validates paths with `path_security::validate_path()` |
 | R5.4 | `file_arg`/`file_flag` | OK | `adapter.rs:871-897` creates temp files for multi-line args |
@@ -104,7 +104,7 @@
 
 **Evidence excerpt:**
 
-```836:850:ahma_mcp/src/adapter.rs
+```836:850:ahma-mcp/src/adapter.rs
     fn ensure_shell_redirect(script: &mut String) {
         if script.trim_end().ends_with("2>&1") {
             return;
@@ -116,7 +116,7 @@
 
 **Test coverage:**
 
-```1091:1102:ahma_mcp/src/adapter.rs
+```1091:1102:ahma-mcp/src/adapter.rs
     #[tokio::test]
     async fn shell_commands_append_redirect_once() {
         // ... asserts 2>&1 is appended
@@ -154,7 +154,7 @@
 
 **Evidence excerpt:**
 
-```909:915:ahma_mcp/src/mcp_service/mod.rs
+```909:915:ahma-mcp/src/mcp_service/mod.rs
                     let background_ops: Vec<_> = active_ops
                         .iter()
                         .filter(|op| {
@@ -180,7 +180,7 @@
 
 **Code Evidence:**
 
-```231:254:ahma_mcp/src/shell/main_logic.rs
+```231:254:ahma-mcp/src/shell/main_logic.rs
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = sandbox::test_sandbox_exec_available() {
@@ -223,29 +223,29 @@
 ```1:9:Cargo.toml
 [workspace]
 default-members = [
-  "ahma_mcp",
-  "ahma_validate",
-  "generate_tool_schema",
-  "ahma_http_bridge",
-  "ahma_http_mcp_client",
+  "ahma-mcp",
+  "ahma-validate",
+  "generate-tool-schema",
+  "ahma-http-bridge",
+  "ahma-http-mcp-client",
 ]
-members = ["ahma_mcp", "ahma_validate", "generate_tool_schema", "ahma_http_bridge", "ahma_http_mcp_client"]
+members = ["ahma-mcp", "ahma-validate", "generate-tool-schema", "ahma-http-bridge", "ahma-http-mcp-client"]
 ```
 
 - No `ahma_shell` crate exists
-- Binary is `[[bin]] name = "ahma_mcp"` in `ahma_mcp/Cargo.toml:22-24`
+- Binary is `[[bin]] name = "ahma-mcp"` in `ahma-mcp/Cargo.toml:22-24`
 - `default-members` lists all crates, not just the shell
 
 **Impact:** Developer UX mismatch. `cargo run` behavior differs from spec.
 
 **Recommended Fix:** Either:
 
-1. Update SPEC.md to reflect current architecture (binary in ahma_mcp), or
+1. Update SPEC.md to reflect current architecture (binary in ahma-mcp), or
 2. Create `ahma_shell` crate and set `default-members = ["ahma_shell"]`
 
 ---
 
-# Module: ahma_http_bridge
+# Module: ahma-http-bridge
 
 ## OK Requirements Confirmed
 
@@ -291,7 +291,7 @@ members = ["ahma_mcp", "ahma_validate", "generate_tool_schema", "ahma_http_bridg
 
 **Router Evidence:**
 
-```81:86:ahma_http_bridge/src/bridge.rs
+```81:86:ahma-http-bridge/src/bridge.rs
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/mcp", post(handle_mcp_request).get(handle_sse_stream))
@@ -325,7 +325,7 @@ async fn handle_session_delete(
 
 ---
 
-# Module: ahma_http_mcp_client
+# Module: ahma-http-mcp-client
 
 ## OK Fully Compliant
 
@@ -340,7 +340,7 @@ async fn handle_session_delete(
 
 ---
 
-# Module: ahma_validate
+# Module: ahma-validate
 
 ## OK Fully Compliant
 
@@ -356,7 +356,7 @@ async fn handle_session_delete(
 
 ---
 
-# Module: generate_tool_schema
+# Module: generate-tool-schema
 
 ## OK Fully Compliant
 
@@ -374,13 +374,13 @@ async fn handle_session_delete(
 
 ## 1. R7.6 Nested Sandbox Exit Test
 
-**Target:** `ahma_mcp/tests/nested_sandbox_exit_test.rs`
+**Target:** `ahma-mcp/tests/nested_sandbox_exit_test.rs`
 
 ```rust
 #[test]
 #[cfg(target_os = "macos")]
 fn test_nested_sandbox_detection_exits_with_error() {
-    // Spawn ahma_mcp in a simulated nested sandbox environment
+    // Spawn ahma-mcp in a simulated nested sandbox environment
     // Assert: process exits with non-zero code
     // Assert: stderr contains "SECURITY ERROR" or "nested sandbox"
 }
@@ -388,7 +388,7 @@ fn test_nested_sandbox_detection_exits_with_error() {
 
 ## 2. R8.4.7 HTTP DELETE Session Test
 
-**Target:** `ahma_http_bridge/tests/session_delete_test.rs`
+**Target:** `ahma-http-bridge/tests/session_delete_test.rs`
 
 ```rust
 #[tokio::test]
@@ -404,7 +404,7 @@ async fn test_delete_session_terminates_subprocess() {
 
 # Requirements Coverage Matrix
 
-| Requirement | ahma_mcp | ahma_http_bridge | ahma_http_mcp_client | ahma_validate | generate_tool_schema |
+| Requirement | ahma-mcp | ahma-http-bridge | ahma-http-mcp-client | ahma-validate | generate-tool-schema |
 |-------------|-----------|------------------|----------------------|---------------|---------------------|
 | R0 (Terminology) | OK | OK | OK | OK | OK |
 | R1 (Config/Hot-reload) | OK | — | — | — | — |

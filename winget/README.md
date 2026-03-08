@@ -13,7 +13,7 @@ manifest templates for Ahma.
 winget install paulirotta.Ahma
 ```
 
-This installs both `ahma_mcp.exe` and `ahma_simplify.exe` as portable commands
+This installs both `ahma-mcp.exe` and `ahma-simplify.exe` as portable commands
 accessible from any terminal.
 
 ## Manifest structure
@@ -49,7 +49,7 @@ export WINGET_TOKEN=<your-github-token>
 
 ## Requirements
 
-- **Runtime**: PowerShell 7+ (`pwsh`) must be installed for `ahma_mcp` to function.
+- **Runtime**: PowerShell 7+ (`pwsh`) must be installed for `ahma-mcp` to function.
   ```powershell
   winget install Microsoft.PowerShell
   ```
@@ -62,5 +62,5 @@ Before submitting to `winget-pkgs`:
 - [ ] Windows release `.zip` artifact is published on GitHub
 - [ ] SHA256SUMS file is present in the release
 - [ ] `wingetcreate validate` passes locally
-- [ ] `ahma_mcp --version` works after a clean `winget install`
-- [ ] `ahma_mcp --no-sandbox` confirms the binary runs (sandbox backend is pending)
+- [ ] `ahma-mcp --version` works after a clean `winget install`
+- [ ] `ahma-mcp --no-sandbox` confirms the binary runs (sandbox backend is pending)

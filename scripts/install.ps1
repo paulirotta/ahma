@@ -1,4 +1,4 @@
-# One-liner installer for ahma_mcp and ahma_simplify on Windows
+# One-liner installer for ahma-mcp and ahma-simplify on Windows
 # Usage: irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
 #
 # Supported platforms:
@@ -71,14 +71,14 @@ try {
     # ── Install binaries ───────────────────────────────────────────────────────
     Write-Host "Installing binaries to $installDir ..."
 
-    foreach ($bin in @("ahma_mcp.exe", "ahma_simplify.exe")) {
+    foreach ($bin in @("ahma-mcp.exe", "ahma-simplify.exe")) {
         $src = Join-Path $tempDir $bin
         if (Test-Path $src) {
             Copy-Item -Path $src -Destination $installDir -Force
             Write-Host "  Installed $bin"
         } else {
-            if ($bin -eq "ahma_mcp.exe") {
-                Write-Error "ahma_mcp.exe not found in archive"
+            if ($bin -eq "ahma-mcp.exe") {
+                Write-Error "ahma-mcp.exe not found in archive"
                 exit 1
             }
         }
@@ -88,14 +88,14 @@ try {
 }
 
 # ── Verify and report ──────────────────────────────────────────────────────────
-$mcpBin     = Join-Path $installDir "ahma_mcp.exe"
-$simplifyBin = Join-Path $installDir "ahma_simplify.exe"
+$mcpBin     = Join-Path $installDir "ahma-mcp.exe"
+$simplifyBin = Join-Path $installDir "ahma-simplify.exe"
 
 & $mcpBin --version
 if (Test-Path $simplifyBin) { & $simplifyBin --version }
 
 Write-Host ""
-Write-Host "Success! Installed ahma_mcp and ahma_simplify to $installDir"
+Write-Host "Success! Installed ahma-mcp and ahma-simplify to $installDir"
 Write-Host ""
 Write-Host "Ensure $installDir is in your PATH."
 Write-Host "To add permanently, run:"

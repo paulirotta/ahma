@@ -64,7 +64,9 @@ fn check_kernel_version_for_landlock() -> Result<(), SandboxError> {
         }
     }
     Err(SandboxError::PrerequisiteFailed(format!(
-        "Landlock requires Linux kernel 5.13 or newer. Current: {}.",
+        "Landlock requires Linux kernel 5.13 or newer. Current: {}. \
+         To run without sandboxing, add the --no-sandbox parameter to your mcp.json tool definition. \
+         Example: \"args\": [\"--mode\", \"http\", \"--no-sandbox\"]",
         version_str.trim()
     )))
 }

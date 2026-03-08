@@ -1,5 +1,5 @@
 [package]
-name = "ahma_common"
+name = "ahma-common"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true

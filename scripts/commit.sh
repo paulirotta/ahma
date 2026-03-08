@@ -46,16 +46,16 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "=== Generating JSON tool schema ==="
-cargo run --bin generate_tool_schema
+cargo run --bin generate-tool-schema
 if [ $? -ne 0 ]; then
-    echo "generate_tool_schema failed"
+    echo "generate-tool-schema failed"
     exit 1
 fi
 
 echo "=== Validating tool configurations ==="
-cargo run --bin ahma_validate -- "$TOOLS_DIR"
+cargo run --bin ahma-validate -- "$TOOLS_DIR"
 if [ $? -ne 0 ]; then
-    echo "ahma_validate failed"
+    echo "ahma-validate failed"
     exit 1
 fi
 

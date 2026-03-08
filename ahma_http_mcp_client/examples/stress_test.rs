@@ -14,7 +14,7 @@
 //! cargo run --example stress_test -- --port 8080 --duration 120
 //!
 //! # Use existing binary instead of cargo run
-//! cargo run --example stress_test -- --binary ./target/release/ahma_mcp
+//! cargo run --example stress_test -- --binary ./target/release/ahma-mcp
 //! ```
 //!
 //! # Architecture

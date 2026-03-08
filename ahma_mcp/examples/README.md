@@ -32,7 +32,7 @@ cargo run --example python_tool
 When you run an example, you'll see output like:
 
 ```
-Loading cargo tool configuration from: /path/to/ahma_mcp/examples/configs/cargo.json
+Loading cargo tool configuration from: /path/to/ahma-mcp/examples/configs/cargo.json
 OK Configuration is valid!
 
 📋 Tool Details:
@@ -55,7 +55,7 @@ All configuration JSON files are located in the [configs/](configs/) directory a
 
 ## Validation
 
-The examples use the `MtdfValidator` from `ahma_mcp::schema_validation` to validate configurations against the MTDF schema. This ensures:
+The examples use the `MtdfValidator` from `ahma-mcp::schema_validation` to validate configurations against the MTDF schema. This ensures:
 
 - Required fields are present
 - Field types are correct
@@ -68,10 +68,10 @@ Integration tests verify that all examples run successfully:
 
 ```bash
 # Run schema validation tests
-cargo nextest run --package ahma_mcp --test tool_config_schema_validation_test
+cargo nextest run --package ahma-mcp --test tool_config_schema_validation_test
 
 # Run execution tests
-cargo nextest run --package ahma_mcp --test tool_examples_execution_test
+cargo nextest run --package ahma-mcp --test tool_examples_execution_test
 ```
 
 ## Creating New Tool Configurations
@@ -93,4 +93,4 @@ To add a new tool configuration:
 
 - [/.ahma/README.md](../../.ahma/README.md) - Comprehensive guide to tool configurations
 - [/docs/mtdf-schema.json](/docs/mtdf-schema.json) - JSON Schema definition
-- [ahma_mcp/src/schema_validation.rs](../src/schema_validation.rs) - Validation implementation
+- [ahma-mcp/src/schema_validation.rs](../src/schema_validation.rs) - Validation implementation

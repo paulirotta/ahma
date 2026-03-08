@@ -62,7 +62,7 @@ An example client that connects to the Atlassian MCP server using OAuth2 is prov
 1. Run the example:
 
 ```bash
-cargo run -p ahma_http_mcp_client --example oauth_mcp_client -- \
+cargo run -p ahma-http-mcp-client --example oauth_mcp_client -- \
     --atlassian-client-id YOUR_CLIENT_ID \
     --atlassian-client-secret YOUR_CLIENT_SECRET \
     --query "MCP"
@@ -78,4 +78,4 @@ MIT OR Apache-2.0
 
 ### MCP Client
 
-cargo run -p ahma_http_mcp_client --example oauth_mcp_client -- --atlassian-client-id … --atlassian-client-secret …
+cargo run -p ahma-http-mcp-client --example oauth_mcp_client -- --atlassian-client-id … --atlassian-client-secret …
