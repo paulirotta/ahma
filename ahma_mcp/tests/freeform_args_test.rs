@@ -27,7 +27,7 @@ async fn test_freeform_argument_passing_ls() -> Result<()> {
         "--package",
         "ahma_mcp",
         "--bin",
-        "ahma_mcp",
+        "ahma-mcp",
         "--",
         "ls_ls",
     ]);
@@ -89,7 +89,7 @@ edition = "2021"
         "--package",
         "ahma_mcp",
         "--bin",
-        "ahma_mcp",
+        "ahma-mcp",
         "--",
         "cargo_clippy",
     ]);

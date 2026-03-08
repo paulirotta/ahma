@@ -71,7 +71,7 @@ impl Client {
                         .arg("--package")
                         .arg("ahma_mcp")
                         .arg("--bin")
-                        .arg("ahma_mcp")
+                        .arg("ahma-mcp")
                         .arg("--");
                     if let Some(dir) = tools_dir {
                         cmd.arg("--tools-dir").arg(dir);

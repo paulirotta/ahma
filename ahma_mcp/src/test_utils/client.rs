@@ -173,7 +173,7 @@ impl ClientBuilder {
                 .arg("--package")
                 .arg("ahma_mcp")
                 .arg("--bin")
-                .arg("ahma_mcp")
+                .arg("ahma-mcp")
                 .arg("--");
             self.run_command(cmd, &working_dir)
         };

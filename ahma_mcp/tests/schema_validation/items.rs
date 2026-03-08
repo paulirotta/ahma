@@ -15,7 +15,7 @@ async fn test_array_parameters_must_have_items_property() -> anyhow::Result<()> 
     // Force rebuild to ensure we're testing the latest code in CI
     eprintln!("Building latest binary to avoid stale cache issues...");
     let build_output = std::process::Command::new("cargo")
-        .args(["build", "--package", "ahma_mcp", "--bin", "ahma_mcp"])
+        .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
         .output()
         .expect("Failed to build binary");
 

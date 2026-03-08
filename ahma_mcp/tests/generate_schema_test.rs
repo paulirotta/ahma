@@ -26,7 +26,7 @@ fn test_generate_schema_binary_outputs_schema() -> Result<()> {
         .arg("--package")
         .arg("generate_tool_schema")
         .arg("--bin")
-        .arg("generate_tool_schema")
+        .arg("generate-tool-schema")
         .arg("--")
         .arg(&output_dir_arg)
         .output()?;
