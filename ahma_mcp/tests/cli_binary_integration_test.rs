@@ -355,7 +355,7 @@ mod generate_tool_schema_tests {
 
     #[test]
     fn test_generate_schema_default_output() {
-        let binary = build_binary_cached("generate-tool-schema", "generate-tool-schema");
+        let binary = build_binary_cached("generate_tool_schema", "generate-tool-schema");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let workspace = get_workspace_dir();
 
@@ -394,7 +394,7 @@ mod generate_tool_schema_tests {
 
     #[test]
     fn test_generate_schema_output_is_valid_json() {
-        let binary = build_binary_cached("generate-tool-schema", "generate-tool-schema");
+        let binary = build_binary_cached("generate_tool_schema", "generate-tool-schema");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let workspace = get_workspace_dir();
 
@@ -419,7 +419,7 @@ mod generate_tool_schema_tests {
 
     #[test]
     fn test_generate_schema_creates_directory_if_needed() {
-        let binary = build_binary_cached("generate-tool-schema", "generate-tool-schema");
+        let binary = build_binary_cached("generate_tool_schema", "generate-tool-schema");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let workspace = get_workspace_dir();
 
