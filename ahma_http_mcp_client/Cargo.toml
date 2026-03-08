@@ -2,13 +2,13 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "ahma-http-mcp-client"
+name = "ahma_http_mcp_client"
 readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-ahma-common = { path = "../ahma_common" }
+ahma_common = { path = "../ahma_common" }
 anyhow.workspace = true
 async-stream = "0.3.6"
 async-trait.workspace = true

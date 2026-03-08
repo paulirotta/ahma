@@ -2,13 +2,13 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "ahma-http-bridge"
+name = "ahma_http_bridge"
 readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-ahma-common = { path = "../ahma_common" }
+ahma_common = { path = "../ahma_common" }
 anyhow.workspace = true
 axum = { version = "0.8.8", features = ["http2", "tokio"] }
 bytes = "1.11"
@@ -46,7 +46,7 @@ opentelemetry = [
 ]
 
 [dev-dependencies]
-ahma-mcp = { path = "../ahma_mcp" }
+ahma_mcp = { path = "../ahma_mcp" }
 dunce.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["json", "stream"] }

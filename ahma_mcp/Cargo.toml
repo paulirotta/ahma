@@ -2,7 +2,7 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "ahma-mcp"
+name = "ahma_mcp"
 readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -16,8 +16,8 @@ name = "ahma-mcp"
 path = "src/shell/bin.rs"
 
 [dependencies]
-ahma-http-bridge = { path = "../ahma_http_bridge" }
-ahma-http-mcp-client = { path = "../ahma_http_mcp_client" }
+ahma_http_bridge = { path = "../ahma_http_bridge" }
+ahma_http_mcp_client = { path = "../ahma_http_mcp_client" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true

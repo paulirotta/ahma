@@ -3,18 +3,18 @@
 version = 4
 
 [[package]]
-name = "ahma-common"
+name = "ahma_common"
 version = "0.5.1"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
-name = "ahma-http-bridge"
+name = "ahma_http_bridge"
 version = "0.5.1"
 dependencies = [
- "ahma-common",
- "ahma-mcp",
+ "ahma_common",
+ "ahma_mcp",
  "anyhow",
  "axum",
  "bytes",
@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma-http-mcp-client"
+name = "ahma_http_mcp_client"
 version = "0.5.1"
 dependencies = [
- "ahma-common",
+ "ahma_common",
  "anyhow",
  "async-stream",
  "async-trait",
@@ -71,11 +71,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma-mcp"
+name = "ahma_mcp"
 version = "0.5.1"
 dependencies = [
- "ahma-http-bridge",
- "ahma-http-mcp-client",
+ "ahma_http_bridge",
+ "ahma_http_mcp_client",
  "anyhow",
  "async-trait",
  "chrono",
@@ -111,7 +111,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma-simplify"
+name = "ahma_simplify"
 version = "0.5.1"
 dependencies = [
  "anyhow",
@@ -128,10 +128,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma-validate"
+name = "ahma_validate"
 version = "0.5.1"
 dependencies = [
- "ahma-mcp",
+ "ahma_mcp",
  "anyhow",
  "clap",
  "serde_json",
@@ -973,10 +973,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate-tool-schema"
+name = "generate_tool_schema"
 version = "0.5.1"
 dependencies = [
- "ahma-mcp",
+ "ahma_mcp",
  "schemars",
  "serde_json",
  "tempfile",
