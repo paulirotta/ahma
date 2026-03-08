@@ -450,7 +450,7 @@ mod tests {
     fn test_default_config() {
         let config = BridgeConfig::default();
         assert_eq!(config.bind_addr.to_string(), "127.0.0.1:3000");
-        assert_eq!(config.server_command, "ahma_mcp");
+        assert_eq!(config.server_command, "ahma-mcp");
         assert!(config.server_args.is_empty());
     }
 
@@ -487,7 +487,7 @@ mod tests {
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("BridgeConfig"));
         assert!(debug_str.contains("127.0.0.1:3000"));
-        assert!(debug_str.contains("ahma_mcp"));
+        assert!(debug_str.contains("ahma-mcp"));
     }
 
     fn create_app(state: Arc<BridgeState>) -> Router {
