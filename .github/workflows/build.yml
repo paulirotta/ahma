@@ -373,7 +373,7 @@ jobs:
           echo "--- cargo --version" && cargo --version
           echo "--- Running cargo nextest (faster parallel test runner)"
           # Exclude gradle/android tests - they run in job-android only
-          cargo nextest run --locked --no-default-features --no-fail-fast -- --skip gradlew --skip android
+          cargo nextest run --profile ci --locked --no-default-features --no-fail-fast -- --skip gradlew --skip android
 
       - name: Show sccache stats
         run: sccache --show-stats
