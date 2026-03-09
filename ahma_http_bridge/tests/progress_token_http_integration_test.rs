@@ -5,6 +5,19 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::sleep;
 
+fn short_sleep_command() -> &'static str {
+    #[cfg(windows)]
+    {
+        // `sandboxed_shell` executes through pwsh on Windows.
+        "Start-Sleep -Milliseconds 200"
+    }
+
+    #[cfg(not(windows))]
+    {
+        "sleep 0.2"
+    }
+}
+
 #[tokio::test]
 async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> anyhow::Result<()> {
     let server = spawn_http_bridge().await?;
@@ -32,7 +45,7 @@ async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> a
         "params": {
             "name": "sandboxed_shell",
             "arguments": {
-                "command": "sleep 0.2",
+                "command": short_sleep_command(),
                 "working_directory": client_root_dir.path().to_string_lossy()
             }
         }
@@ -83,7 +96,7 @@ async fn test_http_progress_token_is_echoed_in_progress_notifications() -> anyho
             "_meta": { "progressToken": token },
             "name": "sandboxed_shell",
             "arguments": {
-                "command": "sleep 0.2",
+                "command": short_sleep_command(),
                 "working_directory": client_root_dir.path().to_string_lossy()
             }
         }
