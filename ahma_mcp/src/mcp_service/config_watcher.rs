@@ -121,7 +121,10 @@ impl AhmaMcpService {
         tracing::info!("Requesting roots/list from client...");
 
         // Use the list_roots() method provided by Peer<RoleServer>
-        match peer.list_roots().await {
+        let list_result = peer.list_roots().await;
+        eprintln!("DEBUG: peer.list_roots() returned: {:?}", list_result.is_ok());
+        
+        match list_result {
             Ok(result) => {
                 let roots = result.roots;
                 eprintln!("DEBUG: ahma_mcp received {} roots", roots.len());
@@ -133,11 +136,16 @@ impl AhmaMcpService {
                     #[allow(clippy::collapsible_if)]
                     if let Ok(url) = url::Url::parse(&root.uri) {
                         if url.scheme() == "file" {
-                            if let Ok(path) = url.to_file_path() {
-                                tracing::info!("Parsed valid file URI: {} -> {:?}", root.uri, path);
-                                new_scopes.push(path);
-                            } else {
-                                tracing::warn!("Failed to convert file URI to path: {}", root.uri);
+                            match url.to_file_path() {
+                                Ok(path) => {
+                                    tracing::info!("Parsed valid file URI: {} -> {:?}", root.uri, path);
+                                    eprintln!("DEBUG: Parsed file URI {} to path {:?}", root.uri, path);
+                                    new_scopes.push(path);
+                                }
+                                Err(()) => {
+                                    tracing::warn!("Failed to convert file URI to path: {}", root.uri);
+                                    eprintln!("DEBUG: Failed to convert file URI to path: {}", root.uri);
+                                }
                             }
                         } else {
                             tracing::warn!("Ignoring non-file URI: {}", root.uri);
@@ -154,19 +162,25 @@ impl AhmaMcpService {
                 );
 
                 if !new_scopes.is_empty() {
-                    if let Err(e) = self.adapter.sandbox().update_scopes(new_scopes.clone()) {
-                        tracing::error!("Failed to update sandbox from roots: {}", e);
-                        if let Ok(notification) = serde_json::to_string(&serde_json::json!({
-                            "jsonrpc": "2.0",
-                            "method": "notifications/sandbox/failed",
-                            "params": { "error": e.to_string() }
-                        })) {
-                            println!("\n{}", notification);
+                    eprintln!("DEBUG: Attempting to update sandbox scopes with {} paths", new_scopes.len());
+                    match self.adapter.sandbox().update_scopes(new_scopes.clone()) {
+                        Ok(()) => {
+                            tracing::info!("Sandbox scopes updated successfully");
+                            eprintln!("DEBUG: Sandbox scopes updated successfully");
                         }
-                        return;
+                        Err(e) => {
+                            tracing::error!("Failed to update sandbox from roots: {}", e);
+                            eprintln!("DEBUG: Failed to update sandbox from roots: {}", e);
+                            if let Ok(notification) = serde_json::to_string(&serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "method": "notifications/sandbox/failed",
+                                "params": { "error": e.to_string() }
+                            })) {
+                                println!("\n{}", notification);
+                            }
+                            return;
+                        }
                     }
-
-                    tracing::info!("Sandbox scopes updated successfully");
 
                     // On Linux, apply Landlock kernel-level restrictions now that we have scopes.
                     // This is critical for HTTP bridge deferred sandbox mode where Landlock
@@ -219,6 +233,7 @@ impl AhmaMcpService {
                 // NOTE: we intentionally write the raw JSON to stdout instead of
                 // using rmcp Peer helpers here to avoid relying on generated
                 // methods for a new notification name.
+                eprintln!("DEBUG: About to send notifications/sandbox/configured");
                 if let Ok(notification) = serde_json::to_string(&serde_json::json!({
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/configured"
@@ -226,6 +241,9 @@ impl AhmaMcpService {
                     // Use println! with a leading newline to write to stdout so the bridge
                     // picks it up even if it was concatenated with a previous partial message.
                     println!("\n{}", notification);
+                    eprintln!("DEBUG: Sent notifications/sandbox/configured");
+                } else {
+                    eprintln!("DEBUG: Failed to serialize notifications/sandbox/configured");
                 }
             }
             Err(e) => {
