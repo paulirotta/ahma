@@ -36,6 +36,13 @@ retries = 0
 filter = "test(path_security) | test(mcp_service_coverage_improvement) | test(mcp_callback_coverage) | test(schema_validation) | test(mcp_integration_tests) | test(logging_coverage) | test(mcp_service_edge_cases) | test(mcp_service_integration_coverage) | test(sequence_failure_edge_cases) | test(tools_dir_auto_detection)"
 threads-required = 2
 
+# HTTP bridge integration tests spawn ahma-mcp server subprocesses.
+# On Windows CI (2 CPUs), parallel server startups cause resource contention
+# and sandbox handshake timeouts. Reserve extra slots to limit concurrency.
+[[profile.default.overrides]]
+filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::)"
+threads-required = 2
+
 # Coverage profile for cargo llvm-cov (instrumentation makes tests much slower)
 [profile.coverage]
 retries = 0
