@@ -1,5 +1,5 @@
 use ahma_mcp::schema_validation::MtdfValidator;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, ensure};
 use clap::Parser;
 use std::{
     fs,
@@ -53,175 +53,112 @@ struct Cli {
 #[instrument]
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    ahma_mcp::utils::logging::init_logging(if cli.debug { "debug" } else { "info" }, false)?;
 
-    // Initialize logging
-    let log_level = if cli.debug { "debug" } else { "info" };
-    ahma_mcp::utils::logging::init_logging(log_level, false)?;
+    ensure!(
+        run_validation_mode(&cli)?,
+        "Some configurations are invalid. Please check the error messages above."
+    );
 
-    if run_validation_mode(&cli)? {
-        // Always emit a human-readable success summary even if logging output is filtered.
-        println!("All configurations are valid.");
-        info!("All configurations are valid.");
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Some configurations are invalid. Please check the error messages above."
-        ))
-    }
+    println!("All configurations are valid.");
+    info!("All configurations are valid.");
+    Ok(())
 }
 
-/// Normalizes the validation target path for legacy compatibility.
-///
-/// This function checks for a legacy directory structure where a `tools` directory
-/// inside `.ahma` was used. If the `tools` directory is specified but does not exist,
-/// it attempts to fall back to the parent directory if it exists.
-///
-/// # Arguments
-///
-/// * `path` - The path to normalize.
-///
-/// # Returns
-///
-/// The normalized `PathBuf`.
-fn normalize_validation_target(path: PathBuf) -> PathBuf {
-    let is_legacy_tools_dir = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .is_some_and(|s| s == "tools")
+/// Returns true if `path` matches the legacy `.ahma/tools` directory pattern.
+fn is_legacy_ahma_tools_path(path: &Path) -> bool {
+    path.file_name().and_then(|s| s.to_str()) == Some("tools")
         && path
             .parent()
             .and_then(|p| p.file_name())
             .and_then(|s| s.to_str())
-            .is_some_and(|s| s == ".ahma");
+            == Some(".ahma")
+}
 
-    if is_legacy_tools_dir
-        && !path.exists()
-        && let Some(parent) = path.parent()
-        && parent.exists()
-    {
-        return parent.to_path_buf();
+/// Normalizes the validation target path for legacy compatibility.
+///
+/// If the path matches `.ahma/tools` but doesn't exist, falls back to the
+/// parent `.ahma` directory when it exists.
+fn normalize_validation_target(path: PathBuf) -> PathBuf {
+    if !is_legacy_ahma_tools_path(&path) || path.exists() {
+        return path;
+    }
+    match path.parent() {
+        Some(parent) if parent.exists() => parent.to_path_buf(),
+        _ => path,
+    }
+}
+
+/// Resolves target strings into concrete file paths to validate.
+///
+/// Returns the collected files and whether all targets were found.
+fn collect_validation_files(targets: Vec<String>) -> Result<(Vec<PathBuf>, bool)> {
+    let mut files = Vec::new();
+    let mut all_found = true;
+
+    for target in targets {
+        let path = normalize_validation_target(PathBuf::from(target));
+        if path.is_dir() {
+            files.extend(get_json_files(&path)?);
+        } else if path.is_file() {
+            files.push(path);
+        } else {
+            error!("Validation target not found: {}", path.display());
+            all_found = false;
+        }
     }
 
-    path
+    Ok((files, all_found))
+}
+
+/// Reads and validates a single tool configuration file.
+fn validate_file(validator: &MtdfValidator, file_path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(file_path).inspect_err(|e| {
+        error!("Failed to read file {}: {}", file_path.display(), e);
+    }) else {
+        return false;
+    };
+
+    validator
+        .validate_tool_config(file_path, &content)
+        .inspect(|_| info!("{} is valid.", file_path.display()))
+        .inspect_err(|e| error!("Validation failed for {}: {:?}", file_path.display(), e))
+        .is_ok()
 }
 
 /// Runs the tool validation process based on the CLI arguments.
 ///
-/// It processes each target specified in `cli.validation_target` (splitting by comma if needed),
-/// normalizes paths, discovers JSON files, and runs the `MtdfValidator` against them.
-///
-/// # Arguments
-///
-/// * `cli` - The parsed command line arguments.
-///
-/// # Returns
-///
-/// `Ok(true)` if all configurations are valid, `Ok(false)` if any configuration is invalid,
-/// or an `Err` if a fatal error occurred (e.g., file read error).
+/// Returns `Ok(true)` if all configurations are valid, `Ok(false)` if any is invalid.
 fn run_validation_mode(cli: &Cli) -> Result<bool> {
-    let mut all_valid = true;
-
-    // Guidance configuration is now hardcoded in ahma_mcp
     let validator = MtdfValidator::new();
+    let targets: Vec<String> = cli
+        .validation_target
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let (files, all_found) = collect_validation_files(targets)?;
 
-    // Process each target in the validation target list
-    let targets = if cli.validation_target.contains(',') {
-        cli.validation_target
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect()
-    } else {
-        vec![cli.validation_target.clone()]
-    };
+    let all_validated = files
+        .iter()
+        .fold(true, |valid, f| validate_file(&validator, f) && valid);
 
-    let mut files_to_validate = Vec::new();
-    for target in targets {
-        let path = normalize_validation_target(PathBuf::from(target));
-        if path.is_dir() {
-            files_to_validate.extend(get_json_files(&path)?);
-        } else if path.is_file() {
-            files_to_validate.push(path);
-        } else {
-            error!("Validation target not found: {}", path.display());
-            all_valid = false;
-        }
-    }
-
-    for file_path in files_to_validate {
-        let content = match fs::read_to_string(&file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                error!(
-                    "Failed to read file {}: {}",
-                    file_path.display(),
-                    e.to_string()
-                );
-                all_valid = false;
-                continue;
-            }
-        };
-
-        match validator.validate_tool_config(&file_path, &content) {
-            Ok(_) => {
-                info!("{} is valid.", file_path.display());
-            }
-            Err(e) => {
-                error!("Validation failed for {}: {:?}", file_path.display(), e);
-                all_valid = false;
-            }
-        }
-    }
-
-    Ok(all_valid)
+    Ok(all_found && all_validated)
 }
 
-/// Scans a directory for JSON files.
-///
-/// This function looks for files with the `.json` extension in the specified directory.
-/// It does not search recursively into subdirectories.
-///
-/// # Arguments
-///
-/// * `dir` - The directory path to search.
-///
-/// # Returns
-///
-/// A `Result` containing a `Vec<PathBuf>` of found JSON files, or an error if reading the directory fails.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use std::path::Path;
-/// # fn main() -> anyhow::Result<()> {
-/// // Assuming "tools" is a directory containing JSON files
-/// let files = get_json_files(Path::new("tools"))?;
-/// for file in files {
-///     println!("Found tool config: {:?}", file);
-/// }
-/// # Ok(())
-/// # }
-/// # // Mock the function signature for the example since it is private
-/// # fn get_json_files(dir: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> { Ok(vec![]) }
-/// ```
+/// Scans a directory for top-level `.json` files (non-recursive).
 fn get_json_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-            files.push(path);
-        }
-    }
-    Ok(files)
+    Ok(fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("json"))
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
-    /// Helper to create a temp directory with optional files
     fn setup_temp_dir_with_files(files: &[(&str, &str)]) -> TempDir {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         for (name, content) in files {
@@ -229,9 +166,7 @@ mod tests {
             if let Some(parent) = file_path.parent() {
                 fs::create_dir_all(parent).expect("Failed to create parent dirs");
             }
-            let mut file = fs::File::create(&file_path).expect("Failed to create file");
-            file.write_all(content.as_bytes())
-                .expect("Failed to write file");
+            fs::write(&file_path, content).expect("Failed to write file");
         }
         temp_dir
     }
