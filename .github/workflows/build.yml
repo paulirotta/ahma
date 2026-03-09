@@ -51,15 +51,14 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   SCCACHE_CACHE_SIZE: 1G # Limit sccache size to prevent GitHub Actions cache eviction
 jobs:
-  job-cargo-build:
-    if: false
+  job-cargo-clippy:
     defaults:
       run:
         shell: bash
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -143,16 +142,10 @@ jobs:
       - name: Show sccache stats
         run: sccache --show-stats
 
-      - name: Cargo Build
-        run: |
-          cargo build --locked
-
       - name: Cargo Clippy
-        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --locked
 
       - name: Cargo Clippy Tests
-        if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --tests --locked
 
       - name: Cargo Doc
@@ -162,13 +155,8 @@ jobs:
       - name: Upload documentation
         uses: actions/upload-artifact@v6
         with:
-          name: documentation-${{ matrix.os }}
+          name: documentation
           path: target/doc
-
-      #- name: Perform CodeQL Analysis
-      #  uses: github/codeql-action/analyze@v3
-      #  with:
-      #    category: "/language:${{matrix.language}}"
 
       - name: Show sccache stats
         run: sccache --show-stats
@@ -690,7 +678,7 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [job-cargo-nextest, job-android, job-release-binaries, job-coverage]
+    needs: [job-cargo-clippy, job-cargo-nextest, job-android, job-release-binaries, job-coverage]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
