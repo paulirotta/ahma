@@ -76,6 +76,10 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
         &tools_dir.to_string_lossy(),
         "--defer-sandbox", // Key: sandbox is deferred until roots/list
         "--log-to-stderr",
+        // Use a generous handshake timeout so slow CI runners (especially Windows)
+        // complete the SSE roots exchange before the server-side timer fires.
+        "--handshake-timeout-secs",
+        "300",
     ]);
 
     // CRITICAL: Remove bypass env vars for real sandbox testing

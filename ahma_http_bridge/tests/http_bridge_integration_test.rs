@@ -250,9 +250,9 @@ fn roots_handshake_timeout() -> Duration {
 
 fn post_roots_configured_grace_timeout() -> Duration {
     if coverage_mode() {
-        // Coverage instrumentation can delay sandbox setup well after roots/list
-        // has been answered, so reuse the full handshake window here.
-        roots_handshake_timeout()
+        // Coverage instrumentation significantly slows the subprocess, so give
+        // a much larger grace period for notifications/sandbox/configured to arrive.
+        Duration::from_secs(300)
     } else if cfg!(windows) {
         Duration::from_secs(45)
     } else {
