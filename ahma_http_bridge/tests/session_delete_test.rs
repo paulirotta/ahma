@@ -60,35 +60,7 @@ fn find_available_port() -> u16 {
 
 /// Build the ahma_mcp binary if needed and return the path
 fn get_ahma_mcp_binary() -> PathBuf {
-    let workspace_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("Failed to get workspace dir")
-        .to_path_buf();
-
-    // Check for CARGO_TARGET_DIR
-    let target_dir = std::env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| workspace_dir.join("target"));
-
-    let binary_path = target_dir.join("debug/ahma-mcp");
-
-    // Optimization: Skip manual build if binary already exists to avoid
-    // cargo lock contention during parallel testing (especially in CI).
-    if !binary_path.exists() {
-        let output = Command::new("cargo")
-            .current_dir(&workspace_dir)
-            .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
-            .output()
-            .expect("Failed to run cargo build");
-
-        assert!(
-            output.status.success(),
-            "Failed to build ahma_mcp: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    binary_path
+    ahma_mcp::test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp")
 }
 
 /// Start the HTTP bridge server and return the process
