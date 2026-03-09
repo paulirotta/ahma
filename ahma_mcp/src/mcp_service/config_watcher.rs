@@ -122,8 +122,11 @@ impl AhmaMcpService {
 
         // Use the list_roots() method provided by Peer<RoleServer>
         let list_result = peer.list_roots().await;
-        eprintln!("DEBUG: peer.list_roots() returned: {:?}", list_result.is_ok());
-        
+        eprintln!(
+            "DEBUG: peer.list_roots() returned: {:?}",
+            list_result.is_ok()
+        );
+
         match list_result {
             Ok(result) => {
                 let roots = result.roots;
@@ -138,13 +141,26 @@ impl AhmaMcpService {
                         if url.scheme() == "file" {
                             match url.to_file_path() {
                                 Ok(path) => {
-                                    tracing::info!("Parsed valid file URI: {} -> {:?}", root.uri, path);
-                                    eprintln!("DEBUG: Parsed file URI {} to path {:?}", root.uri, path);
+                                    tracing::info!(
+                                        "Parsed valid file URI: {} -> {:?}",
+                                        root.uri,
+                                        path
+                                    );
+                                    eprintln!(
+                                        "DEBUG: Parsed file URI {} to path {:?}",
+                                        root.uri, path
+                                    );
                                     new_scopes.push(path);
                                 }
                                 Err(()) => {
-                                    tracing::warn!("Failed to convert file URI to path: {}", root.uri);
-                                    eprintln!("DEBUG: Failed to convert file URI to path: {}", root.uri);
+                                    tracing::warn!(
+                                        "Failed to convert file URI to path: {}",
+                                        root.uri
+                                    );
+                                    eprintln!(
+                                        "DEBUG: Failed to convert file URI to path: {}",
+                                        root.uri
+                                    );
                                 }
                             }
                         } else {
@@ -162,7 +178,10 @@ impl AhmaMcpService {
                 );
 
                 if !new_scopes.is_empty() {
-                    eprintln!("DEBUG: Attempting to update sandbox scopes with {} paths", new_scopes.len());
+                    eprintln!(
+                        "DEBUG: Attempting to update sandbox scopes with {} paths",
+                        new_scopes.len()
+                    );
                     match self.adapter.sandbox().update_scopes(new_scopes.clone()) {
                         Ok(()) => {
                             tracing::info!("Sandbox scopes updated successfully");
