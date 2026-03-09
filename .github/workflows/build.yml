@@ -471,6 +471,12 @@ jobs:
           cp CODE_SIMPLICITY.md coverage/
           cp CODE_SIMPLICITY.html coverage/
 
+      - name: Generate Rust Docs
+        run: |
+          cargo doc --no-deps
+          cp -r target/doc coverage/
+          echo '<meta http-equiv="refresh" content="0; url=ahma_mcp/index.html">' > coverage/doc/index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
