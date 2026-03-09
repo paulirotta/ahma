@@ -134,13 +134,8 @@ jobs:
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Configure sccache environment
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
-
       - name: Setup Cargo Binstall
-        uses: cargo-bins/cargo-binstall@main
+        uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -263,13 +258,8 @@ jobs:
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Configure sccache environment
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
-
       - name: Setup Cargo Binstall
-        uses: cargo-bins/cargo-binstall@main
+        uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -349,11 +339,7 @@ jobs:
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Configure sccache environment
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-
-      - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -457,12 +443,8 @@ jobs:
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Configure sccache environment
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-
       - name: Setup Cargo Binstall
-        uses: cargo-bins/cargo-binstall@main
+        uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -489,15 +471,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-
-      - name: Ensure cargo-nextest is installed (fallback)
-        run: |
-          if ! command -v cargo-nextest &> /dev/null; then
-            echo "cargo-nextest not found, installing..."
-            cargo binstall cargo-nextest --no-confirm || cargo install cargo-nextest --locked
-          else
-            echo "cargo-nextest already installed"
-          fi
 
       - name: Generate coverage report
         run: |
@@ -650,15 +623,8 @@ jobs:
         if: "!matrix.use_cross"
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Configure sccache environment
-        if: "!matrix.use_cross"
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "SCCACHE_BASE_DIR=${{ github.workspace }}" >> $GITHUB_ENV
-
-
       - name: Setup Cargo Binstall
-        uses: cargo-bins/cargo-binstall@main
+        uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
