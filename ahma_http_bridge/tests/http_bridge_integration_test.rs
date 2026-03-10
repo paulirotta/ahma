@@ -373,7 +373,7 @@ async fn process_sse_roots_handshake(
 
             while let Some((idx, delimiter_len)) = first_sse_event_boundary(&buffer) {
                 let raw_event = buffer[..idx].to_string();
-                buffer = buffer[idx + delimiter_len..].to_string();
+                buffer.drain(..idx + delimiter_len);
 
                 let mut data_lines: Vec<&str> = Vec::new();
                 for line in raw_event.lines() {
