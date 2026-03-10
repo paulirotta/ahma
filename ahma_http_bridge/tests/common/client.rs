@@ -317,6 +317,19 @@ impl McpTestClient {
             .await
     }
 
+    /// Complete the roots handshake in the correct protocol order:
+    /// open the SSE stream *first*, then send notifications/initialized.
+    ///
+    /// Use this after `initialize_only` when you need the SSE listener
+    /// established before the server can fire `roots/list`.
+    pub async fn complete_handshake_with_roots(&self, roots: &[PathBuf]) -> Result<(), String> {
+        let session_id = self.required_session_id()?;
+        let sse_resp = self.open_handshake_sse(session_id).await?;
+        self.send_initialized_notification(session_id).await?;
+        self.process_roots_handshake_stream(sse_resp, session_id, roots)
+            .await
+    }
+
     /// Complete the MCP handshake with a custom client name.
     pub async fn initialize_with_name(
         &mut self,

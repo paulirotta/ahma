@@ -305,35 +305,29 @@ async fn send_tool_call_with_retry(
     }
 }
 
-/// Wait for a `roots/list` request over SSE and respond with the provided roots.
-async fn answer_roots_list_over_sse(
+/// Process an already-open SSE response to complete the MCP roots handshake.
+/// Reads `roots/list`, responds with `roots_json`, then waits for
+/// `notifications/sandbox/configured`.  Callers must open the SSE connection
+/// *before* sending `notifications/initialized` to avoid the race where the
+/// server fires `roots/list` before the client has a listener.
+async fn process_sse_roots_handshake(
+    sse_resp: reqwest::Response,
     client: &Client,
     base_url: &str,
     session_id: &str,
-    roots: &[PathBuf],
+    roots_json: Vec<Value>,
 ) {
-    let url = format!("{}/mcp", base_url);
-    let resp = client
-        .get(&url)
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", session_id)
-        .send()
-        .await
-        .expect("Failed to open SSE stream");
-
     assert!(
-        resp.status().is_success(),
+        sse_resp.status().is_success(),
         "SSE stream must be available, got HTTP {}",
-        resp.status()
+        sse_resp.status()
     );
 
-    let mut stream = resp.bytes_stream();
+    let mut stream = sse_resp.bytes_stream();
     let mut buffer = String::new();
     let mut roots_answered = false;
     let mut post_roots_deadline: Option<tokio::time::Instant> = None;
 
-    // Hard timeout: if session isolation is broken, we may never see roots/list/configured.
     let roots_deadline = tokio::time::Instant::now() + roots_handshake_timeout();
     loop {
         if let Some(timeout_at) = post_roots_deadline
@@ -360,7 +354,6 @@ async fn answer_roots_list_over_sse(
             let text = String::from_utf8_lossy(&bytes);
             buffer.push_str(&text);
 
-            // SSE events are separated by a blank line.
             while let Some(idx) = buffer.find("\n\n") {
                 let raw_event = buffer[..idx].to_string();
                 buffer = buffer[idx + 2..].to_string();
@@ -409,16 +402,6 @@ async fn answer_roots_list_over_sse(
                     .cloned()
                     .expect("roots/list must include id");
 
-                let roots_json: Vec<Value> = roots
-                    .iter()
-                    .map(|p| {
-                        json!({
-                            "uri": format!("file://{}", p.display()),
-                            "name": p.file_name().and_then(|n| n.to_str()).unwrap_or("root")
-                        })
-                    })
-                    .collect();
-
                 let response = json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -436,6 +419,36 @@ async fn answer_roots_list_over_sse(
             }
         }
     }
+}
+
+/// Wait for a `roots/list` request over SSE and respond with the provided roots.
+async fn answer_roots_list_over_sse(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    roots: &[PathBuf],
+) {
+    let url = format!("{}/mcp", base_url);
+    let resp = client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", session_id)
+        .send()
+        .await
+        .expect("Failed to open SSE stream");
+
+    let roots_json: Vec<Value> = roots
+        .iter()
+        .map(|p| {
+            json!({
+                "uri": format!("file://{}", p.display()),
+                "name": p.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+            })
+        })
+        .collect();
+
+    process_sse_roots_handshake(resp, client, base_url, session_id, roots_json).await;
 }
 
 fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
@@ -517,118 +530,12 @@ async fn answer_roots_list_over_sse_with_uris(
         .await
         .expect("Failed to open SSE stream");
 
-    assert!(
-        resp.status().is_success(),
-        "SSE stream must be available, got HTTP {}",
-        resp.status()
-    );
+    let roots_json: Vec<Value> = root_uris
+        .iter()
+        .map(|uri| json!({"uri": uri, "name": "root"}))
+        .collect();
 
-    let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
-    let mut roots_answered = false;
-    let mut post_roots_deadline: Option<tokio::time::Instant> = None;
-
-    let roots_deadline = tokio::time::Instant::now() + roots_handshake_timeout();
-    loop {
-        if let Some(timeout_at) = post_roots_deadline
-            && tokio::time::Instant::now() > timeout_at
-        {
-            panic!(
-                "Timed out waiting for notifications/sandbox/configured after roots/list response"
-            );
-        }
-
-        if tokio::time::Instant::now() > roots_deadline {
-            panic!(
-                "Timed out waiting for roots/list + sandbox/configured over SSE (session isolation likely broken)"
-            );
-        }
-
-        let chunk = tokio::time::timeout(Duration::from_millis(500), stream.next())
-            .await
-            .ok()
-            .flatten();
-
-        if let Some(next) = chunk {
-            let bytes = next.expect("SSE stream read failed");
-            let text = String::from_utf8_lossy(&bytes);
-            buffer.push_str(&text);
-
-            while let Some(idx) = buffer.find("\n\n") {
-                let raw_event = buffer[..idx].to_string();
-                buffer = buffer[idx + 2..].to_string();
-
-                let mut data_lines: Vec<&str> = Vec::new();
-                for line in raw_event.lines() {
-                    let line = line.trim_end_matches('\r');
-                    if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim());
-                    }
-                }
-
-                if data_lines.is_empty() {
-                    continue;
-                }
-
-                let data = data_lines.join("\n");
-                let Ok(value) = serde_json::from_str::<Value>(&data) else {
-                    continue;
-                };
-
-                let method = value.get("method").and_then(|m| m.as_str());
-
-                if method == Some("notifications/sandbox/failed") {
-                    let error = value
-                        .get("params")
-                        .and_then(|p| p.get("error"))
-                        .and_then(|e| e.as_str())
-                        .unwrap_or("unknown");
-                    panic!("Sandbox configuration failed: {}", error);
-                }
-
-                if method == Some("notifications/sandbox/configured") {
-                    if roots_answered {
-                        return;
-                    }
-                    continue;
-                }
-
-                if method != Some("roots/list") {
-                    continue;
-                }
-
-                let id = value
-                    .get("id")
-                    .cloned()
-                    .expect("roots/list must include id");
-
-                let roots_json: Vec<Value> = root_uris
-                    .iter()
-                    .map(|uri| {
-                        json!({
-                            "uri": uri,
-                            "name": "root"
-                        })
-                    })
-                    .collect();
-
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "roots": roots_json
-                    }
-                });
-
-                let _ = send_mcp_request(client, base_url, &response, Some(session_id))
-                    .await
-                    .expect("Failed to send roots/list response");
-                roots_answered = true;
-                post_roots_deadline =
-                    Some(tokio::time::Instant::now() + post_roots_configured_grace_timeout());
-            }
-        }
-    }
+    process_sse_roots_handshake(resp, client, base_url, session_id, roots_json).await;
 }
 
 /// REGRESSION TEST (DO NOT WEAKEN): Cross-repo working_directory must succeed.
@@ -935,16 +842,28 @@ async fn test_roots_uri_parsing_percent_encoded_path() {
     let encoded_path = percent_encode_path_for_file_uri(&client_root);
     let uri = format!("file://{}", encoded_path);
 
+    // Open SSE stream BEFORE sending notifications/initialized so the server's
+    // roots/list request is not lost if it fires immediately on initialized.
+    let sse_resp = client
+        .get(format!("{}/mcp", base_url))
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", &session_id)
+        .send()
+        .await
+        .expect("Failed to open SSE stream");
+
+    let roots_json = vec![json!({"uri": uri, "name": "root"})];
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
-    let sse_uri = uri.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse_with_uris(
+        process_sse_roots_handshake(
+            sse_resp,
             &sse_client,
             &sse_base_url,
             &sse_session_id,
-            &[sse_uri],
+            roots_json,
         )
         .await;
     });

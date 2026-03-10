@@ -212,14 +212,15 @@ async fn test_tool_call_before_roots_handshake() {
     let client = Client::new();
     let mut mcp_client = McpTestClient::with_url(&base_url);
 
-    // 1. Initialize + initialized (without completing roots handshake yet)
+    // 1. Send only the initialize request (not initialized notification yet).
+    //    This establishes the session without triggering roots/list.
     mcp_client
-        .initialize_with_name("test-client")
+        .initialize_only("test-client")
         .await
         .expect("Initialize failed");
     let session_id = mcp_client.session_id().expect("No session ID").to_string();
 
-    // 3. IMMEDIATELY try to call a tool (before answering roots/list)
+    // 2. Try to call a tool before the handshake is complete (no initialized sent yet).
     let tool_call = json!({
         "jsonrpc": "2.0",
         "id": 2,
@@ -234,7 +235,7 @@ async fn test_tool_call_before_roots_handshake() {
         .await
         .expect("Pre-handshake tools/call request failed");
 
-    // 4. Verify strict gating behavior
+    // 3. Verify strict gating behavior
     assert_eq!(
         status, 409,
         "Expected HTTP 409 during handshake; got status {} body {:?}",
@@ -251,10 +252,12 @@ async fn test_tool_call_before_roots_handshake() {
         body
     );
 
-    // 5. Now complete the roots handshake
+    // 4. Complete the handshake: open SSE first, then send initialized.
+    //    This is the correct protocol order — the SSE listener must be open
+    //    before the server fires roots/list on receipt of initialized.
     let roots = vec![temp_dir.path().to_path_buf()];
     mcp_client
-        .complete_roots_handshake_after_initialized(&roots)
+        .complete_handshake_with_roots(&roots)
         .await
         .expect("Roots handshake failed");
 
@@ -513,16 +516,13 @@ async fn test_rapid_connect_disconnect() {
 
     // Attempt 2: Connect immediately
     {
-        // Complete handshake for second client
+        // Complete handshake for second client using the correct protocol order:
+        // open SSE before sending initialized so roots/list is not lost.
         let mut second_client = McpTestClient::with_url(&base_url);
         second_client
-            .initialize_with_name("second-client")
+            .initialize_with_roots("second-client", &[temp_dir.path().to_path_buf()])
             .await
-            .expect("Second initialize failed");
-        second_client
-            .complete_roots_handshake_after_initialized(&[temp_dir.path().to_path_buf()])
-            .await
-            .expect("Roots handshake failed for second client");
+            .expect("Second initialize + roots handshake failed");
 
         // Verify tool call works
         let result = second_client
