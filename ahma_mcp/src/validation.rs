@@ -1,68 +1,66 @@
-use ahma_mcp::schema_validation::MtdfValidator;
-use anyhow::{Result, ensure};
-use clap::Parser;
+//! Tool configuration validation module.
+//!
+//! Validates MTDF tool configuration files against the JSON schema.
+//! Used by the `--validate` CLI flag to check tool configs before startup.
+
+use crate::schema_validation::MtdfValidator;
+use anyhow::Result;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tracing::{error, info, instrument};
+use tracing::{error, info};
 
-/// Ahma Tool Configuration Validator
-///
-/// This CLI tool validates tool configuration files against the MTDF schema.
-/// It verifies that the JSON structure matches expected schemas and checks for
-/// internal consistency.
-///
-/// # Examples
-///
-/// Validate the default `.ahma` directory:
-/// ```bash
-/// ahma_validate
-/// ```
-///
-/// Validate a specific file:
-/// ```bash
-/// ahma_validate --validation-target my_tool.json
-/// ```
-///
-/// Validate multiple targets (files and directories):
-/// ```bash
-/// ahma_validate --validation-target "tool1.json,tool2.json,./config"
-/// ```
-#[derive(Parser, Debug)]
-#[command(
-    author,
-    version,
-    about,
-    long_about = "Validates tool configurations against the MTDF schema and checks for other inconsistencies."
-)]
-struct Cli {
-    /// Path to the directory containing tool JSON configuration files, a comma-separated list of files, or blank to validate '.ahma'.
-    #[arg(default_value = ".ahma")]
-    validation_target: String,
-
-    /// Enable debug logging.
-    #[arg(short, long, global = true)]
-    debug: bool,
+/// Result of validating one or more tool configuration files.
+pub struct ValidationResult {
+    /// Total number of files checked.
+    pub files_checked: usize,
+    /// Number of files that passed validation.
+    pub files_passed: usize,
+    /// Number of files that failed validation.
+    pub files_failed: usize,
+    /// Whether all files passed validation.
+    pub all_valid: bool,
 }
 
-/// Entry point for the application.
+/// Validates tool configuration files at the given target path.
 ///
-/// Parses command line arguments, initializes logging, and executes the validation logic.
-/// Returns an error if validation fails for any target or if an unexpected error occurs.
-#[instrument]
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    ahma_mcp::utils::logging::init_logging(if cli.debug { "debug" } else { "info" }, false)?;
+/// The target can be:
+/// - A directory (scans for `.json` files)
+/// - A single file
+/// - A comma-separated list of files and/or directories
+///
+/// Returns a [`ValidationResult`] summarizing the outcome.
+pub fn run_validation(validation_target: &str) -> Result<ValidationResult> {
+    let validator = MtdfValidator::new();
+    let targets: Vec<String> = validation_target
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let (files, all_found) = collect_validation_files(targets)?;
 
-    ensure!(
-        run_validation_mode(&cli)?,
-        "Some configurations are invalid. Please check the error messages above."
-    );
+    let mut passed = 0usize;
+    let mut failed = 0usize;
 
-    println!("All configurations are valid.");
-    info!("All configurations are valid.");
-    Ok(())
+    for f in &files {
+        if validate_file(&validator, f) {
+            passed += 1;
+        } else {
+            failed += 1;
+        }
+    }
+
+    if !all_found {
+        failed += 1; // count missing targets as a failure
+    }
+
+    let files_checked = files.len();
+    Ok(ValidationResult {
+        files_checked,
+        files_passed: passed,
+        files_failed: failed,
+        all_valid: all_found && failed == 0,
+    })
 }
 
 /// Returns true if `path` matches the legacy `.ahma/tools` directory pattern.
@@ -124,25 +122,6 @@ fn validate_file(validator: &MtdfValidator, file_path: &Path) -> bool {
         .inspect(|_| info!("{} is valid.", file_path.display()))
         .inspect_err(|e| error!("Validation failed for {}: {:?}", file_path.display(), e))
         .is_ok()
-}
-
-/// Runs the tool validation process based on the CLI arguments.
-///
-/// Returns `Ok(true)` if all configurations are valid, `Ok(false)` if any is invalid.
-fn run_validation_mode(cli: &Cli) -> Result<bool> {
-    let validator = MtdfValidator::new();
-    let targets: Vec<String> = cli
-        .validation_target
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
-    let (files, all_found) = collect_validation_files(targets)?;
-
-    let all_validated = files
-        .iter()
-        .fold(true, |valid, f| validate_file(&validator, f) && valid);
-
-    Ok(all_found && all_validated)
 }
 
 /// Scans a directory for top-level `.json` files (non-recursive).
@@ -226,45 +205,7 @@ mod tests {
         assert!(files[0].file_name().unwrap() == "tool.json");
     }
 
-    // ==================== CLI parsing tests ====================
-
-    #[test]
-    fn test_cli_default_values() {
-        let cli = Cli::parse_from(["ahma_validate"]);
-
-        assert_eq!(cli.validation_target, ".ahma");
-        assert!(!cli.debug);
-    }
-
-    #[test]
-    fn test_cli_custom_validation_target() {
-        let cli = Cli::parse_from(["ahma_validate", "custom/path"]);
-
-        assert_eq!(cli.validation_target, "custom/path");
-    }
-
-    #[test]
-    fn test_cli_debug_flag() {
-        let cli = Cli::parse_from(["ahma_validate", "--debug"]);
-
-        assert!(cli.debug);
-    }
-
-    #[test]
-    fn test_cli_short_debug_flag() {
-        let cli = Cli::parse_from(["ahma_validate", "-d"]);
-
-        assert!(cli.debug);
-    }
-
-    #[test]
-    fn test_cli_comma_separated_targets() {
-        let cli = Cli::parse_from(["ahma_validate", "file1.json,file2.json,dir/"]);
-
-        assert_eq!(cli.validation_target, "file1.json,file2.json,dir/");
-    }
-
-    // ==================== run_validation_mode tests ====================
+    // ==================== run_validation tests ====================
 
     /// Creates a minimal valid MTDF tool configuration
     /// Required fields: name, description, command
@@ -277,44 +218,41 @@ mod tests {
     }
 
     #[test]
-    fn test_run_validation_mode_valid_single_file() {
+    fn test_run_validation_valid_single_file() {
         let temp_dir = setup_temp_dir_with_files(&[("tool.json", valid_tool_config())]);
 
-        let cli = Cli {
-            validation_target: temp_dir
-                .path()
-                .join("tool.json")
-                .to_string_lossy()
-                .to_string(),
-            debug: false,
-        };
+        let target = temp_dir
+            .path()
+            .join("tool.json")
+            .to_string_lossy()
+            .to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.all_valid);
+        assert_eq!(result.files_checked, 1);
+        assert_eq!(result.files_passed, 1);
+        assert_eq!(result.files_failed, 0);
     }
 
     #[test]
-    fn test_run_validation_mode_valid_directory() {
+    fn test_run_validation_valid_directory() {
         let temp_dir = setup_temp_dir_with_files(&[
             ("tools/tool1.json", valid_tool_config()),
             ("tools/tool2.json", valid_tool_config()),
         ]);
 
-        let cli = Cli {
-            validation_target: temp_dir.path().join("tools").to_string_lossy().to_string(),
-            debug: false,
-        };
+        let target = temp_dir.path().join("tools").to_string_lossy().to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.all_valid);
+        assert_eq!(result.files_checked, 2);
+        assert_eq!(result.files_passed, 2);
     }
 
     #[test]
-    fn test_run_validation_mode_comma_separated_files() {
+    fn test_run_validation_comma_separated_files() {
         let temp_dir = setup_temp_dir_with_files(&[
             ("tool1.json", valid_tool_config()),
             ("tool2.json", valid_tool_config()),
@@ -331,87 +269,71 @@ mod tests {
             .to_string_lossy()
             .to_string();
 
-        let cli = Cli {
-            validation_target: format!("{},{}", file1, file2),
-            debug: false,
-        };
+        let target = format!("{},{}", file1, file2);
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.all_valid);
+        assert_eq!(result.files_checked, 2);
     }
 
     #[test]
-    fn test_run_validation_mode_nonexistent_target() {
-        let cli = Cli {
-            validation_target: "/nonexistent/path/12345".to_string(),
-            debug: false,
-        };
+    fn test_run_validation_nonexistent_target() {
+        let result = run_validation("/nonexistent/path/12345").expect("Should succeed");
 
-        let result = run_validation_mode(&cli);
-
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should return false for invalid
+        assert!(!result.all_valid);
     }
 
     #[test]
-    fn test_run_validation_mode_invalid_json_content() {
+    fn test_run_validation_invalid_json_content() {
         let temp_dir = setup_temp_dir_with_files(&[("tool.json", "{ invalid json }")]);
 
-        let cli = Cli {
-            validation_target: temp_dir
-                .path()
-                .join("tool.json")
-                .to_string_lossy()
-                .to_string(),
-            debug: false,
-        };
+        let target = temp_dir
+            .path()
+            .join("tool.json")
+            .to_string_lossy()
+            .to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should return false for invalid JSON
+        assert!(!result.all_valid);
+        assert_eq!(result.files_failed, 1);
     }
 
     #[test]
-    fn test_run_validation_mode_empty_directory() {
+    fn test_run_validation_empty_directory() {
         let temp_dir = setup_temp_dir_with_files(&[]);
 
         // Create an empty tools directory
         fs::create_dir(temp_dir.path().join("tools")).expect("Failed to create tools dir");
 
-        let cli = Cli {
-            validation_target: temp_dir.path().join("tools").to_string_lossy().to_string(),
-            debug: false,
-        };
+        let target = temp_dir.path().join("tools").to_string_lossy().to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // Empty directory is valid (no files to fail)
+        assert!(result.all_valid); // Empty directory is valid (no files to fail)
+        assert_eq!(result.files_checked, 0);
     }
 
     #[test]
-    fn test_run_validation_mode_mixed_valid_invalid() {
+    fn test_run_validation_mixed_valid_invalid() {
         let temp_dir = setup_temp_dir_with_files(&[
             ("tools/valid.json", valid_tool_config()),
             ("tools/invalid.json", "{ not json }"),
         ]);
 
-        let cli = Cli {
-            validation_target: temp_dir.path().join("tools").to_string_lossy().to_string(),
-            debug: false,
-        };
+        let target = temp_dir.path().join("tools").to_string_lossy().to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // One invalid file should make whole result false
+        assert!(!result.all_valid);
+        assert_eq!(result.files_checked, 2);
+        assert_eq!(result.files_passed, 1);
+        assert_eq!(result.files_failed, 1);
     }
 
     #[test]
-    fn test_run_validation_mode_missing_required_fields() {
+    fn test_run_validation_missing_required_fields() {
         // Tool config missing required 'name' field
         let invalid_tool = r#"{
             "description": "Missing name field",
@@ -422,18 +344,15 @@ mod tests {
 
         let temp_dir = setup_temp_dir_with_files(&[("tool.json", invalid_tool)]);
 
-        let cli = Cli {
-            validation_target: temp_dir
-                .path()
-                .join("tool.json")
-                .to_string_lossy()
-                .to_string(),
-            debug: false,
-        };
+        let target = temp_dir
+            .path()
+            .join("tool.json")
+            .to_string_lossy()
+            .to_string();
 
-        let result = run_validation_mode(&cli);
+        let result = run_validation(&target).expect("Should succeed");
 
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Missing required field should fail validation
+        assert!(!result.all_valid);
+        assert_eq!(result.files_failed, 1);
     }
 }

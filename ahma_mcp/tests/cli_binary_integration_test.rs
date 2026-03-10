@@ -193,21 +193,21 @@ mod ahma_mcp_tests {
 }
 
 // ============================================================================
-// ahma_validate Binary Tests
+// ahma-mcp --validate Flag Tests
 // ============================================================================
 
-mod ahma_validate_tests {
+mod validate_flag_tests {
     use super::*;
     use std::fs;
 
     #[test]
-    fn test_ahma_validate_help() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
+    fn test_ahma_mcp_help_mentions_validate() {
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
 
-        let output = Command::new(&binary)
+        let output = test_command(&binary)
             .arg("--help")
             .output()
-            .expect("Failed to execute ahma_validate --help");
+            .expect("Failed to execute ahma-mcp --help");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -215,55 +215,35 @@ mod ahma_validate_tests {
 
         assert!(
             output.status.success(),
-            "ahma_validate --help should succeed. Output: {}",
+            "ahma-mcp --help should succeed. Output: {}",
             combined
         );
 
         assert!(
-            combined.contains("validate") || combined.contains("MTDF") || combined.contains("tool"),
-            "Help should mention validation. Got: {}",
+            combined.contains("--validate"),
+            "Help should mention --validate flag. Got: {}",
             combined
         );
     }
 
     #[test]
-    fn test_ahma_validate_version() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
-
-        let output = Command::new(&binary)
-            .arg("--version")
-            .output()
-            .expect("Failed to execute ahma_validate --version");
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{}{}", stdout, stderr);
-
-        assert!(
-            output.status.success(),
-            "ahma_validate --version should succeed. Output: {}",
-            combined
-        );
-    }
-
-    #[test]
-    fn test_ahma_validate_valid_tools_directory() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
+    fn test_validate_valid_tools_directory() {
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
         let workspace = get_workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
-        let output = Command::new(&binary)
+        let output = test_command(&binary)
             .current_dir(&workspace)
-            .args([tools_dir.to_str().unwrap()])
+            .args(["--validate", tools_dir.to_str().unwrap()])
             .output()
-            .expect("Failed to execute ahma_validate");
+            .expect("Failed to execute ahma-mcp --validate");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         assert!(
             output.status.success(),
-            "ahma_validate should succeed on valid tools dir. stdout: {}, stderr: {}",
+            "ahma-mcp --validate should succeed on valid tools dir. stdout: {}, stderr: {}",
             stdout,
             stderr
         );
@@ -278,8 +258,8 @@ mod ahma_validate_tests {
     }
 
     #[test]
-    fn test_ahma_validate_invalid_json_file() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
+    fn test_validate_invalid_json_file() {
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let workspace = get_workspace_dir();
 
@@ -288,56 +268,56 @@ mod ahma_validate_tests {
         fs::write(&invalid_file, "{ this is not valid json }")
             .expect("Failed to write invalid file");
 
-        let output = Command::new(&binary)
+        let output = test_command(&binary)
             .current_dir(&workspace)
-            .args([invalid_file.to_str().unwrap()])
+            .args(["--validate", invalid_file.to_str().unwrap()])
             .output()
-            .expect("Failed to execute ahma_validate");
+            .expect("Failed to execute ahma-mcp --validate");
 
         // Should fail
         assert!(
             !output.status.success(),
-            "ahma_validate should fail on invalid JSON"
+            "ahma-mcp --validate should fail on invalid JSON"
         );
     }
 
     #[test]
-    fn test_ahma_validate_nonexistent_path() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
+    fn test_validate_nonexistent_path() {
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
         let workspace = get_workspace_dir();
 
-        let output = Command::new(&binary)
+        let output = test_command(&binary)
             .current_dir(&workspace)
-            .args(["/nonexistent/path/to/tools"])
+            .args(["--validate", "/nonexistent/path/to/tools"])
             .output()
-            .expect("Failed to execute ahma_validate");
+            .expect("Failed to execute ahma-mcp --validate");
 
         // Should fail
         assert!(
             !output.status.success(),
-            "ahma_validate should fail on nonexistent path"
+            "ahma-mcp --validate should fail on nonexistent path"
         );
     }
 
     #[test]
-    fn test_ahma_validate_single_valid_file() {
-        let binary = build_binary_cached("ahma_validate", "ahma-validate");
+    fn test_validate_single_valid_file() {
+        let binary = build_binary_cached("ahma_mcp", "ahma-mcp");
         let workspace = get_workspace_dir();
         let cargo_json = workspace.join(".ahma/cargo.json");
 
         if cargo_json.exists() {
-            let output = Command::new(&binary)
+            let output = test_command(&binary)
                 .current_dir(&workspace)
-                .args([cargo_json.to_str().unwrap()])
+                .args(["--validate", cargo_json.to_str().unwrap()])
                 .output()
-                .expect("Failed to execute ahma_validate");
+                .expect("Failed to execute ahma-mcp --validate");
 
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
 
             assert!(
                 output.status.success(),
-                "ahma_validate should succeed on cargo.json. stdout: {}, stderr: {}",
+                "ahma-mcp --validate should succeed on cargo.json. stdout: {}, stderr: {}",
                 stdout,
                 stderr
             );

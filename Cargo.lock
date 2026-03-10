@@ -128,18 +128,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahma_validate"
-version = "0.5.2"
-dependencies = [
- "ahma_mcp",
- "anyhow",
- "clap",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

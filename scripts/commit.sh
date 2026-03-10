@@ -53,9 +53,9 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "=== Validating tool configurations ==="
-cargo run --bin ahma-validate -- "$TOOLS_DIR"
+cargo run --bin ahma-mcp -- --validate "$TOOLS_DIR"
 if [ $? -ne 0 ]; then
-    echo "ahma-validate failed"
+    echo "ahma-mcp --validate failed"
     exit 1
 fi
 

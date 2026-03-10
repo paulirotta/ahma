@@ -13,7 +13,7 @@
 | `ahma-mcp` | WARN Partial | R1-R5, R7.1-R7.5, R15-R17, R19 | R6.9, R7.6 | Nested sandbox handling, workspace config |
 | `ahma-http-bridge` | WARN Partial | R8.1-R8.4.6, R8.4.8+ | R8.4.7 | Missing HTTP DELETE endpoint |
 | `ahma-http-mcp-client` | COMPLIANT | R9.3-R9.8 | None | OAuth PKCE, token persistence |
-| `ahma-validate` | COMPLIANT | R5.2, R6.4 | None | MTDF validation, exit codes |
+| `ahma-mcp --validate` | COMPLIANT | R5.2, R6.4 | None | MTDF validation (consolidated into ahma-mcp) |
 | `generate-tool-schema` | COMPLIANT | R6.5 | None | Schema generation |
 
 ---
@@ -224,12 +224,12 @@
 [workspace]
 default-members = [
   "ahma-mcp",
-  "ahma-validate",
+
   "generate-tool-schema",
   "ahma-http-bridge",
   "ahma-http-mcp-client",
 ]
-members = ["ahma-mcp", "ahma-validate", "generate-tool-schema", "ahma-http-bridge", "ahma-http-mcp-client"]
+members = ["ahma-mcp", "generate-tool-schema", "ahma-http-bridge", "ahma-http-mcp-client"]
 ```
 
 - No `ahma_shell` crate exists
@@ -340,19 +340,18 @@ async fn handle_session_delete(
 
 ---
 
-# Module: ahma-validate
+# Module: ahma-mcp --validate (formerly ahma-validate)
 
 ## OK Fully Compliant
 
 | Req | Description | Status | Evidence |
 |-----|-------------|--------|----------|
-| R5.2/R6.4 | Validation binary | OK | `main.rs` uses `MtdfValidator` |
-| Exit codes | 0 valid, non-zero invalid | OK | `main.rs:42-49` returns `Err` on failure |
-| `--guidance-file` | Guidance config support | OK | `main.rs:26-27` CLI arg |
-| `--debug` | Debug logging | OK | `main.rs:30-31` CLI arg |
-| Multiple targets | Comma-separated support | OK | `main.rs:61-68` splits by comma |
+| R5.2/R6.4 | Validation mode | OK | `ahma_mcp/src/validation.rs` uses `MtdfValidator` |
+| Exit codes | 0 valid, non-zero invalid | OK | `cli.rs` returns `Err` on validation failure |
+| `--debug` | Debug logging | OK | Uses global `--debug` flag from ahma-mcp CLI |
+| Multiple targets | Comma-separated support | OK | `validation.rs` splits by comma |
 
-**Test coverage:** 15 tests covering valid/invalid JSON, directories, comma-separated targets — `main.rs:123-489`
+**Test coverage:** 12 unit tests in `validation.rs` + integration tests in `cli_binary_integration_test.rs`
 
 ---
 
@@ -404,24 +403,24 @@ async fn test_delete_session_terminates_subprocess() {
 
 # Requirements Coverage Matrix
 
-| Requirement | ahma-mcp | ahma-http-bridge | ahma-http-mcp-client | ahma-validate | generate-tool-schema |
-|-------------|-----------|------------------|----------------------|---------------|---------------------|
-| R0 (Terminology) | OK | OK | OK | OK | OK |
-| R1 (Config/Hot-reload) | OK | — | — | — | — |
-| R2 (Async-first) | OK | — | — | — | — |
-| R3 (Sync override) | OK | — | — | — | — |
-| R4 (Shell pool) | OK | — | — | — | — |
-| R5 (MTDF validation) | OK | — | — | OK | OK |
-| R6 (Modular arch) | WARN R6.9 | OK | OK | OK | OK |
-| R7 (Sandbox) | WARN R7.6 | OK | — | — | — |
-| R8 (HTTP bridge) | — | WARN R8.4.7 | — | — | — |
-| R9 (OAuth) | — | — | OK | — | — |
-| R10 (Meta-params) | OK | — | — | — | — |
-| R11 (Dependencies) | OK | OK | OK | OK | OK |
-| R12 (Error handling) | OK | OK | OK | OK | OK |
-| R13 (Testing) | OK | OK | OK | OK | OK |
-| R15 (Unified output) | OK | — | — | — | — |
-| R16 (Logging) | OK | — | — | — | — |
+| Requirement | ahma-mcp | ahma-http-bridge | ahma-http-mcp-client | generate-tool-schema |
+|-------------|-----------|------------------|----------------------|---------------------|
+| R0 (Terminology) | OK | OK | OK | OK |
+| R1 (Config/Hot-reload) | OK | — | — | — |
+| R2 (Async-first) | OK | — | — | — |
+| R3 (Sync override) | OK | — | — | — |
+| R4 (Shell pool) | OK | — | — | — |
+| R5 (MTDF validation) | OK (incl. --validate) | — | — | OK |
+| R6 (Modular arch) | WARN R6.9 | OK | OK | OK |
+| R7 (Sandbox) | WARN R7.6 | OK | — | — |
+| R8 (HTTP bridge) | — | WARN R8.4.7 | — | — |
+| R9 (OAuth) | — | — | OK | — |
+| R10 (Meta-params) | OK | — | — | — |
+| R11 (Dependencies) | OK | OK | OK | OK |
+| R12 (Error handling) | OK | OK | OK | OK |
+| R13 (Testing) | OK | OK | OK | OK |
+| R15 (Unified output) | OK | — | — | — |
+| R16 (Logging) | OK | — | — | — |
 | R17 (Callbacks) | OK | — | — | — | — |
 | R19 (Cancellation) | OK | — | — | — | — |
 

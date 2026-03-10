@@ -29,7 +29,7 @@
 | MCP Callback Notifications | tests-pass | Push async results via `notifications/progress` |
 | HTTP MCP Client | tests-pass | Connect to external HTTP MCP servers |
 | OAuth 2.0 + PKCE | tests-pass | Authentication for HTTP MCP servers |
-| `ahma-validate` CLI | tests-pass | Validate tool configs against MTDF schema |
+| `ahma-mcp --validate` | tests-pass | Validate tool configs against MTDF schema |
 | `generate-tool-schema` CLI | tests-pass | Generate MTDF JSON schema |
 | Graceful Shutdown | tests-pass | 10-second grace period for operation completion |
 | Unified Shell Output | tests-pass | stderr redirected to stdout (`2>&1`) |
@@ -587,7 +587,7 @@ fs::write(&test_file, "test content").unwrap();
 
 ### 10.3 CLI Binary Integration Tests
 
-- All binaries (`ahma-mcp`, `ahma-validate`, `generate-tool-schema`) **must** have integration tests.
+- All binaries (`ahma-mcp`, `generate-tool-schema`) **must** have integration tests.
 - Tests in `ahma-mcp/tests/cli_binary_integration_test.rs`.
 - Cover: `--help`, `--version`, basic functionality.
 
@@ -812,11 +812,11 @@ This repo has a recurring failure mode: tests can pass while real-world usage is
 | Token storage | PASS | Persist to temp directory |
 | Token refresh | PLANNED | Auto-refresh expired tokens |
 
-### 12.4 ahma-validate
+### 12.4 ahma-mcp --validate
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| MTDF Validation | PASS | Validate tool configs against JSON schema |
+| MTDF Validation | PASS | Validate tool configs against JSON schema via `ahma-mcp --validate` |
 | Error reporting | PASS | Concise, actionable error messages |
 
 ---
@@ -836,10 +836,6 @@ To maintain high performance and avoid cache bloat, the following strategies are
 
 ### 13.3 Cargo Registry Caching
 - **R13.3.1**: The Cargo registry (`~/.cargo/registry`) and git database (`~/.cargo/git`) **must** be cached using `actions/cache` or specialized actions, adhering to the Daily Rotation rule.
-
-| Schema validation | PASS | Validate tool configs against MTDF |
-| CLI interface | PASS | `ahma-validate <file>` |
-| Clear error messages | PASS | Actionable validation errors |
 
 ---
 

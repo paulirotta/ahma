@@ -508,48 +508,41 @@ mod cli_execution_tests {
 }
 
 // ============================================================================
-// ahma_validate Extended Tests
+// ahma-mcp --validate Extended Tests
 // ============================================================================
 
-mod ahma_validate_extended_tests {
+mod validate_flag_extended_tests {
     use super::*;
 
-    /// Test validation in verbose mode
+    /// Test validation with --debug flag (uses global --debug)
     #[test]
-    fn test_ahma_validate_verbose_mode() {
-        let binary = build_binary("ahma_validate", "ahma-validate");
+    fn test_validate_with_debug_flag() {
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
+        let workspace = workspace_dir();
+        let tools_dir = workspace.join(".ahma");
 
-        let output = Command::new(&binary)
-            .args(["--help"])
+        let output = test_command(&binary)
+            .current_dir(&workspace)
+            .args(["--debug", "--validate", tools_dir.to_str().unwrap()])
             .output()
-            .expect("Failed to execute ahma_validate --help");
+            .expect("Failed to execute ahma-mcp --debug --validate");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{}{}", stdout, stderr);
+        println!("Debug validate output: {}{}", stdout, stderr);
 
-        // Check if verbose flag exists
-        if combined.contains("--verbose") || combined.contains("-v") {
-            // It has verbose mode, test it
-            let workspace = workspace_dir();
-            let tools_dir = workspace.join(".ahma");
-
-            let verbose_output = Command::new(&binary)
-                .current_dir(&workspace)
-                .args([tools_dir.to_str().unwrap(), "--verbose"])
-                .output()
-                .expect("Failed to execute ahma_validate --verbose");
-
-            let verbose_stdout = String::from_utf8_lossy(&verbose_output.stdout);
-            let verbose_stderr = String::from_utf8_lossy(&verbose_output.stderr);
-            println!("Verbose output: {}{}", verbose_stdout, verbose_stderr);
-        }
+        assert!(
+            output.status.success(),
+            "ahma-mcp --debug --validate should succeed on valid tools dir. stdout: {}, stderr: {}",
+            stdout,
+            stderr
+        );
     }
 
     /// Test validation with specific file patterns
     #[test]
-    fn test_ahma_validate_specific_files() {
-        let binary = build_binary("ahma_validate", "ahma-validate");
+    fn test_validate_specific_files() {
+        let binary = build_binary("ahma_mcp", "ahma-mcp");
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
@@ -557,9 +550,9 @@ mod ahma_validate_extended_tests {
         for tool_name in ["cargo.json", "git.json", "file-tools.json"] {
             let tool_path = tools_dir.join(tool_name);
             if tool_path.exists() {
-                let output = Command::new(&binary)
+                let output = test_command(&binary)
                     .current_dir(&workspace)
-                    .args([tool_path.to_str().unwrap()])
+                    .args(["--validate", tool_path.to_str().unwrap()])
                     .output()
                     .unwrap_or_else(|_| panic!("Failed to validate {}", tool_name));
 

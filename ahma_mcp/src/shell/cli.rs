@@ -16,7 +16,7 @@ use std::{io::IsTerminal, path::PathBuf, sync::Arc};
     author,
     version,
     about,
-    long_about = "ahma_mcp runs in four modes:
+    long_about = "ahma_mcp runs in five modes:
 
 1. STDIO Mode (default): MCP server over stdio for direct integration.
    Example: ahma_mcp --mode stdio
@@ -29,12 +29,23 @@ use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 
 4. List Tools Mode: List all tools from an MCP server.
    Example: ahma_mcp --list-tools -- /path/to/server
-   Example: ahma_mcp --list-tools --http http://localhost:3000"
+   Example: ahma_mcp --list-tools --http http://localhost:3000
+
+5. Validate Mode: Validate tool configurations against MTDF schema.
+   Example: ahma_mcp --validate
+   Example: ahma_mcp --validate .ahma
+   Example: ahma_mcp --validate tool.json"
 )]
 pub struct Cli {
     /// List all tools from an MCP server and exit
     #[arg(long)]
     pub list_tools: bool,
+
+    /// Validate tool configurations against the MTDF schema and exit.
+    /// Optionally specify a target path (file, directory, or comma-separated list).
+    /// Defaults to '.ahma' if no target is given.
+    #[arg(long, value_name = "TARGET", default_missing_value = ".ahma", num_args = 0..=1)]
+    pub validate: Option<String>,
 
     /// Name of the server in mcp.json to connect to (for --list-tools mode)
     #[arg(long)]
@@ -189,6 +200,22 @@ pub async fn run() -> Result<()> {
     if cli.list_tools {
         tracing::info!("Running in list-tools mode");
         return modes::run_list_tools_mode(&cli).await;
+    }
+
+    // Handle --validate mode early (before sandbox initialization)
+    if let Some(ref target) = cli.validate {
+        tracing::info!("Running in validate mode");
+        let result = crate::validation::run_validation(target)?;
+        if result.all_valid {
+            println!("All configurations are valid.");
+            return Ok(());
+        } else {
+            anyhow::bail!(
+                "Validation failed: {}/{} files invalid.",
+                result.files_failed,
+                result.files_checked
+            );
+        }
     }
 
     // Resolve sandbox policy from flags/env.

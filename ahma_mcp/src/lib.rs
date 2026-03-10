@@ -109,6 +109,8 @@ pub mod tool_hints;
 pub mod transport_patch;
 /// Shared utilities.
 pub mod utils;
+/// Tool configuration validation.
+pub mod validation;
 
 // Test utilities
 /// Test helpers for integration and unit tests.
