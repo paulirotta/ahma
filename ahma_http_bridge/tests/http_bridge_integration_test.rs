@@ -260,6 +260,22 @@ fn post_roots_configured_grace_timeout() -> Duration {
     }
 }
 
+fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
+    let lf = buffer.find("\n\n").map(|idx| (idx, 2));
+    let crlf = buffer.find("\r\n\r\n").map(|idx| (idx, 4));
+    match (lf, crlf) {
+        (Some((lf_idx, lf_len)), Some((crlf_idx, crlf_len))) => {
+            if lf_idx <= crlf_idx {
+                Some((lf_idx, lf_len))
+            } else {
+                Some((crlf_idx, crlf_len))
+            }
+        }
+        (Some(found), None) | (None, Some(found)) => Some(found),
+        (None, None) => None,
+    }
+}
+
 /// Send tools/call with retries for handshake races and transient transport failures.
 async fn send_tool_call_with_retry(
     client: &Client,
@@ -326,6 +342,7 @@ async fn process_sse_roots_handshake(
     let mut stream = sse_resp.bytes_stream();
     let mut buffer = String::new();
     let mut roots_answered = false;
+    let mut configured_seen = false;
     let mut post_roots_deadline: Option<tokio::time::Instant> = None;
 
     let roots_deadline = tokio::time::Instant::now() + roots_handshake_timeout();
@@ -354,9 +371,9 @@ async fn process_sse_roots_handshake(
             let text = String::from_utf8_lossy(&bytes);
             buffer.push_str(&text);
 
-            while let Some(idx) = buffer.find("\n\n") {
+            while let Some((idx, delimiter_len)) = first_sse_event_boundary(&buffer) {
                 let raw_event = buffer[..idx].to_string();
-                buffer = buffer[idx + 2..].to_string();
+                buffer = buffer[idx + delimiter_len..].to_string();
 
                 let mut data_lines: Vec<&str> = Vec::new();
                 for line in raw_event.lines() {
@@ -387,6 +404,7 @@ async fn process_sse_roots_handshake(
                 }
 
                 if method == Some("notifications/sandbox/configured") {
+                    configured_seen = true;
                     if roots_answered {
                         return;
                     }
@@ -416,6 +434,9 @@ async fn process_sse_roots_handshake(
                 roots_answered = true;
                 post_roots_deadline =
                     Some(tokio::time::Instant::now() + post_roots_configured_grace_timeout());
+                if configured_seen {
+                    return;
+                }
             }
         }
     }
