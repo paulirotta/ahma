@@ -47,6 +47,7 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     process::Stdio,
     sync::{
@@ -62,6 +63,10 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+/// Maximum number of SSE events retained in the per-session replay buffer.
+/// Older events are evicted when the buffer exceeds this size.
+const EVENT_HISTORY_CAPACITY: usize = 1000;
 
 /// Handshake state machine for MCP session coordination.
 ///
@@ -143,8 +148,9 @@ pub struct Session {
     sender: Mutex<mpsc::Sender<String>>,
     /// Map of pending request IDs to response channels
     pending_requests: Arc<DashMap<String, oneshot::Sender<Value>>>,
-    /// Broadcast channel for SSE events from this session
-    broadcast_tx: broadcast::Sender<String>,
+    /// Broadcast channel for SSE events from this session.
+    /// Each message is `(event_id, json_string)`.
+    broadcast_tx: broadcast::Sender<(u64, String)>,
     /// Sandbox scopes (set on first roots/list response) - supports multiple roots
     sandbox_scopes: Mutex<Option<Vec<PathBuf>>>,
     /// Whether the session has been terminated
@@ -171,6 +177,11 @@ pub struct Session {
     /// Cumulative count of SSE events lost due to broadcast channel lag.
     /// Incremented in the SSE stream handler when `BroadcastStreamRecvError::Lagged(n)` is received.
     lagged_events: AtomicU64,
+
+    /// Monotonically increasing per-session SSE event ID counter.
+    event_id_counter: AtomicU64,
+    /// Bounded ring buffer of recent SSE events for `Last-Event-Id` replay.
+    event_history: std::sync::Mutex<VecDeque<(u64, String)>>,
 }
 
 impl Session {
@@ -280,8 +291,8 @@ impl Session {
         self.sandbox_scopes.lock().await.clone()
     }
 
-    /// Subscribe to SSE events
-    pub fn subscribe(&self) -> broadcast::Receiver<String> {
+    /// Subscribe to SSE events. Each item is `(event_id, json_string)`.
+    pub fn subscribe(&self) -> broadcast::Receiver<(u64, String)> {
         self.broadcast_tx.subscribe()
     }
 
@@ -295,12 +306,37 @@ impl Session {
         self.lagged_events.load(Ordering::Relaxed)
     }
 
-    /// Broadcast a message to all SSE subscribers. Primarily for testing.
+    /// Assign a unique event ID to a message and store it in the replay buffer.
+    ///
+    /// Returns the assigned event ID.
+    pub fn assign_event_id(&self, msg: &str) -> u64 {
+        let id = self.event_id_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut history = self.event_history.lock().unwrap();
+        history.push_back((id, msg.to_string()));
+        if history.len() > EVENT_HISTORY_CAPACITY {
+            history.pop_front();
+        }
+        id
+    }
+
+    /// Return events with ID > `last_id` from the replay buffer.
+    pub fn replay_events_after(&self, last_id: u64) -> Vec<(u64, String)> {
+        let history = self.event_history.lock().unwrap();
+        history
+            .iter()
+            .filter(|(id, _)| *id > last_id)
+            .cloned()
+            .collect()
+    }
+
+    /// Broadcast a message to all SSE subscribers with an assigned event ID.
+    /// Primarily for testing.
     pub fn broadcast(
         &self,
         message: String,
-    ) -> std::result::Result<usize, broadcast::error::SendError<String>> {
-        self.broadcast_tx.send(message)
+    ) -> std::result::Result<usize, broadcast::error::SendError<(u64, String)>> {
+        let id = self.assign_event_id(&message);
+        self.broadcast_tx.send((id, message))
     }
 
     /// Helper to transitions state and return necessary action
@@ -614,7 +650,7 @@ impl SessionManager {
 
         // Create channels
         let (tx, rx) = mpsc::channel::<String>(100);
-        let (broadcast_tx, _) = broadcast::channel::<String>(100);
+        let (broadcast_tx, _) = broadcast::channel::<(u64, String)>(100);
         let pending_requests = Arc::new(DashMap::new());
 
         let handshake_timeout = Duration::from_secs(self.config.handshake_timeout_secs);
@@ -634,6 +670,8 @@ impl SessionManager {
             created_at: Instant::now(),
             handshake_timeout,
             lagged_events: AtomicU64::new(0),
+            event_id_counter: AtomicU64::new(0),
+            event_history: std::sync::Mutex::new(VecDeque::new()),
         });
 
         // Spawn the I/O handler task
@@ -1051,7 +1089,8 @@ impl SessionManager {
                                 }
 
                                 // Not a response to a pending request - broadcast as SSE event
-                                let _ = session.broadcast_tx.send(line);
+                                let id = session.assign_event_id(&line);
+                                let _ = session.broadcast_tx.send((id, line));
                             } else {
                                 warn!(session_id = %session.id, "Failed to parse JSON from subprocess: {}", line);
                             }

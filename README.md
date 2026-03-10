@@ -311,6 +311,50 @@ curl -X POST http://localhost:3000/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
+### HTTP Streaming (MCP Streamable HTTP)
+
+Ahma implements **MCP Streamable HTTP** for high-performance, multiplexed communication with better resilience than Server-Sent Events (SSE):
+
+#### Key Improvements Over SSE
+
+| Feature | SSE | HTTP Streaming |
+|---------|-----|----------------|
+| **Content Negotiation** | GET only | POST with `Accept: text/event-stream` for full request-response streaming |
+| **Event Sequencing** | No explicit ordering | SSE event IDs (`id:` field) for exact message ordering and replay |
+| **Reconnection Support** | Client guesses missed events | `Last-Event-Id` header enables precise event replay after disconnection |
+| **Full-Duplex** | Separate GET/POST streams | Single POST stream carries both request and response with full notification interleaving |
+| **Message Ordering** | Implicit via timestamps | Explicit via event IDs, eliminating race conditions |
+| **Multiplexing** | Limited (one stream per session) | Native multiplexing of concurrent requests within single stream |
+
+#### Usage
+
+**POST with JSON response (backward compatible):**
+```bash
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Mcp-Session-Id: session-uuid" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+**POST with SSE streaming (HTTP Streaming):**
+```bash
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -H "Mcp-Session-Id: session-uuid" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+**Reconnect with event replay:**
+```bash
+curl -X GET http://localhost:3000/mcp \
+  -H "Accept: text/event-stream" \
+  -H "Mcp-Session-Id: session-uuid" \
+  -H "Last-Event-Id: 42"
+# Receives all events with ID > 42
+```
+
 ## Contributing
 
 Issues and pull requests are welcome. This project is AI friendly and provides the following:

@@ -17,6 +17,7 @@
 | Windows Pre-built Releases | in-progress | `x86_64-pc-windows-msvc`; `.zip` CI artifacts; `install.ps1`; winget manifests + `job-publish-winget` CI job |
 | STDIO Mode | tests-pass | Direct MCP server over stdio for IDE integration |
 | HTTP Bridge Mode | tests-pass | HTTP/SSE proxy for web clients |
+| HTTP Streaming (Streamable HTTP) | tests-pass | POST SSE with event IDs, event history, Last-Event-Id replay, full multiplexing |
 | Session Isolation (HTTP) | tests-pass | Per-session sandbox scope via MCP `roots/list` |
 | Built-in `status` Tool | tests-pass | Non-blocking progress check for async operations |
 | Built-in `await` Tool | tests-pass | Blocking wait for operation completion |
@@ -417,13 +418,19 @@ ahma-mcp --list-tools --http http://localhost:3000
 
 ## 7. HTTP Bridge & Session Isolation
 
-### R8: HTTP Bridge
+### R8: HTTP Bridge & Streamable HTTP
 
 - **R8.1**: HTTP bridge mode via `ahma-mcp --mode http`.
 - **R8.2**: SSE at `/mcp` (GET) for server-to-client notifications.
 - **R8.3**: JSON-RPC via POST at `/mcp`.
 - **R8.4**: Auto-restart stdio subprocess if it crashes.
 - **R8.5**: Content negotiation via `Accept` header (`text/event-stream` → SSE, `application/json` → JSON).
+- **R8.6**: **HTTP Streaming (MCP Streamable HTTP)**: POST requests support SSE response streaming for full multiplexing and reconnection resilience.
+  - **R8.6.1**: POST with `Accept: text/event-stream` returns SSE-formatted response and interleaved server notifications within a single stream.
+  - **R8.6.2**: Per-session SSE event IDs (`id:` field) enable ordering and deduplication. Each JSON-RPC response and notification receives a monotonically-increasing session-unique ID.
+  - **R8.6.3**: Event history buffer maintains recent events (bounded to 1000 events per session) for `Last-Event-Id` replay support.
+  - **R8.6.4**: GET requests with `Last-Event-Id: N` replay all events with ID > N from the per-session history buffer, enabling seamless reconnection after temporary network loss.
+  - **R8.6.5**: Event IDs are independent per session and start at 1. Event history is cleared when the session ends.
 
 ### R9: Session Isolation
 

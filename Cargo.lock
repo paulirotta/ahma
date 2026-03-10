@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "ahma_common"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "ahma_http_bridge"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "ahma_common",
  "ahma_mcp",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_http_mcp_client"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "ahma_common",
  "anyhow",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_mcp"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "ahma_http_bridge",
  "ahma_http_mcp_client",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_simplify"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "generate_tool_schema"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "ahma_mcp",
  "schemars",
@@ -2664,9 +2664,9 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.28"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
+checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
  "windows-sys 0.61.2",
 ]

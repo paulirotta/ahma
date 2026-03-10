@@ -2,10 +2,15 @@ use crate::session::{McpRoot, SessionManager, request_timeout_secs, tool_call_ti
 use axum::{
     body::Body,
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
 };
+use futures::stream::{self, StreamExt};
 use serde_json::Value;
-use std::{sync::Arc, time::Duration};
+use std::{convert::Infallible, sync::Arc, time::Duration};
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, error, info, warn};
 
 /// MCP Session-Id header name (per MCP spec 2025-03-26)
@@ -594,4 +599,303 @@ fn calculate_tool_timeout(payload: &Value) -> Duration {
         .unwrap_or(default_secs);
 
     Duration::from_secs(effective_secs)
+}
+
+// ─── POST SSE streaming ──────────────────────────────────────────────
+
+/// Build an SSE response from a single JSON value, assigning an event ID from the session.
+fn sse_single_event_response(session: &crate::session::Session, value: Value) -> Response {
+    let json_str = serde_json::to_string(&value).unwrap_or_default();
+    let id = session.assign_event_id(&json_str);
+    let event_stream = stream::once(async move {
+        Ok::<_, Infallible>(Event::default().id(id.to_string()).data(json_str))
+    });
+    Sse::new(event_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// Build an SSE error response (errors are always returned as JSON, regardless of Accept).
+fn sse_error_json_response(status: StatusCode, code: i32, message: &str) -> Response {
+    error_response_with_status(status, code, message)
+}
+
+/// Handles POST requests that accept `text/event-stream` (SSE) responses.
+///
+/// Per MCP Streamable HTTP spec, POST with `Accept: text/event-stream` returns
+/// an SSE stream containing the JSON-RPC response event plus any interleaved
+/// server notifications. For requests (with `id`), the stream forwards broadcast
+/// events and delivers the response, then closes. For notifications (no `id`),
+/// a single acknowledgment event is returned.
+pub async fn handle_session_isolated_request_sse(
+    session_manager: Arc<SessionManager>,
+    headers: HeaderMap,
+    payload: Value,
+) -> Response {
+    let session_id = headers
+        .get(MCP_SESSION_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let method = payload.get("method").and_then(|m| m.as_str());
+    let has_id = payload.get("id").is_some();
+
+    debug!(method = ?method, session_id = ?session_id, has_id, "Incoming MCP POST SSE request");
+
+    // Initialize: create session, forward, return SSE with response
+    if method == Some("initialize") && session_id.is_none() {
+        return handle_initialize_sse(&session_manager, &payload).await;
+    }
+
+    let Some(session_id) = session_id else {
+        return sse_error_json_response(
+            StatusCode::BAD_REQUEST,
+            -32600,
+            "Missing Mcp-Session-Id header. Send initialize request first.",
+        );
+    };
+
+    // Validate session exists
+    if let Some(response) = check_session_exists(&session_manager, &session_id) {
+        return response;
+    }
+
+    // Client responses and notifications that modify state use the same JSON path
+    let is_client_response = is_client_response(method, &payload);
+    if is_client_response {
+        return handle_client_response(&session_manager, &session_id, &payload).await;
+    }
+
+    // Roots changed check
+    if method == Some("notifications/roots/list_changed")
+        && let Some(response) = handle_roots_changed_request(&session_manager, &session_id).await
+    {
+        return response;
+    }
+
+    // Sandbox gating for tools/call
+    if method == Some("tools/call")
+        && let Some(response) = check_sandbox_lock(&session_manager, &session_id)
+    {
+        return response;
+    }
+
+    let is_initialized_notification = method == Some("notifications/initialized");
+
+    // Wait for MCP initialization if needed
+    if let Some(response) = check_initialization_required(
+        &session_manager,
+        &session_id,
+        method,
+        is_initialized_notification,
+        false,
+    )
+    .await
+    {
+        return response;
+    }
+
+    // For notifications (no id): forward and return a single SSE ack event
+    if !has_id {
+        return forward_notification_sse(
+            &session_manager,
+            &session_id,
+            method,
+            &payload,
+            is_initialized_notification,
+        )
+        .await;
+    }
+
+    // For requests (has id): subscribe to broadcast, forward request, stream
+    // broadcast events + response event
+    forward_request_sse(
+        &session_manager,
+        &session_id,
+        method,
+        &payload,
+        is_initialized_notification,
+    )
+    .await
+}
+
+/// Handle initialize with SSE response.
+async fn handle_initialize_sse(session_manager: &SessionManager, payload: &Value) -> Response {
+    if let Some(err_response) = validate_initialize_payload(payload) {
+        return err_response;
+    }
+
+    let new_session_id = match session_manager.create_session().await {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to create session: {}", e);
+            return error_response(-32603, &format!("Failed to create session: {}", e));
+        }
+    };
+
+    match session_manager
+        .send_request(
+            &new_session_id,
+            payload,
+            Some(Duration::from_secs(request_timeout_secs())),
+        )
+        .await
+    {
+        Ok(response) => {
+            let session = session_manager.get_session(&new_session_id);
+            let json_str = serde_json::to_string(&response).unwrap_or_default();
+            let (id, event_stream) = if let Some(ref s) = session {
+                let id = s.assign_event_id(&json_str);
+                (id, json_str)
+            } else {
+                (1, json_str)
+            };
+
+            let sse_stream = stream::once(async move {
+                Ok::<_, Infallible>(Event::default().id(id.to_string()).data(event_stream))
+            });
+            let mut resp = Sse::new(sse_stream)
+                .keep_alive(KeepAlive::default())
+                .into_response();
+            let header_value = HeaderValue::from_str(&new_session_id)
+                .unwrap_or_else(|_| HeaderValue::from_static("invalid"));
+            resp.headers_mut()
+                .insert(MCP_SESSION_ID_HEADER, header_value);
+            resp
+        }
+        Err(e) => handle_initialize_error(session_manager, &new_session_id, e).await,
+    }
+}
+
+/// Forward a notification (no id) and return a single SSE ack event.
+async fn forward_notification_sse(
+    session_manager: &SessionManager,
+    session_id: &str,
+    _method: Option<&str>,
+    payload: &Value,
+    is_initialized_notification: bool,
+) -> Response {
+    let request_timeout = Duration::from_secs(request_timeout_secs());
+
+    match session_manager
+        .send_request(session_id, payload, Some(request_timeout))
+        .await
+    {
+        Ok(response) => {
+            mark_session_initialized(session_manager, session_id, is_initialized_notification)
+                .await;
+            if let Some(session) = session_manager.get_session(session_id) {
+                with_session_header(sse_single_event_response(&session, response), session_id)
+            } else {
+                with_session_header(json_response(response), session_id)
+            }
+        }
+        Err(e) => {
+            error!(session_id = %session_id, "Failed to forward notification: {}", e);
+            error_response(-32603, &format!("Failed to send request: {}", e))
+        }
+    }
+}
+
+/// Forward a request (has id) and return an SSE stream with interleaved
+/// broadcast events and the response event.
+async fn forward_request_sse(
+    session_manager: &SessionManager,
+    session_id: &str,
+    method: Option<&str>,
+    payload: &Value,
+    is_initialized_notification: bool,
+) -> Response {
+    let session = match session_manager.get_session(session_id) {
+        Some(s) => s,
+        None => {
+            return error_response_with_status(
+                StatusCode::FORBIDDEN,
+                -32600,
+                "Session not found or terminated",
+            );
+        }
+    };
+
+    // Subscribe to broadcast BEFORE sending the request so we don't miss events
+    let rx = session.subscribe();
+
+    let request_timeout = if method == Some("tools/call") {
+        calculate_tool_timeout(payload)
+    } else {
+        Duration::from_secs(request_timeout_secs())
+    };
+
+    // Send the request to the subprocess
+    let response_result = session_manager
+        .send_request(session_id, payload, Some(request_timeout))
+        .await;
+
+    match response_result {
+        Ok(response) => {
+            handle_roots_list_response(session_manager, session_id, method, &response).await;
+            mark_session_initialized(session_manager, session_id, is_initialized_notification)
+                .await;
+
+            // Build SSE stream: broadcast events that arrived during processing + the response
+            let response_json = serde_json::to_string(&response).unwrap_or_default();
+            let response_id = session.assign_event_id(&response_json);
+
+            // Collect any broadcast events that arrived while waiting for the response
+            let session_clone = session.clone();
+            let sid = session_id.to_string();
+            let notification_stream =
+                BroadcastStream::new(rx).filter_map(move |result| {
+                    let sid = sid.clone();
+                    let session_ref = session_clone.clone();
+                    async move {
+                        match result {
+                            Ok((id, msg)) => {
+                                debug!(session_id = %sid, event_id = id, "POST SSE notification: {}", msg);
+                                Some(Ok::<_, Infallible>(
+                                    Event::default().id(id.to_string()).data(msg),
+                                ))
+                            }
+                            Err(
+                                tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(
+                                    n,
+                                ),
+                            ) => {
+                                session_ref.record_lagged_events(n);
+                                Some(Ok(Event::default().comment(format!(
+                                    "lagged: {} events dropped",
+                                    n
+                                ))))
+                            }
+                        }
+                    }
+                });
+
+            // The response event is emitted last, then the stream closes
+            let response_event = stream::once(async move {
+                Ok::<_, Infallible>(
+                    Event::default()
+                        .id(response_id.to_string())
+                        .data(response_json),
+                )
+            });
+
+            // Take only notifications that arrived before the response, then emit response
+            // Since we already awaited the response, any events in the broadcast channel
+            // were emitted during request processing. We take a small window then close.
+            let combined = notification_stream
+                .take_until(tokio::time::sleep(Duration::from_millis(50)))
+                .chain(response_event);
+
+            with_session_header(
+                Sse::new(combined)
+                    .keep_alive(KeepAlive::default())
+                    .into_response(),
+                session_id,
+            )
+        }
+        Err(e) => {
+            error!(session_id = %session_id, "Failed to send request: {}", e);
+            error_response(-32603, &format!("Failed to send request: {}", e))
+        }
+    }
 }

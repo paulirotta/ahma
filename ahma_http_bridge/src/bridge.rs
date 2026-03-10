@@ -12,7 +12,7 @@ use axum::{
     },
     routing::{get, post},
 };
-use futures::stream::StreamExt;
+use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use std::{convert::Infallible, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio_stream::wrappers::BroadcastStream;
@@ -364,13 +364,41 @@ async fn handle_sse_stream(State(state): State<Arc<BridgeState>>, headers: Heade
 
     info!(session_id = %session_id, "SSE stream opened");
 
-    // Subscribe to the session's broadcast channel
+    // Subscribe to the session's broadcast channel BEFORE reading history
+    // to prevent gaps between replay and live events.
     let rx = session.subscribe();
+
+    // Parse Last-Event-Id header for replay support
+    let last_event_id: Option<u64> = headers
+        .get("last-event-id")
+        .or_else(|| headers.get("Last-Event-Id"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
 
     // Mark SSE as connected - if MCP is already initialized, this will trigger roots/list_changed
     if let Err(e) = session.mark_sse_connected().await {
         warn!(session_id = %session_id, "Failed to mark SSE connected: {}", e);
     }
+
+    // Build replay stream from history (if Last-Event-Id was provided)
+    let replay_events = last_event_id
+        .map(|id| {
+            let events = session.replay_events_after(id);
+            debug!(
+                session_id = %session_id,
+                last_event_id = id,
+                replay_count = events.len(),
+                "Replaying missed SSE events"
+            );
+            events
+        })
+        .unwrap_or_default();
+
+    let replay_stream = stream::iter(
+        replay_events
+            .into_iter()
+            .map(|(id, msg)| Ok::<_, Infallible>(Event::default().id(id.to_string()).data(msg))),
+    );
 
     // Convert broadcast receiver to a stream of SSE events.
     // When the receiver falls behind (broadcast channel capacity exceeded),
@@ -378,14 +406,16 @@ async fn handle_sse_stream(State(state): State<Arc<BridgeState>>, headers: Heade
     // We log this prominently and bump a per-session counter so the loss is
     // observable in tests, metrics, and debug logs.
     let session_arc = session.clone();
-    let stream = BroadcastStream::new(rx).filter_map(move |result| {
+    let live_stream = BroadcastStream::new(rx).filter_map(move |result| {
         let session_id = session_id.clone();
         let session_ref = session_arc.clone();
         async move {
             match result {
-                Ok(msg) => {
-                    debug!(session_id = %session_id, "Sending SSE event: {}", msg);
-                    Some(Ok::<_, Infallible>(Event::default().data(msg)))
+                Ok((id, msg)) => {
+                    debug!(session_id = %session_id, event_id = id, "Sending SSE event: {}", msg);
+                    Some(Ok::<_, Infallible>(
+                        Event::default().id(id.to_string()).data(msg),
+                    ))
                 }
                 Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
                     session_ref.record_lagged_events(n);
@@ -409,10 +439,22 @@ async fn handle_sse_stream(State(state): State<Arc<BridgeState>>, headers: Heade
         }
     });
 
+    // Chain replay events before live stream for seamless reconnection
+    let combined = replay_stream.chain(live_stream);
+
     // Return SSE response with keep-alive
-    Sse::new(stream)
+    Sse::new(combined)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+/// Check whether the client prefers SSE over JSON for POST responses.
+fn accepts_sse(headers: &HeaderMap) -> bool {
+    headers
+        .get("accept")
+        .or_else(|| headers.get("Accept"))
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|accept| accept.contains("text/event-stream"))
 }
 
 /// Handle MCP JSON-RPC requests with content negotiation
@@ -425,6 +467,15 @@ async fn handle_mcp_request(
     Json(payload): Json<Value>,
 ) -> Response {
     debug!("Received HTTP request");
+
+    if accepts_sse(&headers) {
+        return crate::request_handler::handle_session_isolated_request_sse(
+            state.session_manager.clone(),
+            headers,
+            payload,
+        )
+        .await;
+    }
 
     crate::request_handler::handle_session_isolated_request(
         state.session_manager.clone(),
