@@ -13,7 +13,13 @@ use models::{FileSimplicity, MetricsResults};
 use report::{generate_ai_fix_prompt, generate_report};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Analyzes source code metrics and generates a simplicity report", long_about = None)]
+#[command(
+    name = "ahma-simplify",
+    author,
+    version,
+    about = "Analyzes source code metrics and generates a simplicity report",
+    long_about = None
+)]
 struct Cli {
     /// Directory to analyze (absolute or relative)
     directory: PathBuf,

@@ -5,7 +5,8 @@
             "command": "ahma-mcp",
             "args": [
                 "--tmp",
-                "--livelog"
+                "--livelog",
+                "--simplify"
             ]
         }
     }

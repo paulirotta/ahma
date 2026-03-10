@@ -179,26 +179,67 @@ When running inside another sandboxed environment (like Cursor IDE, VS Code, or 
 # Via command-line flag
 ahma-mcp --no-sandbox
 
-# Via environment variable (useful for mcp.json configuration)
+# Via environment variable (useful for Raspberry Pi or older kernels)
 export AHMA_NO_SANDBOX=1
 ahma-mcp
 ```
 
-Example `mcp.json` for Cursor/VS Code:
+Example `mcp.json` for VS Code:
 
 ```json
 {
-  "servers": {
-    "Ahma": {
-      "type": "stdio",
-      "command": "ahma-mcp",
-      "args": ["--tools-dir", ".ahma/tools"]
+    "servers": {
+        "Ahma": {
+            "type": "stdio",
+            "command": "ahma-mcp",
+            "args": [
+                "--tmp",
+                "--livelog",
+                "--simplify"
+            ]
+        }
     }
-  }
+}```
+
+Example `mcp.json` for Cursor:
+
+```json
+{
+    "mcpServers": {
+        "Ahma": {
+            "type": "stdio",
+            "command": "ahma-mcp",
+            "args": [
+                "--tmp",
+                "--livelog",
+                "--simplify"
+            ]
+        }
+    }
 }
 ```
 
-Antigravity does not send the working directory in 'roots' so sandbox scoping must be manual or '--disable-sandbox'
+
+Example `mcp.json` for Claude Code:
+
+```json
+{
+    "mcpServers": {
+        "Ahma": {
+            "type": "stdio",
+            "command": "ahma-mcp",
+            "args": [
+                "--tmp",
+                "--livelog",
+                "--simplify"
+            ]
+        }
+    }
+}
+```
+
+
+Antigravity does not send the working directory in 'roots' so sandbox scoping must be manual or use '--no-sandbox'
 
 Example `mcp.json` for Antigravity:
 

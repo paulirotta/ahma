@@ -6,7 +6,7 @@
             "args": [
                 "--tmp",
                 "--livelog",
-                "--no-sandbox"
+                "--simplify"
             ]
         }
     }

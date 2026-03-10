@@ -13,6 +13,7 @@ use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 /// Ahma Server: A generic, config-driven adapter for CLI tools.
 #[derive(Parser, Debug, Clone)]
 #[command(
+    name = "ahma-mcp",
     author,
     version,
     about,

@@ -142,18 +142,16 @@ impl McpTestClient {
     }
 
     fn event_data_to_json(raw_event: &str) -> Option<Value> {
-        let mut data_lines: Vec<&str> = Vec::new();
-        for line in raw_event.lines() {
-            let line = line.trim_end_matches('\r');
-            if let Some(rest) = line.strip_prefix("data:") {
-                data_lines.push(rest.trim());
-            }
-        }
-        if data_lines.is_empty() {
+        let data: Vec<&str> = raw_event
+            .lines()
+            .filter_map(|line| line.trim_end_matches('\r').strip_prefix("data:"))
+            .map(str::trim)
+            .collect();
+
+        if data.is_empty() {
             return None;
         }
-        let data = data_lines.join("\n");
-        serde_json::from_str::<Value>(&data).ok()
+        serde_json::from_str::<Value>(&data.join("\n")).ok()
     }
 
     async fn open_handshake_sse(&self, session_id: &str) -> Result<reqwest::Response, String> {
@@ -174,6 +172,42 @@ impl McpTestClient {
         Ok(sse_resp)
     }
 
+    /// Dispatch a single SSE event. Returns `Ok(true)` when the handshake is complete.
+    async fn handle_sse_event(
+        &self,
+        value: &Value,
+        session_id: &str,
+        roots: &[PathBuf],
+        roots_answered: &mut bool,
+    ) -> Result<bool, String> {
+        let method = value.get("method").and_then(|m| m.as_str());
+
+        if method == Some("notifications/sandbox/failed") {
+            let error = value
+                .get("params")
+                .and_then(|p| p.get("error"))
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            return Err(format!("Sandbox configuration failed: {}", error));
+        }
+
+        if method == Some("notifications/sandbox/configured") && *roots_answered {
+            return Ok(true);
+        }
+
+        if method == Some("roots/list") {
+            let request_id = value
+                .get("id")
+                .cloned()
+                .ok_or_else(|| "roots/list must include id".to_string())?;
+            self.send_roots_response(session_id, request_id, roots)
+                .await?;
+            *roots_answered = true;
+        }
+
+        Ok(false)
+    }
+
     async fn process_roots_handshake_stream(
         &self,
         sse_resp: reqwest::Response,
@@ -192,51 +226,26 @@ impl McpTestClient {
                 );
             }
 
-            let chunk = tokio::time::timeout(Duration::from_millis(500), stream.next())
+            let Some(chunk) = tokio::time::timeout(Duration::from_millis(500), stream.next())
                 .await
                 .ok()
-                .flatten();
+                .flatten()
+            else {
+                continue;
+            };
 
-            if let Some(next) = chunk {
-                let bytes = next.map_err(|e| format!("SSE read error: {}", e))?;
-                let text = String::from_utf8_lossy(&bytes);
-                buffer.push_str(&text);
+            let bytes = chunk.map_err(|e| format!("SSE read error: {}", e))?;
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
 
-                while let Some(raw_event) = Self::pop_next_sse_event(&mut buffer) {
-                    let Some(value) = Self::event_data_to_json(&raw_event) else {
-                        continue;
-                    };
-
-                    let method = value.get("method").and_then(|m| m.as_str());
-
-                    if method == Some("notifications/sandbox/failed") {
-                        let error = value
-                            .get("params")
-                            .and_then(|p| p.get("error"))
-                            .and_then(|e| e.as_str())
-                            .unwrap_or("unknown");
-                        return Err(format!("Sandbox configuration failed: {}", error));
-                    }
-
-                    if method == Some("notifications/sandbox/configured") {
-                        if roots_answered {
-                            return Ok(());
-                        }
-                        continue;
-                    }
-
-                    if method != Some("roots/list") {
-                        continue;
-                    }
-
-                    let request_id = value
-                        .get("id")
-                        .cloned()
-                        .ok_or_else(|| "roots/list must include id".to_string())?;
-
-                    self.send_roots_response(session_id, request_id, roots)
-                        .await?;
-                    roots_answered = true;
+            while let Some(raw_event) = Self::pop_next_sse_event(&mut buffer) {
+                let Some(value) = Self::event_data_to_json(&raw_event) else {
+                    continue;
+                };
+                if self
+                    .handle_sse_event(&value, session_id, roots, &mut roots_answered)
+                    .await?
+                {
+                    return Ok(());
                 }
             }
         }
