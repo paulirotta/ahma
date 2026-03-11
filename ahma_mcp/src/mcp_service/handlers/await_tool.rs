@@ -136,12 +136,8 @@ impl AhmaMcpService {
                 }
             }
             Err(_) => {
-                self.handle_await_timeout(
-                    wait_start,
-                    timeout_seconds,
-                    &pending_ops,
-                )
-                .await
+                self.handle_await_timeout(wait_start, timeout_seconds, &pending_ops)
+                    .await
             }
         }
     }
@@ -322,8 +318,14 @@ impl AhmaMcpService {
 
     async fn collect_lock_file_suggestions(&self, steps: &mut Vec<String>) {
         const LOCK_PATTERNS: &[&str] = &[
-            ".cargo-lock", ".lock", "package-lock.json", "yarn.lock",
-            ".npm-lock", "composer.lock", "Pipfile.lock", ".bundle-lock",
+            ".cargo-lock",
+            ".lock",
+            "package-lock.json",
+            "yarn.lock",
+            ".npm-lock",
+            "composer.lock",
+            "Pipfile.lock",
+            ".bundle-lock",
         ];
         for dir in &["target", "node_modules", ".cargo", "tmp", "temp"] {
             if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
@@ -366,10 +368,9 @@ fn collect_process_suggestions(still_running: &[Operation], steps: &mut Vec<Stri
 
 fn collect_network_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
     const NETWORK_KEYWORDS: &[&str] = &[
-        "network", "http", "https", "tcp", "udp", "socket", "curl", "wget", "git", "api",
-        "rest", "graphql", "rpc", "ssh", "ftp", "scp", "rsync", "net", "audit", "update",
-        "search", "add", "install", "fetch", "clone", "pull", "push", "download", "upload",
-        "sync",
+        "network", "http", "https", "tcp", "udp", "socket", "curl", "wget", "git", "api", "rest",
+        "graphql", "rpc", "ssh", "ftp", "scp", "rsync", "net", "audit", "update", "search", "add",
+        "install", "fetch", "clone", "pull", "push", "download", "upload", "sync",
     ];
     let has_network_ops = still_running
         .iter()
@@ -396,8 +397,6 @@ fn collect_build_suggestions(still_running: &[Operation], steps: &mut Vec<String
                 .to_string(),
         );
         steps.push("• Check system resources: top or htop".to_string());
-        steps.push(
-            "• Consider running operations with verbose flags to see progress".to_string(),
-        );
+        steps.push("• Consider running operations with verbose flags to see progress".to_string());
     }
 }

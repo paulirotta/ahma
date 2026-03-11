@@ -93,12 +93,7 @@ fn parse_kernel_version() -> Option<(u32, u32)> {
     let version_str = String::from_utf8_lossy(&output.stdout);
     let mut parts = version_str.trim().split('.');
     let major: u32 = parts.next()?.parse().ok()?;
-    let minor: u32 = parts
-        .next()?
-        .split('-')
-        .next()?
-        .parse()
-        .unwrap_or(0);
+    let minor: u32 = parts.next()?.split('-').next()?.parse().unwrap_or(0);
     Some((major, minor))
 }
 

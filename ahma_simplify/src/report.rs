@@ -49,7 +49,7 @@ impl RepoSummary {
                     (p, avg)
                 })
                 .collect();
-            package_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            package_scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
             language_summaries.insert(
                 lang,

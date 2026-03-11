@@ -46,13 +46,19 @@ mod main_tests {
     #[test]
     fn test_validation_mode_detection() {
         init_test_logging();
-        assert_eq!(detect_run_mode(false, None, Some("all".to_string())), "validate");
+        assert_eq!(
+            detect_run_mode(false, None, Some("all".to_string())),
+            "validate"
+        );
     }
 
     #[test]
     fn test_cli_mode_detection() {
         init_test_logging();
-        assert_eq!(detect_run_mode(false, Some("cargo_build".to_string()), None), "cli");
+        assert_eq!(
+            detect_run_mode(false, Some("cargo_build".to_string()), None),
+            "cli"
+        );
     }
 
     /// Detect the run mode given server_mode flag, tool name, and validate target.

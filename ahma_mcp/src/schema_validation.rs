@@ -273,7 +273,10 @@ impl MtdfValidator {
                 error_type: ValidationErrorType::ConstraintViolation,
                 field_path: "timeout_seconds".to_string(),
                 message: "Timeout should not exceed 3600 seconds (1 hour)".to_string(),
-                suggestion: Some("Consider using a shorter timeout or breaking the operation into smaller steps".to_string()),
+                suggestion: Some(
+                    "Consider using a shorter timeout or breaking the operation into smaller steps"
+                        .to_string(),
+                ),
             });
         }
         if timeout == 0 {
