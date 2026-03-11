@@ -71,15 +71,18 @@ fn detect_cancellation_kind(raw_message: &str) -> Option<CancellationKind> {
     // Order matters: more specific patterns first, then broader patterns
     const ORDERED_PATTERNS: &[(&[&str], CancellationKind)] = &[
         (&["canceled: canceled"], CancellationKind::UnknownSource),
-        (&["task cancelled for reason"], CancellationKind::McpCancellation),
+        (
+            &["task cancelled for reason"],
+            CancellationKind::McpCancellation,
+        ),
         (&["timeout"], CancellationKind::Timeout),
         (&["user", "request"], CancellationKind::UserInitiated),
         (&["cancel"], CancellationKind::Generic),
     ];
 
-    ORDERED_PATTERNS.iter().find_map(|(patterns, kind)| {
-        patterns.iter().any(|p| lower.contains(p)).then_some(*kind)
-    })
+    ORDERED_PATTERNS
+        .iter()
+        .find_map(|(patterns, kind)| patterns.iter().any(|p| lower.contains(p)).then_some(*kind))
 }
 
 fn format_cancellation_context(tool_name: Option<&str>, id: Option<&str>) -> Vec<String> {

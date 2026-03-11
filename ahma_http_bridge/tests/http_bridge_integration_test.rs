@@ -474,8 +474,10 @@ async fn answer_roots_list_over_sse(
     let roots_json: Vec<Value> = roots
         .iter()
         .map(|p| {
+            // Use percent_encode_path_for_file_uri for cross-platform file URI formatting
+            // (Windows needs file:///C:/... format, not file://C:\...)
             json!({
-                "uri": format!("file://{}", p.display()),
+                "uri": format!("file://{}", percent_encode_path_for_file_uri(p)),
                 "name": p.file_name().and_then(|n| n.to_str()).unwrap_or("root")
             })
         })

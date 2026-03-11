@@ -24,7 +24,7 @@ fn resolve_livelog_scopes(canonicalized: &[PathBuf]) -> Vec<PathBuf> {
 fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
     let entries = std::fs::read_dir(log_dir).ok()?;
     let mut results = Vec::new();
-    
+
     for entry in entries.flatten() {
         if let Some(target) = resolve_log_symlink(&entry.path(), log_dir) {
             tracing::info!(
@@ -34,7 +34,7 @@ fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
             results.push(target);
         }
     }
-    
+
     Some(results)
 }
 
@@ -43,15 +43,15 @@ fn resolve_log_symlink(path: &Path, log_dir: &Path) -> Option<PathBuf> {
     if !meta.is_symlink() {
         return None;
     }
-    
+
     let ext = path.extension()?;
     if ext != "log" {
         return None;
     }
-    
+
     let target = std::fs::read_link(path).ok()?;
     let canonical_target = dunce::canonicalize(log_dir.join(&target)).ok()?;
-    
+
     if canonical_target.is_file() {
         Some(canonical_target)
     } else {
@@ -71,7 +71,9 @@ fn is_blocked_temp_path(path_str: &str) -> bool {
         "/private/var/folders",
         "/dev",
     ];
-    BLOCKED_PREFIXES.iter().any(|prefix| path_str.starts_with(prefix))
+    BLOCKED_PREFIXES
+        .iter()
+        .any(|prefix| path_str.starts_with(prefix))
 }
 
 fn is_in_temp_dir(path: &Path) -> bool {
@@ -240,7 +242,8 @@ impl Sandbox {
             first_scope.join(path)
         };
 
-        Ok(dunce::canonicalize(&full_path).unwrap_or_else(|_| canonicalize_with_fallback(&full_path)))
+        Ok(dunce::canonicalize(&full_path)
+            .unwrap_or_else(|_| canonicalize_with_fallback(&full_path)))
     }
 
     fn is_path_allowed(&self, canonical: &Path, scopes_guard: &[PathBuf]) -> bool {

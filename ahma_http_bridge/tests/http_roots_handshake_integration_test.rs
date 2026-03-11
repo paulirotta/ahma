@@ -16,7 +16,7 @@
 
 mod common;
 
-use common::uri::paths_equivalent;
+use common::uri::{encode_file_uri, paths_equivalent};
 use common::{TestServerInstance, spawn_test_server};
 use futures::StreamExt;
 use reqwest::Client;
@@ -79,7 +79,9 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
 
     let temp_root = TempDir::new().expect("Failed to create temp root");
     let root_path = temp_root.path().to_path_buf();
-    let root_uri = format!("file://{}", root_path.display());
+    // Use encode_file_uri for cross-platform file URI formatting
+    // (Windows needs file:///C:/... format, not file://C:\...)
+    let root_uri = encode_file_uri(&root_path);
 
     // 1) initialize (no session header)
     let init_req = json!({

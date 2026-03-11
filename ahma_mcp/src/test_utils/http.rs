@@ -1,10 +1,66 @@
 use super::cli;
 use anyhow::Context;
 use reqwest::Client;
+use std::path::Path;
 use std::process::Child;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::time::sleep;
+
+/// Encode a filesystem path as a file:// URI.
+///
+/// Windows: `C:\foo\bar` → `file:///C:/foo/bar`
+/// Unix:    `/tmp/bar`   → `file:///tmp/bar`
+fn encode_file_uri(path: &Path) -> String {
+    let mut path_str = path.to_string_lossy().into_owned();
+
+    // Strip Windows extended-length prefix (\\?\) if present.
+    if path_str.starts_with(r"\\?\") {
+        path_str = path_str[4..].to_string();
+    }
+
+    // Normalise path separators to forward slashes.
+    path_str = path_str.replace('\\', "/");
+
+    let mut out = String::with_capacity(path_str.len() + 10);
+    out.push_str("file://");
+
+    // On Windows a drive-letter path looks like "C:/Users/…".
+    // RFC 8089 §2 requires the path to start with "/" so that it occupies
+    // the path component, not the authority.
+    #[cfg(target_os = "windows")]
+    {
+        let is_drive = path_str.len() >= 2
+            && path_str.as_bytes()[0].is_ascii_alphabetic()
+            && path_str.as_bytes()[1] == b':';
+        if is_drive {
+            out.push('/');
+        }
+    }
+
+    for b in path_str.as_bytes() {
+        let b = *b;
+        let keep = matches!(
+            b,
+            b'a'..=b'z'
+                | b'A'..=b'Z'
+                | b'0'..=b'9'
+                | b'-'
+                | b'.'
+                | b'_'
+                | b'~'
+                | b'/'
+                | b':'
+        );
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{:02X}", b));
+        }
+    }
+    out
+}
 
 /// A running HTTP bridge instance for integration testing.
 pub struct HttpBridgeTestInstance {
@@ -235,7 +291,7 @@ impl HttpMcpTestClient {
                             .iter()
                             .map(|p| {
                                 serde_json::json!({
-                                    "uri": format!("file://{}", p.display()),
+                                    "uri": encode_file_uri(p),
                                     "name": p.file_name().and_then(|n| n.to_str()).unwrap_or("root")
                                 })
                             })

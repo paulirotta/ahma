@@ -41,7 +41,11 @@ fn resolve_sandbox_policy(cli: &Cli) -> SandboxPolicy {
         sandbox::SandboxMode::Strict
     };
 
-    SandboxPolicy { no_sandbox, tmp_access, mode }
+    SandboxPolicy {
+        no_sandbox,
+        tmp_access,
+        mode,
+    }
 }
 
 fn check_sandbox_availability(no_sandbox: bool) -> Result<()> {
@@ -102,7 +106,10 @@ fn resolve_sandbox_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
 fn resolve_deferred_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
     if let Some(ref dirs) = cli.working_directories {
         let scopes = canonicalize_paths(dirs, "working directory")?;
-        tracing::info!("Sandbox initialized from --working-directories: {:?}", scopes);
+        tracing::info!(
+            "Sandbox initialized from --working-directories: {:?}",
+            scopes
+        );
         Ok(Some(scopes))
     } else {
         tracing::info!("Sandbox initialization deferred - will be set from client roots/list");
@@ -110,7 +117,10 @@ fn resolve_deferred_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
     }
 }
 
-fn add_temp_scope_if_requested(scopes: Option<Vec<PathBuf>>, tmp_access: bool) -> Option<Vec<PathBuf>> {
+fn add_temp_scope_if_requested(
+    scopes: Option<Vec<PathBuf>>,
+    tmp_access: bool,
+) -> Option<Vec<PathBuf>> {
     if !tmp_access {
         return scopes;
     }
@@ -122,7 +132,10 @@ fn add_temp_scope_if_requested(scopes: Option<Vec<PathBuf>>, tmp_access: bool) -
     let temp_dir = std::env::temp_dir();
     match dunce::canonicalize(&temp_dir) {
         Ok(canonical_temp) if !scopes.contains(&canonical_temp) => {
-            tracing::info!("Adding temp directory to sandbox scopes via --tmp: {:?}", canonical_temp);
+            tracing::info!(
+                "Adding temp directory to sandbox scopes via --tmp: {:?}",
+                canonical_temp
+            );
             scopes.push(canonical_temp);
         }
         Ok(_) => {}
@@ -207,7 +220,9 @@ fn log_sandbox_mode(no_sandbox: bool) {
     );
 
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    tracing::info!("SECURE Sandbox mode: UNSUPPORTED ON THIS OS (startup fails closed in strict mode)");
+    tracing::info!(
+        "SECURE Sandbox mode: UNSUPPORTED ON THIS OS (startup fails closed in strict mode)"
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -235,7 +250,8 @@ async fn dispatch_mode(cli: Cli, sandbox: Option<Arc<sandbox::Sandbox>>) -> Resu
     let is_server_mode = cli.tool_name.is_none();
 
     if !is_server_mode {
-        let sandbox = sandbox.ok_or_else(|| anyhow!("Sandbox scopes must be initialized for CLI mode"))?;
+        let sandbox =
+            sandbox.ok_or_else(|| anyhow!("Sandbox scopes must be initialized for CLI mode"))?;
         tracing::info!("Running in CLI mode");
         return modes::run_cli_mode(cli, sandbox).await;
     }
@@ -246,7 +262,8 @@ async fn dispatch_mode(cli: Cli, sandbox: Option<Arc<sandbox::Sandbox>>) -> Resu
             modes::run_http_bridge_mode(cli).await
         }
         "stdio" => {
-            let sandbox = sandbox.ok_or_else(|| anyhow!("Sandbox scopes must be initialized for stdio mode"))?;
+            let sandbox = sandbox
+                .ok_or_else(|| anyhow!("Sandbox scopes must be initialized for stdio mode"))?;
             check_stdio_not_interactive()?;
             tracing::info!("Running in STDIO server mode");
             modes::run_server_mode(cli, sandbox).await
@@ -263,7 +280,9 @@ fn check_stdio_not_interactive() -> Result<()> {
         return Ok(());
     }
 
-    eprintln!("\nFAIL Error: ahma_mcp is an MCP server designed for JSON-RPC communication over stdio.\n");
+    eprintln!(
+        "\nFAIL Error: ahma_mcp is an MCP server designed for JSON-RPC communication over stdio.\n"
+    );
     eprintln!("It cannot be run directly from an interactive terminal.\n");
     eprintln!("Usage options:");
     eprintln!("  1. Run as stdio MCP server (requires MCP client):");

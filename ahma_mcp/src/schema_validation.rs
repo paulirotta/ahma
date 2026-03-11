@@ -11,7 +11,12 @@ use std::path::Path;
 // Validation helper functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn push_error(errors: &mut Vec<SchemaValidationError>, error_type: ValidationErrorType, field_path: String, message: String) {
+fn push_error(
+    errors: &mut Vec<SchemaValidationError>,
+    error_type: ValidationErrorType,
+    field_path: String,
+    message: String,
+) {
     errors.push(SchemaValidationError {
         error_type,
         field_path,
@@ -354,8 +359,11 @@ impl MtdfValidator {
             errors.push(SchemaValidationError {
                 error_type: ValidationErrorType::LogicalInconsistency,
                 field_path: format!("{}.description", path),
-                message: "Description mentions async behavior but subcommand is forced synchronous".to_string(),
-                suggestion: Some("Either set synchronous to false or update description".to_string()),
+                message: "Description mentions async behavior but subcommand is forced synchronous"
+                    .to_string(),
+                suggestion: Some(
+                    "Either set synchronous to false or update description".to_string(),
+                ),
             });
         }
     }
