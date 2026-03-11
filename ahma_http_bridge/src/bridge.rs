@@ -451,10 +451,9 @@ async fn handle_sse_stream(State(state): State<Arc<BridgeState>>, headers: Heade
 /// Check whether the client prefers SSE over JSON for POST responses.
 fn accepts_sse(headers: &HeaderMap) -> bool {
     headers
-        .get("accept")
-        .or_else(|| headers.get("Accept"))
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|accept| accept.contains("text/event-stream"))
+        .get_all("accept")
+        .iter()
+        .any(|v| v.to_str().unwrap_or_default().contains("text/event-stream"))
 }
 
 /// Handle MCP JSON-RPC requests with content negotiation
@@ -466,9 +465,10 @@ async fn handle_mcp_request(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Response {
+    let sse_accepted = accepts_sse(&headers);
     debug!("Received HTTP request");
 
-    if accepts_sse(&headers) {
+    if sse_accepted {
         return crate::request_handler::handle_session_isolated_request_sse(
             state.session_manager.clone(),
             headers,

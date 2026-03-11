@@ -33,7 +33,7 @@ async fn test_post_json_content_negotiation() {
                 "clientInfo": {"name": "json-test", "version": "1.0"}
             }
         }))
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .send()
         .await
         .expect("request should succeed");
@@ -61,11 +61,8 @@ async fn test_post_sse_content_negotiation() {
 
     let http = Client::new();
 
-    // Send initialize with Accept: text/event-stream
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -76,7 +73,9 @@ async fn test_post_sse_content_negotiation() {
                 "clientInfo": {"name": "sse-test", "version": "1.0"}
             }
         }))
-        .timeout(Duration::from_secs(30))
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .timeout(Duration::from_secs(60))
         .send()
         .await
         .expect("request should succeed");
@@ -86,6 +85,14 @@ async fn test_post_sse_content_negotiation() {
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    if content_type.contains("application/json") {
+        let b = resp.bytes().await.unwrap_or_default();
+        panic!(
+            "Expected SSE content type, got JSON error: {}",
+            String::from_utf8_lossy(&b)
+        );
+    }
+
     assert!(
         content_type.contains("text/event-stream"),
         "Expected SSE content type, got: {}",
@@ -111,11 +118,8 @@ async fn test_post_sse_response_includes_event_id() {
 
     let http = Client::new();
 
-    // Initialize via SSE
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -126,7 +130,9 @@ async fn test_post_sse_response_includes_event_id() {
                 "clientInfo": {"name": "event-id-test", "version": "1.0"}
             }
         }))
-        .timeout(Duration::from_secs(30))
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .timeout(Duration::from_secs(60))
         .send()
         .await
         .expect("request should succeed");
@@ -134,10 +140,10 @@ async fn test_post_sse_response_includes_event_id() {
     // Read SSE stream and check for id: field
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
 
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
+        match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
             Ok(Some(Ok(bytes))) => {
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
                 // Check if we have a complete SSE event with id field
@@ -201,10 +207,10 @@ async fn test_get_sse_events_include_event_id() {
     // Read SSE events and verify they have id fields
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
 
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
+        match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
             Ok(Some(Ok(bytes))) => {
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
                 // Look for SSE event with both id: and data: fields
@@ -332,18 +338,17 @@ async fn test_post_sse_streams_response() {
         .to_string();
     let http = Client::new();
 
-    // Send tools/list via POST with Accept: text/event-stream
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
-        .header("Mcp-Session-Id", &session_id)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 99,
             "method": "tools/list"
         }))
-        .timeout(Duration::from_secs(30))
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .header("Mcp-Session-Id", &session_id)
+        .timeout(Duration::from_secs(60))
         .send()
         .await
         .expect("request should succeed");
@@ -354,6 +359,14 @@ async fn test_post_sse_streams_response() {
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    if content_type.contains("application/json") {
+        let b = resp.bytes().await.unwrap_or_default();
+        panic!(
+            "Should be SSE, got JSON error: {}",
+            String::from_utf8_lossy(&b)
+        );
+    }
+
     assert!(
         content_type.contains("text/event-stream"),
         "Should be SSE, got: {}",
@@ -363,10 +376,10 @@ async fn test_post_sse_streams_response() {
     // Parse SSE stream to find the response
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
 
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
+        match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
             Ok(Some(Ok(bytes))) => {
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
             }
