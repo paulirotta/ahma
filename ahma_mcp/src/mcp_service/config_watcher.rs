@@ -3,6 +3,7 @@ use rmcp::service::{Peer, RoleServer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing;
 
 use super::AhmaMcpService;
@@ -121,7 +122,35 @@ impl AhmaMcpService {
         tracing::info!("Requesting roots/list from client...");
 
         // Use the list_roots() method provided by Peer<RoleServer>
-        let list_result = peer.list_roots().await;
+        // Add timeout to prevent infinite hang if response never arrives (Windows stdio issue)
+        let timeout_duration = if cfg!(windows) {
+            Duration::from_secs(60)
+        } else {
+            Duration::from_secs(30)
+        };
+
+        let list_result = match tokio::time::timeout(timeout_duration, peer.list_roots()).await {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::error!(
+                    "Timeout waiting for roots/list response after {:?}. \
+                     This may indicate a stdio communication issue.",
+                    timeout_duration
+                );
+                eprintln!(
+                    "DEBUG: peer.list_roots() TIMEOUT after {:?}",
+                    timeout_duration
+                );
+                if let Ok(notification) = serde_json::to_string(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/sandbox/failed",
+                    "params": { "error": format!("Timeout waiting for roots/list response after {:?}", timeout_duration) }
+                })) {
+                    println!("\n{}", notification);
+                }
+                return;
+            }
+        };
         eprintln!(
             "DEBUG: peer.list_roots() returned: {:?}",
             list_result.is_ok()

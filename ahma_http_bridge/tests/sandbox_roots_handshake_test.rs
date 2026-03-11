@@ -1117,6 +1117,11 @@ async fn test_post_lock_roots_change_rejected() {
     let sse_result = sse_task.await.expect("SSE task panicked");
     assert!(sse_result.is_ok(), "Initial roots exchange failed");
 
+    // Give the stdio I/O time to process - Windows CI can be slow with inter-process communication
+    if cfg!(windows) {
+        sleep(Duration::from_secs(2)).await;
+    }
+
     wait_for_tool_ready(&client, &base_url, &session_id, initial_root.path())
         .await
         .expect("Sandbox should become ready before roots/list_changed test");
