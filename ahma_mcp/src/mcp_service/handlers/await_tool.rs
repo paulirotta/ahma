@@ -127,53 +127,62 @@ impl AhmaMcpService {
                         contents.len(),
                         elapsed.as_secs_f64()
                     ))];
-
                     result_contents.extend(contents);
                     Ok(CallToolResult::success(result_contents))
                 } else {
-                    let result_contents = vec![Content::text(
+                    Ok(CallToolResult::success(vec![Content::text(
                         "No operations completed within timeout period".to_string(),
-                    )];
-
-                    Ok(CallToolResult::success(result_contents))
+                    )]))
                 }
             }
             Err(_) => {
-                let elapsed = wait_start.elapsed();
-                let still_running: Vec<Operation> = self
-                    .operation_monitor
-                    .get_all_active_operations()
-                    .await
-                    .into_iter()
-                    .filter(|op| !op.state.is_terminal())
-                    .collect();
-                let completed_during_wait = pending_ops.len() - still_running.len();
-
-                let remediation_steps = self.generate_remediation_suggestions(&still_running).await;
-
-                let mut error_message = format!(
-                    "Wait operation timed out after {:.2}s (configured timeout: {:.0}s).\n\n\
-                Progress: {}/{} operations completed during await.\n\
-                Still running: {} operations.\n\n\
-                Suggestions:",
-                    elapsed.as_secs_f64(),
+                self.handle_await_timeout(
+                    wait_start,
                     timeout_seconds,
-                    completed_during_wait,
-                    pending_ops.len(),
-                    still_running.len()
-                );
-                for step in &remediation_steps {
-                    error_message.push_str(&format!("\n{}", step));
-                }
-                if !still_running.is_empty() {
-                    error_message.push_str("\n\nStill running operations:");
-                    for op in &still_running {
-                        error_message.push_str(&format!("\n• {} ({})", op.id, op.tool_name));
-                    }
-                }
-                Ok(CallToolResult::success(vec![Content::text(error_message)]))
+                    &pending_ops,
+                )
+                .await
             }
         }
+    }
+
+    async fn handle_await_timeout(
+        &self,
+        wait_start: Instant,
+        timeout_seconds: f64,
+        pending_ops: &[Operation],
+    ) -> Result<CallToolResult, McpError> {
+        let elapsed = wait_start.elapsed();
+        let still_running: Vec<Operation> = self
+            .operation_monitor
+            .get_all_active_operations()
+            .await
+            .into_iter()
+            .filter(|op| !op.state.is_terminal())
+            .collect();
+        let completed_during_wait = pending_ops.len() - still_running.len();
+        let remediation_steps = self.generate_remediation_suggestions(&still_running).await;
+
+        let mut error_message = format!(
+            "Wait operation timed out after {:.2}s (configured timeout: {:.0}s).\n\n\
+            Progress: {}/{} operations completed during await.\n\
+            Still running: {} operations.\n\nSuggestions:",
+            elapsed.as_secs_f64(),
+            timeout_seconds,
+            completed_during_wait,
+            pending_ops.len(),
+            still_running.len()
+        );
+        for step in &remediation_steps {
+            error_message.push_str(&format!("\n{}", step));
+        }
+        if !still_running.is_empty() {
+            error_message.push_str("\n\nStill running operations:");
+            for op in &still_running {
+                error_message.push_str(&format!("\n• {} ({})", op.id, op.tool_name));
+            }
+        }
+        Ok(CallToolResult::success(vec![Content::text(error_message)]))
     }
 
     /// Calculate intelligent timeout based on operation timeouts and default await timeout
@@ -292,103 +301,103 @@ impl AhmaMcpService {
     }
 
     async fn generate_remediation_suggestions(&self, still_running: &[Operation]) -> Vec<String> {
-        let mut remediation_steps = Vec::new();
-        let lock_patterns = vec![
-            ".cargo-lock",
-            ".lock",
-            "package-lock.json",
-            "yarn.lock",
-            ".npm-lock",
-            "composer.lock",
-            "Pipfile.lock",
-            ".bundle-lock",
+        let mut steps = Vec::new();
+        self.collect_lock_file_suggestions(&mut steps).await;
+        collect_process_suggestions(still_running, &mut steps);
+        collect_network_suggestions(still_running, &mut steps);
+        collect_build_suggestions(still_running, &mut steps);
+        if steps.is_empty() {
+            steps.push("• Use the 'status' tool to check remaining operations".to_string());
+            steps.push(
+                "• Operations continue running in background - they may complete shortly"
+                    .to_string(),
+            );
+            steps.push(
+                "• Consider increasing timeout_seconds if operations legitimately need more time"
+                    .to_string(),
+            );
+        }
+        steps
+    }
+
+    async fn collect_lock_file_suggestions(&self, steps: &mut Vec<String>) {
+        const LOCK_PATTERNS: &[&str] = &[
+            ".cargo-lock", ".lock", "package-lock.json", "yarn.lock",
+            ".npm-lock", "composer.lock", "Pipfile.lock", ".bundle-lock",
         ];
         for dir in &["target", "node_modules", ".cargo", "tmp", "temp"] {
             if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
                 while let Ok(Some(entry)) = entries.next_entry().await {
-                    if let Some(name) = entry.file_name().to_str() {
-                        for pattern in &lock_patterns {
-                            if name.contains(pattern) {
-                                remediation_steps.push(format!(
-                                    "• Remove potential stale lock file: rm {}/{}",
-                                    dir, name
-                                ));
-                                break;
-                            }
-                        }
+                    if let Some(name) = entry.file_name().to_str()
+                        && LOCK_PATTERNS.iter().any(|p| name.contains(p))
+                    {
+                        steps.push(format!(
+                            "• Remove potential stale lock file: rm {}/{}",
+                            dir, name
+                        ));
                     }
                 }
             }
         }
         if tokio::fs::metadata(".").await.is_ok() {
-            remediation_steps.push("• Check available disk space: df -h .".to_string());
+            steps.push("• Check available disk space: df -h .".to_string());
         }
-        let running_commands: std::collections::HashSet<String> = still_running
-            .iter()
-            .map(|op| {
-                op.tool_name
-                    .split('_')
-                    .next()
-                    .unwrap_or(&op.tool_name)
-                    .to_string()
-            })
-            .collect();
-        for cmd in &running_commands {
-            remediation_steps.push(format!(
-                "• Check for competing {} processes: ps aux | grep {}",
-                cmd, cmd
-            ));
-        }
-        let network_keywords = [
-            "network", "http", "https", "tcp", "udp", "socket", "curl", "wget", "git", "api",
-            "rest", "graphql", "rpc", "ssh", "ftp", "scp", "rsync", "net", "audit", "update",
-            "search", "add", "install", "fetch", "clone", "pull", "push", "download", "upload",
-            "sync",
-        ];
-        let has_network_ops = still_running.iter().any(|op| {
-            network_keywords
-                .iter()
-                .any(|keyword| op.tool_name.contains(keyword))
-        });
-        if has_network_ops {
-            remediation_steps.push(
-                "• Network operations detected - check internet connection: ping 8.8.8.8"
-                    .to_string(),
-            );
-            remediation_steps
-                .push("• Try running with offline flags if tool supports them".to_string());
-        }
-        let build_keywords = [
-            "build", "compile", "test", "lint", "clippy", "format", "check", "verify", "validate",
-            "analyze",
-        ];
-        let has_build_ops = still_running.iter().any(|op| {
-            build_keywords
-                .iter()
-                .any(|keyword| op.tool_name.contains(keyword))
-        });
-        if has_build_ops {
-            remediation_steps.push(
-                "• Build/compile operations can take time - consider increasing timeout_seconds"
-                    .to_string(),
-            );
-            remediation_steps.push("• Check system resources: top or htop".to_string());
-            remediation_steps.push(
-                "• Consider running operations with verbose flags to see progress".to_string(),
-            );
-        }
-        if remediation_steps.is_empty() {
-            remediation_steps
-                .push("• Use the 'status' tool to check remaining operations".to_string());
-            remediation_steps.push(
-                "• Operations continue running in background - they may complete shortly"
-                    .to_string(),
-            );
-            remediation_steps.push(
-                "• Consider increasing timeout_seconds if operations legitimately need more time"
-                    .to_string(),
-            );
-        }
-        remediation_steps
+    }
+}
+
+fn collect_process_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
+    let running_commands: std::collections::HashSet<String> = still_running
+        .iter()
+        .map(|op| {
+            op.tool_name
+                .split('_')
+                .next()
+                .unwrap_or(&op.tool_name)
+                .to_string()
+        })
+        .collect();
+    for cmd in &running_commands {
+        steps.push(format!(
+            "• Check for competing {} processes: ps aux | grep {}",
+            cmd, cmd
+        ));
+    }
+}
+
+fn collect_network_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
+    const NETWORK_KEYWORDS: &[&str] = &[
+        "network", "http", "https", "tcp", "udp", "socket", "curl", "wget", "git", "api",
+        "rest", "graphql", "rpc", "ssh", "ftp", "scp", "rsync", "net", "audit", "update",
+        "search", "add", "install", "fetch", "clone", "pull", "push", "download", "upload",
+        "sync",
+    ];
+    let has_network_ops = still_running
+        .iter()
+        .any(|op| NETWORK_KEYWORDS.iter().any(|kw| op.tool_name.contains(kw)));
+    if has_network_ops {
+        steps.push(
+            "• Network operations detected - check internet connection: ping 8.8.8.8".to_string(),
+        );
+        steps.push("• Try running with offline flags if tool supports them".to_string());
+    }
+}
+
+fn collect_build_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
+    const BUILD_KEYWORDS: &[&str] = &[
+        "build", "compile", "test", "lint", "clippy", "format", "check", "verify", "validate",
+        "analyze",
+    ];
+    let has_build_ops = still_running
+        .iter()
+        .any(|op| BUILD_KEYWORDS.iter().any(|kw| op.tool_name.contains(kw)));
+    if has_build_ops {
+        steps.push(
+            "• Build/compile operations can take time - consider increasing timeout_seconds"
+                .to_string(),
+        );
+        steps.push("• Check system resources: top or htop".to_string());
+        steps.push(
+            "• Consider running operations with verbose flags to see progress".to_string(),
+        );
     }
 }

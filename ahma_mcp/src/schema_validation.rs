@@ -224,67 +224,86 @@ impl MtdfValidator {
         config: &crate::config::ToolConfig,
         errors: &mut Vec<SchemaValidationError>,
     ) {
-        // Validate required fields
-        if config.name.is_empty() {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::MissingRequiredField,
-                field_path: "name".to_string(),
-                message: "Tool name cannot be empty".to_string(),
-                suggestion: None,
-            });
-        }
+        self.validate_required_tool_fields(config, errors);
+        self.validate_timeout_constraints(config, errors);
+        self.validate_subcommand_list(config, errors);
+    }
 
+    fn validate_required_tool_fields(
+        &self,
+        config: &crate::config::ToolConfig,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        if config.name.is_empty() {
+            push_error(
+                errors,
+                ValidationErrorType::MissingRequiredField,
+                "name".to_string(),
+                "Tool name cannot be empty".to_string(),
+            );
+        }
         if config.command.is_empty() {
+            push_error(
+                errors,
+                ValidationErrorType::ConstraintViolation,
+                "command".to_string(),
+                "Command cannot be empty".to_string(),
+            );
+        }
+        if config.description.is_empty() {
+            push_error(
+                errors,
+                ValidationErrorType::MissingRequiredField,
+                "description".to_string(),
+                "Description cannot be empty".to_string(),
+            );
+        }
+    }
+
+    fn validate_timeout_constraints(
+        &self,
+        config: &crate::config::ToolConfig,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        let Some(timeout) = config.timeout_seconds else {
+            return;
+        };
+        if timeout > 3600 {
             errors.push(SchemaValidationError {
                 error_type: ValidationErrorType::ConstraintViolation,
-                field_path: "command".to_string(),
-                message: "Command cannot be empty".to_string(),
-                suggestion: None,
+                field_path: "timeout_seconds".to_string(),
+                message: "Timeout should not exceed 3600 seconds (1 hour)".to_string(),
+                suggestion: Some("Consider using a shorter timeout or breaking the operation into smaller steps".to_string()),
             });
         }
-
-        if config.description.is_empty() {
+        if timeout == 0 {
             errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::MissingRequiredField,
-                field_path: "description".to_string(),
-                message: "Description cannot be empty".to_string(),
-                suggestion: None,
+                error_type: ValidationErrorType::ConstraintViolation,
+                field_path: "timeout_seconds".to_string(),
+                message: "Timeout should be at least 1 second".to_string(),
+                suggestion: Some(
+                    "Set a minimum timeout of 1 second for reliable operation detection"
+                        .to_string(),
+                ),
             });
         }
+    }
 
-        // Validate timeout constraints
-        if let Some(timeout) = config.timeout_seconds {
-            if timeout > 3600 {
-                errors.push(SchemaValidationError {
-                    error_type: ValidationErrorType::ConstraintViolation,
-                    field_path: "timeout_seconds".to_string(),
-                    message: "Timeout should not exceed 3600 seconds (1 hour)".to_string(),
-                    suggestion: Some("Consider using a shorter timeout or breaking the operation into smaller steps".to_string()),
-                });
-            }
-            if timeout == 0 {
-                errors.push(SchemaValidationError {
-                    error_type: ValidationErrorType::ConstraintViolation,
-                    field_path: "timeout_seconds".to_string(),
-                    message: "Timeout should be at least 1 second".to_string(),
-                    suggestion: Some(
-                        "Set a minimum timeout of 1 second for reliable operation detection"
-                            .to_string(),
-                    ),
-                });
-            }
-        }
-
-        // Validate subcommands if present
-        if let Some(ref subcommands) = config.subcommand {
-            for (i, subcommand) in subcommands.iter().enumerate() {
-                self.validate_subcommand(
-                    subcommand,
-                    &format!("subcommand[{}]", i),
-                    config.synchronous,
-                    errors,
-                );
-            }
+    fn validate_subcommand_list(
+        &self,
+        config: &crate::config::ToolConfig,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        let Some(ref subcommands) = config.subcommand else {
+            return;
+        };
+        for (i, subcommand) in subcommands.iter().enumerate() {
+            self.validate_subcommand(
+                subcommand,
+                &format!("subcommand[{}]", i),
+                config.synchronous,
+                errors,
+            );
         }
     }
 

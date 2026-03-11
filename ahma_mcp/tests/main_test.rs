@@ -40,54 +40,33 @@ mod main_tests {
     #[test]
     fn test_mode_detection_logic() {
         init_test_logging();
-        // Test the logic for determining which mode to run in
-        // This mirrors the logic in main() for mode selection
-
-        let server_mode = true;
-        let tool_name: Option<String> = None;
-        let validate: Option<String> = None;
-
-        // Server mode detection
-        if server_mode || (tool_name.is_none() && validate.is_none()) {
-            // Should run in server mode - this is correct
-        } else if validate.is_some() {
-            panic!("Should not run in validation mode");
-        } else {
-            panic!("Should not run in CLI mode");
-        }
+        assert_eq!(detect_run_mode(true, None, None), "server");
     }
 
     #[test]
     fn test_validation_mode_detection() {
         init_test_logging();
-        // Test validation mode detection
-        let server_mode = false;
-        let tool_name: Option<String> = None;
-        let validate = Some("all".to_string());
-
-        if server_mode || (tool_name.is_none() && validate.is_none()) {
-            panic!("Should not run in server mode");
-        } else if validate.is_some() {
-            // Should run in validation mode - this is correct
-        } else {
-            panic!("Should not run in CLI mode");
-        }
+        assert_eq!(detect_run_mode(false, None, Some("all".to_string())), "validate");
     }
 
     #[test]
     fn test_cli_mode_detection() {
         init_test_logging();
-        // Test CLI mode detection
-        let server_mode = false;
-        let tool_name = Some("cargo_build".to_string());
-        let validate: Option<String> = None;
+        assert_eq!(detect_run_mode(false, Some("cargo_build".to_string()), None), "cli");
+    }
 
+    /// Detect the run mode given server_mode flag, tool name, and validate target.
+    fn detect_run_mode(
+        server_mode: bool,
+        tool_name: Option<String>,
+        validate: Option<String>,
+    ) -> &'static str {
         if server_mode || (tool_name.is_none() && validate.is_none()) {
-            panic!("Should not run in server mode");
+            "server"
         } else if validate.is_some() {
-            panic!("Should not run in validation mode");
+            "validate"
         } else {
-            // Should run in CLI mode - this is correct
+            "cli"
         }
     }
 
@@ -136,9 +115,7 @@ mod main_tests {
     #[test]
     fn test_cli_argument_parsing() {
         init_test_logging();
-        // Test parsing of CLI arguments for tool execution
         let test_cases = vec![
-            // (input_args, expected_working_dir, expected_args_map)
             (
                 vec![
                     "--working-directory".to_string(),
@@ -168,35 +145,39 @@ mod main_tests {
         ];
 
         for (args, expected_wd, expected_args) in test_cases {
-            let mut working_directory: Option<String> = None;
-            let mut tool_args_map: serde_json::Map<String, serde_json::Value> =
-                serde_json::Map::new();
-
-            let mut iter = args.into_iter();
-            while let Some(arg) = iter.next() {
-                if arg == "--" {
-                    // Raw args handling - just break for this test
-                    break;
-                }
-                if arg.starts_with("--") {
-                    let key = arg.trim_start_matches("--").to_string();
-                    if let Some(val) = iter.next() {
-                        if key == "working-directory" {
-                            working_directory = Some(val);
-                        } else {
-                            tool_args_map.insert(key, serde_json::Value::String(val));
-                        }
-                    } else {
-                        tool_args_map.insert(key, serde_json::Value::Bool(true));
-                    }
-                }
-            }
-
+            let (working_directory, tool_args_map) = parse_cli_args(args);
             assert_eq!(working_directory, expected_wd);
             for (key, expected_value) in expected_args {
                 assert_eq!(tool_args_map.get(&key), Some(&expected_value));
             }
         }
+    }
+
+    /// Parse CLI args into (working_directory, tool_args_map).
+    fn parse_cli_args(
+        args: Vec<String>,
+    ) -> (Option<String>, serde_json::Map<String, serde_json::Value>) {
+        let mut working_directory: Option<String> = None;
+        let mut tool_args_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        let mut iter = args.into_iter();
+        while let Some(arg) = iter.next() {
+            if arg == "--" {
+                break;
+            }
+            if arg.starts_with("--") {
+                let key = arg.trim_start_matches("--").to_string();
+                if let Some(val) = iter.next() {
+                    if key == "working-directory" {
+                        working_directory = Some(val);
+                    } else {
+                        tool_args_map.insert(key, serde_json::Value::String(val));
+                    }
+                } else {
+                    tool_args_map.insert(key, serde_json::Value::Bool(true));
+                }
+            }
+        }
+        (working_directory, tool_args_map)
     }
 
     #[test]

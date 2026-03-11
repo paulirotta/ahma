@@ -31,19 +31,27 @@ fn is_landlock_available() -> bool {
 
 /// Detect whether Landlock can be enforced effectively on this host.
 fn detect_landlock_enforcement() -> bool {
-    // Fast fail on kernels older than 5.13.
     if !kernel_version_supports_landlock() {
         return false;
     }
+    if !check_lsm_list_for_landlock() {
+        return false;
+    }
+    probe_landlock_in_child()
+}
 
-    // If we can read LSM list and Landlock is not present, fail immediately.
+/// Returns false if we can read the LSM list and landlock is absent.
+fn check_lsm_list_for_landlock() -> bool {
     if let Ok(content) = fs::read_to_string("/sys/kernel/security/lsm")
         && !content.contains("landlock")
     {
         return false;
     }
+    true
+}
 
-    // Runtime probe: enforce Landlock in child and verify a write outside scope is denied.
+/// Spawn a child that enforces Landlock and verifies writes outside scope are blocked.
+fn probe_landlock_in_child() -> bool {
     let temp = match TempDir::new() {
         Ok(temp) => temp,
         Err(_) => return false,
@@ -66,7 +74,6 @@ fn detect_landlock_enforcement() -> bool {
             })
             .output()
     };
-
     match output {
         Ok(result) => !result.status.success() && !blocked_file.exists(),
         Err(_) => false,
@@ -75,24 +82,24 @@ fn detect_landlock_enforcement() -> bool {
 
 /// Kernel version guard (Landlock requires Linux 5.13+).
 fn kernel_version_supports_landlock() -> bool {
-    if let Ok(output) = Command::new("uname").arg("-r").output() {
-        let version_str = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<&str> = version_str.trim().split('.').collect();
+    parse_kernel_version()
+        .map(|(major, minor)| major > 5 || (major == 5 && minor >= 13))
+        .unwrap_or(false)
+}
 
-        if parts.len() >= 2 {
-            let major: u32 = parts[0].parse().unwrap_or(0);
-            let minor: u32 = parts[1]
-                .split('-')
-                .next()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0);
-
-            return major > 5 || (major == 5 && minor >= 13);
-        }
-    }
-
-    false
+/// Parse the running kernel's (major, minor) version numbers.
+fn parse_kernel_version() -> Option<(u32, u32)> {
+    let output = Command::new("uname").arg("-r").output().ok()?;
+    let version_str = String::from_utf8_lossy(&output.stdout);
+    let mut parts = version_str.trim().split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts
+        .next()?
+        .split('-')
+        .next()?
+        .parse()
+        .unwrap_or(0);
+    Some((major, minor))
 }
 
 /// Macro to skip test if Landlock is not available
