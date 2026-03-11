@@ -6,6 +6,92 @@ use super::error::SandboxError;
 use super::scopes;
 use super::types::{SandboxMode, ScopesGuard};
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Livelog symlink resolution helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn resolve_livelog_scopes(canonicalized: &[PathBuf]) -> Vec<PathBuf> {
+    let mut read_scopes = Vec::new();
+    for scope in canonicalized {
+        let log_dir = scope.join("log");
+        if let Some(scope_entries) = resolve_log_dir_symlinks(&log_dir) {
+            read_scopes.extend(scope_entries);
+        }
+    }
+    read_scopes
+}
+
+fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
+    let entries = std::fs::read_dir(log_dir).ok()?;
+    let mut results = Vec::new();
+    
+    for entry in entries.flatten() {
+        if let Some(target) = resolve_log_symlink(&entry.path(), log_dir) {
+            tracing::info!(
+                "Adding --livelog read-only scope for symlink target: {}",
+                target.display()
+            );
+            results.push(target);
+        }
+    }
+    
+    Some(results)
+}
+
+fn resolve_log_symlink(path: &Path, log_dir: &Path) -> Option<PathBuf> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.is_symlink() {
+        return None;
+    }
+    
+    let ext = path.extension()?;
+    if ext != "log" {
+        return None;
+    }
+    
+    let target = std::fs::read_link(path).ok()?;
+    let canonical_target = dunce::canonicalize(log_dir.join(&target)).ok()?;
+    
+    if canonical_target.is_file() {
+        Some(canonical_target)
+    } else {
+        None
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Security policy helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn is_blocked_temp_path(path_str: &str) -> bool {
+    const BLOCKED_PREFIXES: &[&str] = &[
+        "/tmp",
+        "/var/folders",
+        "/private/tmp",
+        "/private/var/folders",
+        "/dev",
+    ];
+    BLOCKED_PREFIXES.iter().any(|prefix| path_str.starts_with(prefix))
+}
+
+fn is_in_temp_dir(path: &Path) -> bool {
+    dunce::canonicalize(std::env::temp_dir())
+        .map(|temp_dir| path.starts_with(&temp_dir))
+        .unwrap_or(false)
+}
+
+fn canonicalize_with_fallback(full_path: &Path) -> PathBuf {
+    if let Some(parent) = full_path.parent() {
+        if let Ok(parent_canonical) = dunce::canonicalize(parent) {
+            return full_path
+                .file_name()
+                .map(|name| parent_canonical.join(name))
+                .unwrap_or(parent_canonical);
+        }
+    }
+    scopes::normalize_path_lexically(full_path)
+}
+
 /// The security context for the Ahma session.
 pub struct Sandbox {
     pub(super) scopes: std::sync::RwLock<Vec<PathBuf>>,
@@ -51,31 +137,11 @@ impl Sandbox {
              Example: --sandbox-scope /home/user/project",
         )?;
 
-        let mut read_scopes = Vec::new();
-
-        if livelog && mode != SandboxMode::Test {
-            for scope in &canonicalized {
-                let log_dir = scope.join("log");
-                if let Ok(entries) = std::fs::read_dir(&log_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if let Ok(meta) = std::fs::symlink_metadata(&path)
-                            && meta.is_symlink()
-                            && path.extension().is_some_and(|e| e == "log")
-                            && let Ok(target) = std::fs::read_link(&path)
-                            && let Ok(canonical_target) = dunce::canonicalize(log_dir.join(&target))
-                            && canonical_target.is_file()
-                        {
-                            tracing::info!(
-                                "Adding --livelog read-only scope for symlink target: {}",
-                                canonical_target.display()
-                            );
-                            read_scopes.push(canonical_target);
-                        }
-                    }
-                }
-            }
-        }
+        let read_scopes = if livelog && mode != SandboxMode::Test {
+            resolve_livelog_scopes(&canonicalized)
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             scopes: std::sync::RwLock::new(canonicalized),
@@ -174,24 +240,7 @@ impl Sandbox {
             first_scope.join(path)
         };
 
-        Ok(match dunce::canonicalize(&full_path) {
-            Ok(p) => p,
-            Err(_) => {
-                if let Some(parent) = full_path.parent() {
-                    if let Ok(parent_canonical) = dunce::canonicalize(parent) {
-                        if let Some(name) = full_path.file_name() {
-                            parent_canonical.join(name)
-                        } else {
-                            parent_canonical
-                        }
-                    } else {
-                        scopes::normalize_path_lexically(&full_path)
-                    }
-                } else {
-                    scopes::normalize_path_lexically(&full_path)
-                }
-            }
-        })
+        Ok(dunce::canonicalize(&full_path).unwrap_or_else(|_| canonicalize_with_fallback(&full_path)))
     }
 
     fn is_path_allowed(&self, canonical: &Path, scopes_guard: &[PathBuf]) -> bool {
@@ -202,29 +251,18 @@ impl Sandbox {
     }
 
     fn check_security_policies(&self, original_path: &Path, canonical: &Path) -> Result<()> {
-        if self.no_temp_files {
-            let path_str = canonical.to_string_lossy();
-            if path_str.starts_with("/tmp")
-                || path_str.starts_with("/var/folders")
-                || path_str.starts_with("/private/tmp")
-                || path_str.starts_with("/private/var/folders")
-                || path_str.starts_with("/dev")
-            {
-                return Err(SandboxError::HighSecurityViolation {
-                    path: original_path.to_path_buf(),
-                }
-                .into());
-            }
-
-            if let Ok(temp_dir) = dunce::canonicalize(std::env::temp_dir())
-                && canonical.starts_with(&temp_dir)
-            {
-                return Err(SandboxError::HighSecurityViolation {
-                    path: original_path.to_path_buf(),
-                }
-                .into());
-            }
+        if !self.no_temp_files {
+            return Ok(());
         }
+
+        let path_str = canonical.to_string_lossy();
+        if is_blocked_temp_path(&path_str) || is_in_temp_dir(canonical) {
+            return Err(SandboxError::HighSecurityViolation {
+                path: original_path.to_path_buf(),
+            }
+            .into());
+        }
+
         Ok(())
     }
 }

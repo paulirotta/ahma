@@ -7,6 +7,59 @@ use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Validation helper functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn push_error(errors: &mut Vec<SchemaValidationError>, error_type: ValidationErrorType, field_path: String, message: String) {
+    errors.push(SchemaValidationError {
+        error_type,
+        field_path,
+        message,
+        suggestion: None,
+    });
+}
+
+fn validate_non_empty_field(
+    value: &str,
+    field_name: &str,
+    path: &str,
+    errors: &mut Vec<SchemaValidationError>,
+) {
+    if value.is_empty() {
+        push_error(
+            errors,
+            ValidationErrorType::MissingRequiredField,
+            format!("{}.{}", path, field_name),
+            format!("{} cannot be empty", capitalize_first(field_name)),
+        );
+    }
+}
+
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+    }
+}
+
+const ASYNC_KEYWORDS: &[&str] = &[
+    r"\bnotification\b",
+    r"\basynchronously\b",
+    r"\basync\b",
+    r"\bbackground\b",
+];
+
+fn check_async_keywords_in_sync_command(description: &str) -> bool {
+    let desc_lower = description.to_lowercase();
+    ASYNC_KEYWORDS.iter().any(|kw| {
+        regex::Regex::new(kw)
+            .map(|re| re.is_match(&desc_lower))
+            .unwrap_or(false)
+    })
+}
+
 /// Error types for schema validation
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationErrorType {
@@ -270,12 +323,6 @@ impl MtdfValidator {
     }
 
     /// Validate a subcommand configuration
-    ///
-    /// # Arguments
-    /// * `subcommand` - The subcommand configuration to validate
-    /// * `path` - The JSON path for error reporting
-    /// * `tool_synchronous` - Tool-level synchronous setting for inheritance
-    /// * `errors` - Vector to collect validation errors
     fn validate_subcommand(
         &self,
         subcommand: &crate::config::SubcommandConfig,
@@ -283,74 +330,69 @@ impl MtdfValidator {
         tool_synchronous: Option<bool>,
         errors: &mut Vec<SchemaValidationError>,
     ) {
-        if subcommand.name.is_empty() {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::MissingRequiredField,
-                field_path: format!("{}.name", path),
-                message: "Subcommand name cannot be empty".to_string(),
-                suggestion: None,
-            });
-        }
+        validate_non_empty_field(&subcommand.name, "name", path, errors);
+        validate_non_empty_field(&subcommand.description, "description", path, errors);
 
-        if subcommand.description.is_empty() {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::MissingRequiredField,
-                field_path: format!("{}.description", path),
-                message: "Subcommand description cannot be empty".to_string(),
-                suggestion: None,
-            });
-        }
-
-        // Check for logical inconsistency: a synchronous command should not have async keywords.
-        // Inheritance: subcommand.synchronous overrides tool.synchronous
-        // If subcommand doesn't specify, inherit from tool level
-        // synchronous=true means always sync, synchronous=false means always async
-        // synchronous=null/omitted means use server default (async unless --sync flag)
-        // We only warn if async keywords are in a synchronous=true command
         let effective_sync = subcommand.synchronous.or(tool_synchronous);
-        if effective_sync == Some(true) {
-            let desc_lower = subcommand.description.to_lowercase();
-            let async_keywords = [
-                r"\bnotification\b",
-                r"\basynchronously\b",
-                r"\basync\b",
-                r"\bbackground\b",
-            ];
+        self.validate_sync_description_consistency(subcommand, path, effective_sync, errors);
+        self.validate_nested_subcommands(subcommand, path, effective_sync, errors);
+        self.validate_subcommand_options(subcommand, path, errors);
+    }
 
-            for kw in async_keywords {
-                if let Ok(re) = regex::Regex::new(kw)
-                    && re.is_match(&desc_lower)
-                {
-                    errors.push(SchemaValidationError {
-                        error_type: ValidationErrorType::LogicalInconsistency,
-                        field_path: format!("{}.description", path),
-                        message: "Description mentions async behavior but subcommand is forced synchronous (either directly or inherited from tool)".to_string(),
-                        suggestion: Some("Either set synchronous to false on this subcommand or update description to reflect synchronous behavior".to_string()),
-                    });
-                    break;
-                }
-            }
-        }
-        // Note: We don't validate for missing async keywords when synchronous=false/None
-        // because the default is now ASYNCHRONOUS execution
-
-        // Validate nested subcommands - pass down effective synchronous setting for inheritance
-        if let Some(ref nested) = subcommand.subcommand {
-            for (i, nested_sub) in nested.iter().enumerate() {
-                self.validate_subcommand(
-                    nested_sub,
-                    &format!("{}.subcommand[{}]", path, i),
-                    effective_sync,
-                    errors,
-                );
-            }
+    fn validate_sync_description_consistency(
+        &self,
+        subcommand: &crate::config::SubcommandConfig,
+        path: &str,
+        effective_sync: Option<bool>,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        if effective_sync != Some(true) {
+            return;
         }
 
-        // Validate options
-        if let Some(ref options) = subcommand.options {
-            for (i, option) in options.iter().enumerate() {
-                self.validate_option(option, &format!("{}.options[{}]", path, i), errors);
-            }
+        if check_async_keywords_in_sync_command(&subcommand.description) {
+            errors.push(SchemaValidationError {
+                error_type: ValidationErrorType::LogicalInconsistency,
+                field_path: format!("{}.description", path),
+                message: "Description mentions async behavior but subcommand is forced synchronous".to_string(),
+                suggestion: Some("Either set synchronous to false or update description".to_string()),
+            });
+        }
+    }
+
+    fn validate_nested_subcommands(
+        &self,
+        subcommand: &crate::config::SubcommandConfig,
+        path: &str,
+        effective_sync: Option<bool>,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        let Some(ref nested) = subcommand.subcommand else {
+            return;
+        };
+
+        for (i, nested_sub) in nested.iter().enumerate() {
+            self.validate_subcommand(
+                nested_sub,
+                &format!("{}.subcommand[{}]", path, i),
+                effective_sync,
+                errors,
+            );
+        }
+    }
+
+    fn validate_subcommand_options(
+        &self,
+        subcommand: &crate::config::SubcommandConfig,
+        path: &str,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        let Some(ref options) = subcommand.options else {
+            return;
+        };
+
+        for (i, option) in options.iter().enumerate() {
+            self.validate_option(option, &format!("{}.options[{}]", path, i), errors);
         }
     }
 

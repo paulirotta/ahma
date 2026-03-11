@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 use analysis::{get_project_name, is_cargo_workspace, perform_analysis};
 use models::{FileSimplicity, MetricsResults};
-use report::{generate_ai_fix_prompt, generate_report};
+use report::{create_report_md, generate_ai_fix_prompt, generate_report};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -60,9 +60,9 @@ struct Cli {
     #[arg(short = 'x', long, value_delimiter = ',')]
     exclude: Vec<String>,
 
-    /// Output path for CODE_SIMPLICITY.md and CODE_SIMPLICITY.html files.
-    /// Can be a directory (uses "CODE_SIMPLICITY" as filename) or a full path with filename.
-    /// Defaults to current working directory.
+    /// Output directory for CODE_SIMPLICITY.md and CODE_SIMPLICITY.html files.
+    /// If omitted (and --html/--open not set), report is printed to stdout.
+    /// When specified, writes files to the given directory.
     #[arg(long)]
     output_path: Option<PathBuf>,
 
@@ -107,48 +107,68 @@ fn main() -> Result<()> {
 
     let mut files_simplicity = load_metrics(&cli.output, true)?;
     if files_simplicity.is_empty() {
-        println!("No analysis files found in {}.", cli.output.display());
+        eprintln!("No analysis files found in {}.", cli.output.display());
         return Ok(());
     }
 
     sort_files_by_simplicity(&mut files_simplicity);
     let project_name = get_project_name(&directory);
 
-    // Determine the report output paths
-    let report_output_dir = determine_report_output_dir(&cli.output_path)?;
-    fs::create_dir_all(&report_output_dir).context("Failed to create report output directory")?;
+    // Determine output mode: write to file if --output-path, --html, or --open is set
+    let write_to_file = cli.output_path.is_some() || cli.html || cli.open;
 
-    generate_report(
-        &files_simplicity,
-        is_workspace,
-        cli.limit,
-        &directory,
-        cli.html,
-        &project_name,
-        &report_output_dir,
-    )?;
+    if write_to_file {
+        let report_output_dir = determine_report_output_dir(&cli.output_path)?;
+        fs::create_dir_all(&report_output_dir)
+            .context("Failed to create report output directory")?;
 
-    print_report_locations(&report_output_dir, cli.html);
-
-    if let Some(issue_number) = cli.ai_fix {
-        handle_ai_fix(
-            issue_number,
-            &report_output_dir,
+        generate_report(
             &files_simplicity,
+            is_workspace,
+            cli.limit,
             &directory,
+            cli.html,
+            &project_name,
+            &report_output_dir,
         )?;
-    }
 
-    if cli.open
-        && let Err(e) = open_report(&report_output_dir, cli.html)
-    {
-        eprintln!("Warning: Failed to open report: {}", e);
+        print_report_locations(&report_output_dir, cli.html);
+
+        if let Some(issue_number) = cli.ai_fix {
+            handle_ai_fix_from_file(
+                issue_number,
+                &report_output_dir,
+                &files_simplicity,
+                &directory,
+            )?;
+        }
+
+        if cli.open
+            && let Err(e) = open_report(&report_output_dir, cli.html)
+        {
+            eprintln!("Warning: Failed to open report: {}", e);
+        }
+    } else {
+        // Default: output markdown to stdout
+        let md_content = create_report_md(
+            &files_simplicity,
+            is_workspace,
+            cli.limit,
+            &directory,
+            &project_name,
+        );
+
+        if let Some(issue_number) = cli.ai_fix {
+            handle_ai_fix_to_stdout(&md_content, issue_number, &files_simplicity, &directory);
+        } else {
+            println!("{}", md_content);
+        }
     }
 
     Ok(())
 }
 
-fn handle_ai_fix(
+fn handle_ai_fix_from_file(
     issue_number: usize,
     report_output_dir: &Path,
     files_simplicity: &[FileSimplicity],
@@ -156,6 +176,16 @@ fn handle_ai_fix(
 ) -> Result<()> {
     let md_path = report_output_dir.join("CODE_SIMPLICITY.md");
     let report_content = fs::read_to_string(&md_path).context("Failed to read generated report")?;
+    handle_ai_fix_to_stdout(&report_content, issue_number, files_simplicity, directory);
+    Ok(())
+}
+
+fn handle_ai_fix_to_stdout(
+    report_content: &str,
+    issue_number: usize,
+    files_simplicity: &[FileSimplicity],
+    directory: &Path,
+) {
     println!("{}", report_content);
 
     match generate_ai_fix_prompt(files_simplicity, issue_number, directory) {
@@ -166,12 +196,11 @@ fn handle_ai_fix(
             files_simplicity.len()
         ),
     }
-    Ok(())
 }
 
 fn prepare_output_directory(output: &Path) -> Result<()> {
     if output.exists() {
-        println!(
+        eprintln!(
             "Clearing existing analysis results in {}...",
             output.display()
         );
@@ -223,7 +252,7 @@ fn try_parse_metrics_file(path: &Path, normalized: bool) -> Option<FileSimplicit
 }
 
 fn load_metrics(output: &Path, normalized: bool) -> Result<Vec<FileSimplicity>> {
-    println!("Aggregating metrics from {}...", output.display());
+    eprintln!("Aggregating metrics from {}...", output.display());
 
     let files_simplicity = WalkDir::new(output)
         .into_iter()
@@ -245,12 +274,12 @@ fn sort_files_by_simplicity(files: &mut [FileSimplicity]) {
 }
 
 fn print_report_locations(directory: &Path, html: bool) {
-    println!(
+    eprintln!(
         "Report generated: {}",
         directory.join("CODE_SIMPLICITY.md").display()
     );
     if html {
-        println!(
+        eprintln!(
             "Report generated: {}",
             directory.join("CODE_SIMPLICITY.html").display()
         );

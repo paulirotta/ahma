@@ -221,8 +221,9 @@ async fn test_recursive_subcommand_validation() -> Result<()> {
 
     // The validator should catch missing required fields in nested subcommands
     // Note: due to implementation details, nested subcommand errors may not have fully qualified paths
+    // The error message uses capitalized field names (e.g., "Name cannot be empty")
     assert!(errors.iter().any(
-        |e| e.error_type == ValidationErrorType::MissingRequiredField && e.message.contains("name")
+        |e| e.error_type == ValidationErrorType::MissingRequiredField && e.message.contains("Name")
     ));
 
     // Test circular or self-referential structure (malformed JSON test)

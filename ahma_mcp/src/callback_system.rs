@@ -64,35 +64,22 @@ impl CancellationKind {
 fn detect_cancellation_kind(raw_message: &str) -> Option<CancellationKind> {
     let lower = raw_message.to_lowercase();
 
-    // Order matters: more specific patterns first
-    const PATTERNS: &[(&str, CancellationKind)] = &[
-        ("canceled: canceled", CancellationKind::UnknownSource),
-        (
-            "task cancelled for reason",
-            CancellationKind::McpCancellation,
-        ),
-        ("timeout", CancellationKind::Timeout),
-    ];
-
-    // Check exact match first
     if lower == "canceled" {
         return Some(CancellationKind::UnknownSource);
     }
 
-    for &(pattern, kind) in PATTERNS {
-        if lower.contains(pattern) {
-            return Some(kind);
-        }
-    }
+    // Order matters: more specific patterns first, then broader patterns
+    const ORDERED_PATTERNS: &[(&[&str], CancellationKind)] = &[
+        (&["canceled: canceled"], CancellationKind::UnknownSource),
+        (&["task cancelled for reason"], CancellationKind::McpCancellation),
+        (&["timeout"], CancellationKind::Timeout),
+        (&["user", "request"], CancellationKind::UserInitiated),
+        (&["cancel"], CancellationKind::Generic),
+    ];
 
-    // Broader patterns last
-    if lower.contains("user") || lower.contains("request") {
-        Some(CancellationKind::UserInitiated)
-    } else if lower.contains("cancel") {
-        Some(CancellationKind::Generic)
-    } else {
-        None
-    }
+    ORDERED_PATTERNS.iter().find_map(|(patterns, kind)| {
+        patterns.iter().any(|p| lower.contains(p)).then_some(*kind)
+    })
 }
 
 fn format_cancellation_context(tool_name: Option<&str>, id: Option<&str>) -> Vec<String> {

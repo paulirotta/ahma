@@ -34,13 +34,14 @@ It is a workspace member of the [Ahma](../SPEC.md) project.
 
 ### R4: Report Generation
 
-- **R4.1**: Always generates `CODE_SIMPLICITY.md` in the analyzed directory.
-- **R4.2**: `--html` flag additionally generates `CODE_SIMPLICITY.html` with styled output.
+- **R4.1**: By default, outputs markdown report to **stdout**. When `--output-path`, `--html`, or `--open` is specified, writes `CODE_SIMPLICITY.md` to the specified directory (or current working directory if only `--html`/`--open` is used).
+- **R4.2**: `--html` flag additionally generates `CODE_SIMPLICITY.html` with styled output (implies file output mode).
 - **R4.3**: Reports include: overall simplicity, per-language breakdown, per-crate/package scores, top N issues, and a metrics glossary.
 - **R4.4**: `--limit N` controls how many issues are listed (default: 10).
-- **R4.5**: `--open` flag opens the report in the default system viewer.
+- **R4.5**: `--open` flag opens the report in the default system viewer (implies file output mode).
 - **R4.6**: Each file in the complexity issues section includes **function-level hotspots** — the top 5 functions by cognitive complexity with their line ranges, cognitive, cyclomatic, and SLOC metrics.
 - **R4.7**: Test files (`*_test.rs`, `**/tests/**`) are intentionally included in complexity reports. Complex tests are a maintenance burden: they obscure debugging, discourage adding new test cases, and often indicate overly complex production APIs.
+- **R4.8**: `--output-path <dir>` explicitly requests file output to the specified directory.
 
 ### R5: Output Directory
 

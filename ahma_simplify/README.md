@@ -13,20 +13,28 @@ cargo install --path ahma-simplify
 
 ## Usage
 
+By default, `ahma-simplify` outputs the markdown report to **stdout**, making it easy to pipe to other tools or capture in scripts.
+
 ```bash
-# Analyze a single crate
+# Analyze and print report to stdout (default)
 ahma-simplify /path/to/crate
 
-# Analyze with HTML report
+# Save report to a file
+ahma-simplify /path/to/project > report.md
+
+# Write report files to a specific directory
+ahma-simplify /path/to/project --output-path ./reports
+
+# Generate HTML report (writes files to current directory)
 ahma-simplify /path/to/project --html
 
-# Custom output directory
-ahma-simplify /path/to/project -o my_results
+# Write both .md and .html to a specific directory
+ahma-simplify /path/to/project --html --output-path ./reports
 
-# Limit emergency items shown
+# Limit issues shown in report
 ahma-simplify /path/to/project --limit 5
 
-# Open report automatically
+# Open report automatically in browser (writes files first)
 ahma-simplify /path/to/project --html --open
 
 # Analyze multiple languages (comma-separated list)
@@ -37,6 +45,9 @@ ahma-simplify /path/to/project --extensions rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs
 
 # Exclude custom paths (comma-separated list)
 ahma-simplify /path/to/project --exclude "**/generated/**,**/vendor/**"
+
+# Custom intermediate results directory
+ahma-simplify /path/to/project -o my_results
 
 # Convenience wrapper script (analyzes the whole repo)
 ./scripts/code-simplicity.sh
@@ -75,16 +86,27 @@ Complexity metrics are normalized by SLOC to calculate density per 100 lines. Th
 
 ## Output
 
-### Markdown Report (`CODE_SIMPLICITY.md`)
+### Default (stdout)
 
+By default, the markdown report is printed to stdout. This allows easy piping and redirection:
+
+```bash
+ahma-simplify . | head -50        # Preview first 50 lines
+ahma-simplify . > report.md       # Save to file
+```
+
+### File Output
+
+When `--output-path`, `--html`, or `--open` is specified, files are written:
+
+- **`CODE_SIMPLICITY.md`**: Always generated when writing to file
+- **`CODE_SIMPLICITY.html`**: Generated when `--html` flag is used
+
+The report includes:
 - Overall repository simplicity percentage
 - Per-crate/package simplicity breakdown
 - Top N "code complexity issues" with culprit identification
 - Metrics glossary
-
-### HTML Report (`CODE_SIMPLICITY.html`)
-
-Styled HTML version of the markdown report (use `--html` flag).
 
 ## Metrics Explained
 

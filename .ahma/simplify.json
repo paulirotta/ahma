@@ -64,6 +64,12 @@
                     "type": "string",
                     "description": "Re-analyze a specific file and compare against the previous analysis baseline. Shows before/after metrics with relative improvement percentages. Requires a prior full analysis run.",
                     "format": "path"
+                },
+                {
+                    "name": "output-path",
+                    "type": "string",
+                    "description": "Output directory for report files (CODE_SIMPLICITY.md/.html). If omitted, report is printed to stdout which is returned in the tool response.",
+                    "format": "path"
                 }
             ],
             "synchronous": true
