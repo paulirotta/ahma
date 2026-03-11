@@ -124,12 +124,6 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Rust cache fallback (Windows)
-        if: runner.os == 'Windows'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-fallback-build
-
       - name: Configure sccache cache keys
         run: |
           echo "SCCACHE_GHA_CACHE_TO=sccache-Linux-X64-clippy-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
@@ -240,12 +234,6 @@ jobs:
           key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Rust cache fallback (Windows)
-        if: runner.os == 'Windows'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-fallback-nextest
 
       - name: Configure sccache cache keys
         run: |
@@ -627,12 +615,6 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Rust cache fallback (Windows native)
-        if: runner.os == 'Windows' && !matrix.use_cross
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-fallback-release
 
       - name: Configure sccache cache keys
         if: "!matrix.use_cross"
