@@ -171,7 +171,7 @@ async fn test_cancel_with_reason() -> Result<()> {
 
     let start_text = result_text(&start_result);
 
-    // Extract operation ID (format: "Asynchronous operation started with ID: op_X...")
+    // Extract operation ID (format: "AHMA ID: op_X...")
     let op_id = start_text
         .split("ID: ")
         .nth(1)

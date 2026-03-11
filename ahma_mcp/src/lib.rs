@@ -1,67 +1,82 @@
 //! # Ahma Core
 //!
-//! Ahma (Finnish for wolverine) is a fast and fearless engine for wrapping CLI tools for AI use.
-//! It provides the foundational library that powers the Ahma server.
+//! Ahma (Finnish for wolverine) is the foundational engine for building high-performance,
+//! secure Model Context Protocol (MCP) servers. This crate provides the core library that
+//! powers all Ahma interfaces, including the standard `ahma-mcp` binary (Stdio/CLI) and
+//! the `ahma-http-bridge`.
 //!
-//! ## Core Mission
+//! ## Foundational Philosophy
 //!
-//! `ahma_mcp` is a universal, high-performance Model Context Protocol (MCP) server designed to
-//! dynamically adapt any command-line tool for use by AI agents. Its purpose is to provide a
-//! consistent, powerful, and non-blocking bridge between AI and the vast ecosystem of
-//! command-line utilities.
+//! Ahma is designed to bridge the gap between AI agents and the vast ecosystem of
+//! command-line utilities. It treats CLI tools as first-class capabilities, wrapping them
+//! in a secure, non-blocking, and highly optimized execution environment.
 //!
-//! ## Key Functional Requirements
+//! ## Core Architectural Pillars
 //!
-//! - **Dynamic Tool Adaptation**: Adapt CLI tools via JSON files (MTDF). Hot-reload support.
-//! - **Async-First Execution**: Background operation management via `id` and progress notifications.
-//! - **Performance**: Pre-warmed shell pool (`zsh`) for 5-20ms command startup latency.
-//! - **Safe Scoping**: Kernel-level sandboxing (Landlock on Linux, Seatbelt on macOS).
-//! - **Selective Sync Override**: Support forcing operations to run synchronously when needed.
+//! 1. **Kernel-Level Security**: Ahma is built on the principle that AI agents should never
+//!    run unconstrained. It uses OS-native mechanisms (Landlock on Linux, Seatbelt on macOS)
+//!    to enforce strict filesystem boundaries that are immutable once the session starts.
 //!
-//! ## Architecture & Core Concepts
+//! 2. **Async-First Execution**: Long-running operations like builds or tests shouldn't
+//!    block the agent's thought process. Ahma returns operation IDs immediately and
+//!    pushes results back via notifications when complete.
 //!
-//! ### Kernel-Level Sandboxing
+//! 3. **High-Performance Shell Pooling**: To eliminate the hundreds of milliseconds
+//!    typically lost to shell startup, Ahma maintains a pool of pre-warmed shell processes
+//!    ready to execute commands in any directory.
 //!
-//! Ahma implements **kernel-level sandboxing** to protect your system. The sandbox scope is set
-//! once at server startup and cannot be changed during the session.
-//! - **Linux (Landlock)**: Uses Landlock for FS restrictions (kernel 5.13+).
-//! - **macOS (Seatbelt)**: Uses `sandbox-exec` with generated SBPL profiles.
-//! - **Detection**: Ahma automatically detects nested sandboxes (e.g., inside Cursor/VS Code)
-//!   and exits unless sandboxing is explicitly disabled (`--no-sandbox` / `AHMA_NO_SANDBOX=1`).
-//! - **Compatibility Mode**: On unsupported Linux kernels, explicit no-sandbox mode allows
-//!   startup with a warning.
+//! ## Practical Integration Guide
 //!
-//! ### Async-First Workflow
+//! For developers building on top of this library, the two primary components are the
+//! [`Adapter`] and the [`AhmaMcpService`].
 //!
-//! Tools execute asynchronously by default. This allows the AI agent to continue its workflow
-//! while long-running operations (like builds or tests) run in the background.
-//! - **`status`**: Non-blocking progress checks.
-//! - **`await`**: Blocking wait for completion (use sparingly).
+//! ### Initializing the Engine
 //!
-//! ### Spec-Driven Development (SDD)
+//! ```rust,no_run
+//! use ahma_mcp::{Adapter, AhmaMcpService, config::ToolConfig};
+//! use ahma_mcp::operation_monitor::{OperationMonitor, MonitorConfig};
+//! use ahma_mcp::shell_pool::{ShellPoolManager, ShellPoolConfig};
+//! use ahma_mcp::sandbox::{Sandbox, SandboxMode};
+//! use std::sync::Arc;
+//! use std::collections::HashMap;
+//! use std::path::PathBuf;
+//! use std::time::Duration;
 //!
-//! This project follows a lightweight SDD workflow:
-//! 1. **Specify**: Define "what" and "why" in a feature spec.
-//! 2. **Plan**: Translate requirements into technical implementation steps.
-//! 3. **Implement**: Code the solution following the approved plan.
-//! 4. **Verify**: Ensure compliance via automated tests and schema sync.
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     // 1. Initialize core tracking and performance components
+//!     let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(Duration::from_secs(300))));
+//!     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
+//!     let sandbox = Arc::new(Sandbox::new(Vec::new(), SandboxMode::Strict, false, false)?);
 //!
-//! ## AI Integration Guide
+//!     // 2. Create the execution adapter
+//!     let adapter = Arc::new(Adapter::new(monitor.clone(), shell_pool, sandbox)?);
 //!
-//! For AI agents interacting with this library or the resulting MCP server:
-//! - **Tool Calls**: Prefer `sandboxed_shell` for complex pipelines.
-//! - **Concurrency**: You can run multiple tools in parallel by not awaiting immediately.
-//! - **Schema**: Always validate configurations against `docs/mtdf-schema.json`.
+//!     // 3. Initialize the MCP service with your tool configurations
+//!     let configs = Arc::new(HashMap::<String, ToolConfig>::new());
+//!     let service = AhmaMcpService::new(
+//!         adapter,
+//!         monitor,
+//!         configs,
+//!         Arc::new(None), // Guidance
+//!         false, // force_synchronous
+//!         false, // defer_sandbox
+//!         true,  // progressive_disclosure
+//!     ).await?;
 //!
-//! ## Modules
+//!     // Now you can run the service over Stdio or an HTTP transport.
+//!     Ok(())
+//! }
+//! ```
 //!
-//! - **`adapter`**: Primary engine for executing external command-line tools.
-//! - **`config`**: MTDF (Multi-Tool Definition Format) configuration models.
-//! - **`mcp_service`**: Implements the `rmcp::ServerHandler` for the MCP protocol.
-//! - **`operation_monitor`**: Tracks progress of background tasks.
-//! - **`shell_pool`**: Reusable shell processes (`zsh`) to minimize overhead.
-//! - **`sandbox`**: Security enforcement logic.
-//! - **`callback_system`**: Event notification system.
+//! ## Module Overview
+//!
+//! - **[`adapter`]**: The "heavy lifter" that coordinates shell processes and task monitors.
+//! - **[`mcp_service`]**: The protocol layer implementing `rmcp` handlers for the MCP standard.
+//! - **[`sandbox`]**: Platform-agnostic security enforcement using kernel features.
+//! - **[`config`]**: Support for the Multi-Tool Definition Format (MTDF) JSON schema.
+//! - **[`operation_monitor`]**: Real-time tracking and control (cancellation/status) of background tasks.
+//! - **[`shell_pool`]**: The performance engine that keeps shells warm and ready.
 
 // Public modules
 /// Core adapter for tool execution.

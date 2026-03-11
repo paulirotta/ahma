@@ -7,12 +7,12 @@
 //!
 //! ## Key Components
 //!
-//! - [`LogLevel`]: Standard Rust-style log levels (Error, Warn, Info, Debug, Trace).
-//! - [`MonitorStream`]: Which stream(s) to monitor for trigger patterns.
-//! - [`LogMonitorConfig`]: Configuration for a monitoring session.
-//! - [`LogLevelDetector`]: Compiled regex patterns for detecting log levels in output lines.
-//! - [`LogRingBuffer`]: Fixed-capacity ring buffers for recent stdout/stderr lines.
-//! - [`LogMonitor`]: Orchestrator that ties detection, buffering, and rate-limiting together.
+//! - [`LogLevel`](crate::log_monitor::LogLevel): Standard Rust-style log levels (Error, Warn, Info, Debug, Trace).
+//! - [`MonitorStream`](crate::log_monitor::MonitorStream): Which stream(s) to monitor for trigger patterns.
+//! - [`LogMonitorConfig`](crate::log_monitor::LogMonitorConfig): Configuration for a monitoring session.
+//! - [`LogLevelDetector`](crate::log_monitor::LogLevelDetector): Compiled regex patterns for detecting log levels in output lines.
+//! - [`LogRingBuffer`](crate::log_monitor::LogRingBuffer): Fixed-capacity ring buffers for recent stdout/stderr lines.
+//! - [`LogMonitor`](crate::log_monitor::LogMonitor): Orchestrator that ties detection, buffering, and rate-limiting together.
 //!
 //! ## Usage
 //!

@@ -1,13 +1,19 @@
-//! Platform-aware timeout utilities.
+//! # Platform-Aware Timeouts: The CI Stability Engine
 //!
-//! Windows CI runners are significantly slower than Linux/macOS, particularly for:
-//! - Process spawning and stdio communication
-//! - File system operations
-//! - Network operations
+//! In a project like Ahma that relies heavily on process spawning, shell interaction,
+//! and terminal communication, hardcoded timeouts are a recipe for flaky tests and
+//! unstable deployments.
 //!
-//! This module provides a centralized way to scale timeouts based on platform
-//! and environment (e.g., coverage mode), avoiding scattered platform-specific
-//! timeout logic throughout the codebase.
+//! ## Why Scaling is Required
+//!
+//! Windows CI runners, especially when running under coverage instrumentations, can
+//! be 4x to 8x slower than Linux/macOS environments for specific tasks:
+//! - **Binary Loading**: Spawning a new Rust binary takes significantly longer.
+//! - **Pipe Buffering**: Stdio communication has different latency characteristics.
+//! - **Sandbox Setup**: Initializing security jobs or AppContainers adds overhead.
+//!
+//! This module provides a centralized scaling engine that adjusts every timeout
+//! based on the detected OS and environment (e.g., `cargo llvm-cov`).
 //!
 //! # Usage
 //!

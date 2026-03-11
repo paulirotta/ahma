@@ -338,7 +338,7 @@ impl AhmaMcpService {
                 }
 
                 let hint = crate::tool_hints::preview(&id, "sandboxed_shell");
-                let message = format!("Asynchronous operation started with ID: {}{}", id, hint);
+                let message = format!("AHMA ID: {}{}", id, hint);
                 Ok(CallToolResult::success(vec![Content::text(message)]))
             }
             Err(e) => {

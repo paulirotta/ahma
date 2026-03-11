@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn extract_id_parses_identifier() {
-        let text = "Asynchronous operation started with ID: job_123 Follow-up";
+        let text = "AHMA ID: job_123 Follow-up";
         let job_id = extract_id(text).unwrap();
         assert_eq!(job_id, "job_123");
     }

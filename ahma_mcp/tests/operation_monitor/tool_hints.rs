@@ -3,11 +3,11 @@
 //! **Purpose:** Verify that when an asynchronous operation is started, the response
 //! includes comprehensive guidance for the AI agent on how to handle it effectively.
 //!
-//! **Current Behavior (FAILING):** Response only says "Asynchronous operation started with ID: op_123"
+//! **Current Behavior (FAILING):** Response only says "AHMA ID: op_123"
 //!
 //! **Expected Behavior (SHOULD PASS AFTER FIX):** Response includes the full TOOL_HINT_TEMPLATE
 //! with placeholders replaced:
-//! - "ASYNC AHMA OPERATION:"
+//! - "AHMA ID:"
 //! - The actual operation ID
 //! - "Use `await` to block until operation ID(s) complete"
 //! - "AVOID POLLING"
@@ -27,7 +27,7 @@ fn test_tool_hints_preview_includes_all_required_elements() {
 
     // CRITICAL: Hint MUST include these elements
     assert!(
-        hint.contains("ASYNC AHMA OPERATION:"),
+        hint.contains("AHMA ID:"),
         "Hint must include async operation header. Got: {}",
         hint
     );

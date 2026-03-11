@@ -1,45 +1,46 @@
-//! # CLI Tool Adapter
+//! # CLI Tool Adapter: The Execution Bridge
 //!
-//! This module provides the core execution engine for running external command-line tools.
-//! Its primary responsibility is to execute commands, either synchronously or asynchronously,
-//! and manage a pool of reusable shell processes for performance.
+//! This module provides the central "heavy lifter" of the Ahma engine. The [`Adapter`]
+//! acts as a bridge between high-level, declarative tool requests (expressed via MTDF)
+//! and the low-level reality of OS process execution, shell environments, and
+//! filesystem security.
 //!
-//! ## Core Components
+//! ## Core Mission
 //!
-//! - **`Adapter`**: The central struct that manages command execution. It holds the
-//!   `ShellPoolManager` for efficient asynchronous command execution and configuration
-//!   for timeout and synchronous mode.
+//! The adapter's primary responsibility is to execute commands efficiently while
+//! strictly enforcing the security boundaries established by the [`Sandbox`](crate::sandbox::Sandbox).
 //!
-//! ## Execution Flow
+//! ## How it Works: The Execution Paths
 //!
-//! 1. **Initialization**:
-//!    - The `Adapter` is created with settings for synchronous mode and command timeouts.
-//!    - It initializes a `ShellPoolManager` to handle a pool of warm shell processes,
-//!      which reduces the overhead of spawning new processes for each command.
+//! To achieve high performance without sacrificing correctness, the adapter chooses
+//! between two primary execution paths:
 //!
-//! 2. **Execution (`execute_tool_in_dir`)**:
-//!    - A tool execution request is received with a base command, arguments, and a working directory.
-//!    - The `Adapter` determines whether to run the command synchronously or asynchronously based
-//!      on its `synchronous_mode` setting.
-//!    - **Async Path**: If not in synchronous mode and a working directory is provided, a
-//!      pre-warmed shell is requested from the `ShellPoolManager`. The command is sent to the
-//!      shell for execution, and the shell is returned to the pool afterward. This is the
-//!      preferred path for performance.
-//!    - **Sync Path**: If in synchronous mode, or if no working directory is given (making the
-//!      shell pool less effective), the command is executed as a standard `tokio::process::Command`.
+//! 1. **Performance Path (Async + Shell Pooling)**:
+//!    By default, tools execute asynchronously. The adapter requests a pre-warmed
+//!    shell process from the [`ShellPoolManager`](crate::shell_pool::ShellPoolManager).
+//!    This avoids the 200ms-500ms latency typically associated with spawning a new
+//!    shell and loading environment profiles. Results are tracked via the
+//!    [`OperationMonitor`](crate::operation_monitor::OperationMonitor) and pushed
+//!    back via notifications.
 //!
-//! ## Key Design Decisions
+//! 2. **Correctness Path (Synchronous / Direct Spawn)**:
+//!    Some operations (like `cargo add` or configuration changes) require immediate
+//!    completion to prevent race conditions. When a tool is marked as `synchronous`
+//!    or when the `--sync` flag is active, the adapter bypasses the shell pool and
+//!    spawns a direct process, waiting for it to exit before returning.
 //!
-//! - **Stateless Execution**: The `Adapter` is stateless regarding tool definitions. It simply
-//!   receives a command and arguments and executes them. All logic for tool discovery and
-//!   argument parsing is handled by the `mcp_service` and `main` modules.
-//! - **Performance-Oriented Async**: The integration with `ShellPoolManager` ensures that
-//!   asynchronous operations are executed with minimal overhead, which is critical for a
-//!   responsive user experience in a server context.
+//! ## Key Design Trade-offs
 //!
-//! ## Security Note
-//! Kernel-enforced sandboxing is the only security boundary (R7). The adapter does not
-//! attempt to parse command strings for security.
+//! - **Statelessness**: The adapter is intentionally stateless regarding *what* a tool
+//!   is. It focuses entirely on *how* to run it. Tool discovery and argument parsing
+//!   happen at the protocol layer ([`mcp_service`](crate::mcp_service)).
+//! - **Security Gating**: Every execution request must pass through the
+//!   [`Sandbox`](crate::sandbox::Sandbox) validation. If a working directory or a
+//!   path argument falls outside the allowed scopes, the adapter terminates the
+//!   request before the shell process is ever notified.
+//! - **Resource RAII**: The adapter manages temporary files created for complex
+//!   multi-line arguments, ensuring they are automatically cleaned up even if
+//!   an operation times out or is cancelled.
 
 mod preparer;
 mod types;

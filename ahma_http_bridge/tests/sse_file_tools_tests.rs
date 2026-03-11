@@ -403,8 +403,7 @@ async fn test_file_tools_sed() {
     let output = result.output.unwrap_or_default();
 
     // sandboxed_shell may run asynchronously, returning operation ID instead of output
-    if output.contains("Asynchronous operation started") || output.contains("ASYNC AHMA OPERATION")
-    {
+    if output.contains("Asynchronous operation started") || output.contains("AHMA ID") {
         eprintln!("WARNING️  sandboxed_shell ran asynchronously, cannot validate sed output");
         return;
     }

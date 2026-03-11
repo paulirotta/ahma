@@ -95,7 +95,7 @@ async fn test_automatic_async_fast_shell_returns_inline() -> Result<()> {
 
     // Should NOT contain async operation ID since it completed fast enough
     assert!(
-        !all_text.contains("Asynchronous operation started"),
+        !all_text.contains("AHMA ID:"),
         "Fast command should NOT return async ID. Got: {}",
         all_text
     );
@@ -148,7 +148,7 @@ async fn test_automatic_async_slow_command_returns_async_id() -> Result<()> {
 
     // Slow command should return async operation ID after automatic async timeout
     assert!(
-        all_text.contains("Asynchronous operation started with ID: op_"),
+        all_text.contains("AHMA ID: op_"),
         "Slow command should return async operation ID. Got: {}",
         all_text
     );

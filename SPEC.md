@@ -980,7 +980,7 @@ cargo nextest run                   # Run all tests (must pass)
 
 **R13.4.5**: Before considering any work complete, you **MUST** run these quality checks in order:
 1. `cargo clippy` - Verify no warnings or errors
-2. `cargo nextest run` (or `cargo test` if nextest not available) - Verify all tests pass
+2. `cargo nextest run` (preferred) or `cargo test` - Verify all tests pass
 3. Only after both pass can work be considered complete
 
 This ensures:

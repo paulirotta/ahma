@@ -1,26 +1,35 @@
-//! # Ahma HTTP Bridge
+//! # Ahma HTTP Bridge: The Session Multiplexer
 //!
-//! A high-performance, secure HTTP-to-stdio bridge for MCP servers.
+//! The Ahma HTTP Bridge is a specialized proxy that enables standard, stdio-based
+//! MCP servers to support modern web-based workflows with **Session Isolation**.
 //!
-//! This crate provides an HTTP server that proxies JSON-RPC requests to a
-//! stdio-based MCP server subprocess, enabling HTTP clients to communicate
-//! with MCP servers restricted to the standard input/output transport.
+//! ## Concept: Stdio-to-HTTP Translation
 //!
-//! ## Architecture
+//! Most MCP servers are designed to communicate over standard input/output within
+//! a single process. The bridge provides a high-performance HTTP/SSE interface
+//! around these servers, allowing multiple clients (IDEs, web agents) to share
+//! a single server while maintaining completely separate security contexts.
 //!
-//! The bridge operates in **Session Isolation Mode**, ensuring strict security boundaries:
+//! ## Session Isolation & The Handshake Anchor
 //!
-//! *   **Transport Proxy**: HTTP POST requests are converted to JSON-RPC over stdin/stdout.
-//! *   **Session Management**: A dedicated subprocess is spawned for each client session (identified by `Mcp-Session-Id` header).
-//! *   **Security**: Sandbox scope is dynamically bound to the client's workspace roots discovered during the handshake.
+//! The bridge's most critical feature is its ability to multiplex sessions:
 //!
-//! ## Key Features
+//! 1. **Isolated Subprocesses**: For every new client (identified by a unique
+//!    `Mcp-Session-Id`), the bridge spawns a dedicated instance of the target
+//!    MCP server.
+//! 2. **Handshake Security Anchor**: The security sandbox for each subprocess
+//!    is not fixed at startup. Instead, it is "anchored" during the initial MCP
+//!    handshake. The bridge waits for the client to provide its workspace roots
+//!    (`roots/list`), which are then used to lock the sandbox for that session.
+//! 3. **Protocol Fidelity**: The bridge implements the complete MCP HTTP transport
+//!    specification, including Server-Sent Events (SSE) for real-time notifications
+//!    and reconnection resilience.
 //!
-//! *   **Streamable HTTP Transport**: Implements the MCP HTTP transport specification (2025-06-18), supporting POST for requests and SSE (Server-Sent Events) for server-to-client notifications.
-//! *   **Strict by Default**: Clients must provide roots/list unless an explicit fallback scope is configured.
-//! *   **Robust Error Handling**: Cleanly handles subprocess crashes and protocol violations.
+//! ## Practical Use
 //!
-//! ## Example
+//! This crate is ideal for deploying Ahma in multi-user environments (like a
+//! central agent server) or when integrating with web-based AI tools that cannot
+//! interact with local stdio processes directly.
 //!
 //! ```rust,no_run
 //! use ahma_http_bridge::{BridgeConfig, start_bridge};

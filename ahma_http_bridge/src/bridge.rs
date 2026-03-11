@@ -1,4 +1,29 @@
-//! HTTP-to-stdio bridge implementation
+//! # HTTP Bridge Server Implementation
+//!
+//! This module implements the Axum-based HTTP server that serves as the entry point
+//! for the bridge. It handles the low-level HTTP details, including request routing,
+//! content-negotiation (SSE vs. JSON), and session lifecycle management.
+//!
+//! ## Architecture: Routing and Persistence
+//!
+//! The bridge server acts as a thin routing layer above the [`SessionManager`]:
+//!
+//! - **Request Multiplexing**: Every incoming POST or SSE request is checked for
+//!   the `Mcp-Session-Id` header. The server then routes the request to the
+//!   correct [`Session`], ensuring that JSON-RPC commands reach the right subprocess.
+//! - **Handshake Orchestration**: It manages the delicate sequence of the MCP
+//!   handshake over HTTP, ensuring that the SSE connection is established and the
+//!   sandbox is locked before allow tool calls to proceed.
+//! - **Reconnection Support**: By maintaining a buffer of recent notifications,
+//!   the server allows clients to reconnect after brief network interruptions
+//!   without losing protocol state.
+//!
+//! ## Implementation Note
+//!
+//! The bridge is designed to be "stateless" from the perspective of the HTTP protocol
+//! itself, while maintaining strictly stateful subprocesses in the background. If a
+//! session is not accessed within its configured timeout, the bridge gracefully
+//! shuts down the associated subprocess to conserve system resources.
 
 use crate::error::{BridgeError, Result};
 use crate::session::{DEFAULT_HANDSHAKE_TIMEOUT_SECS, SessionManager, SessionManagerConfig};

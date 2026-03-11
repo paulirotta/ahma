@@ -1,29 +1,40 @@
-//! # Ahma Service Implementation
+//! # Ahma MCP Service: The Protocol Layer
 //!
-//! This module contains the core implementation of the `ahma_mcp` server. The
-//! `AhmaMcpService` struct implements the `rmcp::ServerHandler` trait, making it the
-//! central point for handling all incoming MCP requests from a client.
+//! This module implements the "brain" of the Ahma server. The [`AhmaMcpService`]
+//! is responsible for managing the full lifecycle of the Model Context Protocol (MCP),
+//! from initial handshake and tool discovery to execution routing and session isolation.
 //!
-//! ## Core Components
+//! ## Protocol Lifecycle
 //!
-//! - **`AhmaMcpService`**: The main struct that holds the application's state, including
-//!   the `Adapter` for tool execution and a map of all loaded tool configurations
-//!   (`tools_config`).
+//! The service coordinates several critical phases of an MCP session:
 //!
-//! ## Key `ServerHandler` Trait Implementations
+//! 1. **Handshake (`initialize`)**: Establishes the connection and identifies client
+//!    capabilities.
+//! 2. **Sandbox Anchoring (`roots/list`)**: In HTTP bridge or session-isolated modes,
+//!    the server queries the client for workspace roots to dynamically configure the
+//!    security sandbox for that specific session.
+//! 3. **Tool Discovery (`list_tools`)**: Dynamically transforms MTDF JSON configurations
+//!    and bundled capability flags (like `--rust` or `--git`) into a rich set of
+//!    tools that the AI can understand and call.
+//! 4. **Execution Routing (`call_tool`)**: Validates incoming arguments against the
+//!    tool's JSON schema and routes the execution request to the [`Adapter`].
 //!
-//! - **`get_info()`**: Provides the client with initial information about the server.
+//! ## Async-First Philosophy
 //!
-//! - **`list_tools()`**: This is the heart of the dynamic tool discovery mechanism. It
-//!   iterates through the `tools_config` map and generates a `Tool` definition for each
-//!   subcommand of each configured CLI tool.
+//! Ahma is designed for agents performing complex, multi-threaded work. Most tool calls
+//! follow an **Async-Result-Push** pattern:
+//! - **Immediate Response**: The server returns an operation ID (e.g., `op_123`)
+//!   instantly, allowing the agent to continue working or call other tools.
+//! - **Background Execution**: The task runs in the background, governed by the
+//!   [`OperationMonitor`](crate::operation_monitor::OperationMonitor).
+//! - **Progressive Feedback**: Status updates and final results are pushed back to the
+//!   client via standard MCP notifications as they happen.
 //!
-//! - **`call_tool()`**: This method handles the execution of a tool.
+//! ## Built-in Core Tools
 //!
-//! ## Server Startup
-//!
-//! The `start_server()` method provides a convenient way to launch the service, wiring it
-//! up to a standard I/O transport (`stdio`) and running it until completion.
+//! The service always exposes a set of "Internal Tools" (`await`, `status`,
+//! `cancel`, and `sandboxed_shell`) that provide essential primitives for managing
+//! background tasks and executing arbitrary logic within the sandbox.
 
 pub mod bundle_registry;
 mod config_watcher;
@@ -863,8 +874,7 @@ impl ServerHandler for AhmaMcpService {
 
                             // Include tool hints to guide AI on handling async operations
                             let hint = crate::tool_hints::preview(&id, tool_name);
-                            let message =
-                                format!("Asynchronous operation started with ID: {}{}", id, hint);
+                            let message = format!("AHMA ID: {}{}", id, hint);
                             Ok(CallToolResult::success(vec![Content::text(message)]))
                         }
                         Err(e) => {

@@ -15,7 +15,7 @@ pub const SYNC_ADDENDUM: &str = "REQUIRED: Always use this MCP tool instead of a
 
 /// Async operation started hint. Placeholders: {operation_type}, {id}
 pub const TOOL_HINT_TEMPLATE: &str = "\n\n\
-### ASYNC AHMA OPERATION: {operation_type} (ID: {id})\n\
+### AHMA ID: {id} ({operation_type})\n\
 This is running in the background \u{2014} NOT complete.\n\
 \n\
 - Do other work not blocked by `{operation_type}` while it runs.\n\

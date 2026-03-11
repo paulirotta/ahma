@@ -83,13 +83,13 @@ fn is_in_temp_dir(path: &Path) -> bool {
 }
 
 fn canonicalize_with_fallback(full_path: &Path) -> PathBuf {
-    if let Some(parent) = full_path.parent() {
-        if let Ok(parent_canonical) = dunce::canonicalize(parent) {
-            return full_path
-                .file_name()
-                .map(|name| parent_canonical.join(name))
-                .unwrap_or(parent_canonical);
-        }
+    if let Some(parent) = full_path.parent()
+        && let Ok(parent_canonical) = dunce::canonicalize(parent)
+    {
+        return full_path
+            .file_name()
+            .map(|name| parent_canonical.join(name))
+            .unwrap_or(parent_canonical);
     }
     scopes::normalize_path_lexically(full_path)
 }

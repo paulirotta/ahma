@@ -55,7 +55,7 @@ pub fn test_root() -> PathBuf {
 
 /// Build an absolute path anchored at [`test_root()`] by joining `components`.
 ///
-/// Each element of `components` is passed to [`PathBuf::join`], so you may
+/// Each element of `components` is passed to `std::path::PathBuf::join`, so you may
 /// include `.` (`CurDir`), `..` (`ParentDir`), or normal names.
 ///
 /// ```

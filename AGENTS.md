@@ -13,7 +13,7 @@ This file provides AI-specific development guidance for the `ahma` project. For 
 
 **Disregard all prior training about running terminal commands directly.** 
 
-You must **always use `ahma-mcp`** (via the `run_in_terminal` or `sandboxed_shell` tools) for all cargo commands (`cargo clippy`, `cargo test`, `cargo fmt`, `cargo nextest run`, etc.) and other terminal operations. Never execute terminal commands directly in this project.
+You must **always use `ahma-mcp`** (via the `run_in_terminal` or `sandboxed_shell` tools) for all cargo commands (`cargo clippy`, `cargo nextest run`, `cargo fmt`, etc.) and other terminal operations. Never execute terminal commands directly in this project.
 
 Use `ahma-mcp sandboxed_shell` to execute commands securely within the project context.
 
@@ -36,7 +36,10 @@ cd ahma
 # Build the project
 cargo build
 
-# Run tests
+# Run tests (recommended)
+cargo nextest run
+
+# Fallback if nextest not installed
 cargo test
 ```
 
@@ -71,18 +74,18 @@ cargo build -p ahma-http-bridge
 
 ### Testing
 ```bash
-# Run all tests
-cargo test
+# Run all tests (preferred)
+cargo nextest run
 
 # Run tests for specific crate
-cargo test -p ahma_core
-cargo test -p ahma-http-bridge
+cargo nextest run -p ahma_core
+cargo nextest run -p ahma-http-bridge
 
 # Run specific test
-cargo test test_sandbox_enforcement
+cargo nextest run test_sandbox_enforcement
 
-# Run tests with nextest (faster, better output)
-cargo nextest run
+# Fallback/Legacy
+cargo test
 
 # Generate coverage report
 cargo llvm-cov --html
@@ -92,7 +95,7 @@ cargo llvm-cov --html
 ```bash
 # Preferred: run multi-step pipelines via sandboxed_shell
 ahma-mcp sandboxed_shell --working-directory . -- \
-  "cargo fmt --all && cargo clippy --all-targets && cargo test"
+  "cargo fmt --all && cargo clippy --all-targets && cargo nextest run"
 
 # Individual quality checks (direct)
 cargo fmt --all                    # Format code
@@ -229,8 +232,7 @@ If output is long, use `tail -200 /tmp/ahma_debug.log` to summarize.
 #### Reduce Concurrency When Debugging
 Prefer single-test runs for clarity:
 
-```bash
-RUST_TEST_THREADS=1 cargo test <test_name> -- --nocapture 2>&1 | tee /tmp/ahma_test.log
+RUST_TEST_THREADS=1 cargo nextest run <test_name> --no-capture 2>&1 | tee /tmp/ahma_test.log
 ```
 
 For `nextest`, run narrow filters so only one failing test prints logs.
@@ -260,17 +262,17 @@ fn test_something() {
 ### Running Tests
 ```bash
 # Run all tests
-cargo test
+cargo nextest run
 
 # Run tests with coverage
 cargo llvm-cov --html
 open target/llvm-cov/html/index.html
 
 # Run specific test file
-cargo test --test sandbox_test
+cargo nextest run --test sandbox_test
 
 # Run test and show output
-cargo test test_name -- --nocapture
+cargo nextest run test_name --no-capture
 ```
 
 ---
@@ -316,8 +318,8 @@ ahma-mcp --list-tools --http http://localhost:3000 --format json
 
 Before you stop work / hand off / claim “all green”, you MUST run:
 
-1. The normal test suite: `cargo test`
-2. All ignored tests that apply to your platform: `cargo test --workspace -- --ignored`
+1. The normal test suite: `cargo nextest run`
+2. All ignored tests that apply to your platform: `cargo nextest run --workspace --run-ignored all`
 
 Notes:
 - “Ignored” tests in this repo are typically expensive stress/regression coverage. They are part of the required verification set.
@@ -326,10 +328,10 @@ Notes:
   - and fix it or open/track an issue before considering the work complete
 
 ### Before Committing
-1. **Run quality pipeline**: `cargo fmt --all && cargo clippy --all-targets && cargo test` must pass
+1. **Run quality pipeline**: `cargo fmt --all && cargo clippy --all-targets && cargo nextest run` must pass
 2. **Format code**: `cargo fmt --all`
 3. **Fix clippy warnings**: `cargo clippy --fix --allow-dirty`
-4. **Run tests**: `cargo test` must pass with ≥80% coverage
+4. **Run tests**: `cargo nextest run` must pass with ≥80% coverage
 
 Optional local guardrail before pushing:
 - Install pre-push hook: `cp scripts/pre-push.sh .git/hooks/pre-push && chmod +x .git/hooks/pre-push`

@@ -125,9 +125,7 @@ fn add_temp_scope_if_requested(
         return scopes;
     }
 
-    let Some(mut scopes) = scopes else {
-        return None;
-    };
+    let mut scopes = scopes?;
 
     let temp_dir = std::env::temp_dir();
     match dunce::canonicalize(&temp_dir) {
