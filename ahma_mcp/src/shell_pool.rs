@@ -410,6 +410,7 @@ impl PrewarmedShell {
             // On Unix:    `bash`
             let mut process = Command::new(platform_shell_program())
                 .args(shell_args())
+                .kill_on_drop(true)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()) // capture stderr for diagnostics
@@ -530,6 +531,7 @@ impl PrewarmedShell {
         let child_spawn = Command::new(program)
             .args(&args)
             .current_dir(&command.working_dir)
+            .kill_on_drop(true)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

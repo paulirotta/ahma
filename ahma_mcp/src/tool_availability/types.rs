@@ -123,7 +123,10 @@ impl ProbePlan {
         let (program, args) = self.prepare_direct_command();
 
         let mut command = tokio::process::Command::new(&program);
-        command.args(&args).current_dir(&self.working_dir);
+        command
+            .args(&args)
+            .current_dir(&self.working_dir)
+            .kill_on_drop(true);
 
         let timeout_duration = Duration::from_millis(self.timeout_ms);
         let result = timeout(timeout_duration, command.output()).await;

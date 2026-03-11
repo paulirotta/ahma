@@ -299,14 +299,15 @@ pub async fn spawn_test_server_with_timeout(
     wire_output_reader(stdout, line_tx.clone());
     wire_output_reader(stderr, line_tx);
 
-    let bound_port = match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
-        Some(port) => port,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Timeout waiting for server to start".to_string());
-        }
-    };
+    let bound_port =
+        match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
+            Some(port) => port,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Timeout waiting for server to start".to_string());
+            }
+        };
 
     eprintln!("[TestServer] Server bound to port {}", bound_port);
 

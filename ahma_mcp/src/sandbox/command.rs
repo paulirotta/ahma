@@ -28,6 +28,7 @@ impl Sandbox {
         let mut cmd = tokio::process::Command::new(program);
         cmd.args(args)
             .current_dir(working_dir)
+            .kill_on_drop(true)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());

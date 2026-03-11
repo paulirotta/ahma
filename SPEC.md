@@ -487,6 +487,7 @@ These control execution environment but **must not** be passed as CLI arguments:
 
 - **R10.1**: Blocking I/O (`std::fs`) **must not** be used in async functions. Use `tokio::fs` instead.
 - **R10.2**: Test code is exempt (blocking acceptable in `#[tokio::test]`).
+- **R10.3**: **Child Process Leaks**: All `tokio::process::Command` spawns **must** implement `.kill_on_drop(true)`. By default, dropping a tokio child process future (e.g. from a timeout) orphans the process, leaving it running in the background. This has historically caused catastrophic CLI test hangs in CI. Always explicitly enforce `kill_on_drop`.
 
 ### 9.3 Error Handling
 

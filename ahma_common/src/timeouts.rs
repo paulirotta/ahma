@@ -68,11 +68,7 @@ impl TestTimeouts {
     /// - Coverage mode: Additional 2x on top of platform multiplier
     /// - Default: 1x
     pub fn multiplier() -> u64 {
-        let base = if cfg!(windows) {
-            4
-        } else {
-            1
-        };
+        let base = if cfg!(windows) { 4 } else { 1 };
 
         let coverage_multiplier = if is_coverage_mode() { 2 } else { 1 };
 
@@ -167,7 +163,11 @@ mod tests {
 
         for cat in categories {
             let timeout = TestTimeouts::get(cat);
-            assert!(timeout.as_secs() > 0, "{:?} should have positive timeout", cat);
+            assert!(
+                timeout.as_secs() > 0,
+                "{:?} should have positive timeout",
+                cat
+            );
         }
     }
 
