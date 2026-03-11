@@ -16,9 +16,9 @@
 $ErrorActionPreference = 'Stop'
 
 # ── Detect architecture ────────────────────────────────────────────────────────
-$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-if ($arch -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    Write-Error "Unsupported architecture: $arch. Only x86_64 (x64) Windows builds are available."
+$arch = $env:PROCESSOR_ARCHITECTURE
+if ($arch -ne "AMD64") {
+    Write-Error "Unsupported architecture: $arch. Only x86_64 (AMD64) Windows builds are available."
     exit 1
 }
 
