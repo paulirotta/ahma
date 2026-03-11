@@ -1,3 +1,4 @@
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use reqwest::Client;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -235,9 +236,12 @@ fn wait_for_bound_port(receiver: &mpsc::Receiver<String>, timeout: Duration) -> 
 async fn wait_for_health(port: u16) -> bool {
     let client = Client::new();
     let health_url = format!("http://127.0.0.1:{}/health", port);
+    let timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
+    let poll_interval = TestTimeouts::poll_interval();
+    let start = Instant::now();
 
-    for _ in 0..50 {
-        sleep(Duration::from_millis(100)).await;
+    while start.elapsed() < timeout {
+        sleep(poll_interval).await;
         if let Ok(resp) = client.get(&health_url).send().await
             && resp.status().is_success()
         {
@@ -295,7 +299,7 @@ pub async fn spawn_test_server_with_timeout(
     wire_output_reader(stdout, line_tx.clone());
     wire_output_reader(stderr, line_tx);
 
-    let bound_port = match wait_for_bound_port(&line_rx, Duration::from_secs(30)) {
+    let bound_port = match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
         Some(port) => port,
         None => {
             let _ = child.kill();

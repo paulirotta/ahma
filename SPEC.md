@@ -773,6 +773,68 @@ let t = tempdir();
 let f = File::create(t.path().join("test.txt")); // OK
 ```
 
+### 10.8 Platform-Aware Timeouts
+
+**R18**: All test timeouts **must** use the `ahma_common::timeouts` module for platform-aware scaling.
+
+#### R18.1: Problem Statement
+
+Windows CI runners are 3-5x slower than Linux/macOS for:
+- Process spawning and stdio communication
+- File system operations (especially temp directories)
+- Network socket operations
+- PowerShell startup (vs bash)
+
+Hardcoded timeouts that work locally on macOS/Linux will reliably fail on Windows CI, leading to "whack-a-mole" fixes across the codebase.
+
+#### R18.2: Solution - Centralized Timeout Utility
+
+The `ahma_common::timeouts` module provides:
+
+```rust
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+
+// Use semantic categories with platform-appropriate defaults
+let timeout = TestTimeouts::get(TimeoutCategory::Handshake);  // 60s base, 4x on Windows
+
+// Scale custom durations
+let custom = TestTimeouts::scale_secs(5);  // 5s base, 20s on Windows
+
+// Platform-appropriate polling interval
+let interval = TestTimeouts::poll_interval();  // 100ms on Unix, 500ms on Windows
+```
+
+#### R18.3: Timeout Categories
+
+| Category | Base (Unix) | Windows | Coverage Mode | Purpose |
+|----------|-------------|---------|---------------|---------|
+| `ProcessSpawn` | 30s | 120s | 240s | Binary loading, shell pool init |
+| `Handshake` | 60s | 240s | 480s | MCP initialize + roots exchange |
+| `ToolCall` | 30s | 120s | 240s | Individual tool execution |
+| `SandboxReady` | 60s | 240s | 480s | Post-roots sandbox activation |
+| `HttpRequest` | 30s | 120s | 240s | HTTP request/response cycle |
+| `SseStream` | 120s | 480s | 960s | SSE stream operations |
+| `HealthCheck` | 15s | 60s | 120s | Server health polling |
+| `Cleanup` | 10s | 40s | 80s | Test cleanup operations |
+| `Quick` | 5s | 20s | 40s | Sub-second operations |
+
+#### R18.4: Migration Requirements
+
+- **R18.4.1**: New tests **must** use `TestTimeouts` instead of hardcoded `Duration::from_secs()`.
+- **R18.4.2**: Existing tests with Windows CI failures **should** be migrated to `TestTimeouts`.
+- **R18.4.3**: When adding delays after async operations (e.g., post-SSE exchange), use `TestTimeouts::short_delay()`.
+- **R18.4.4**: Polling loops **must** use `TestTimeouts::poll_interval()` instead of hardcoded intervals.
+
+#### R18.5: Why Platform Multipliers
+
+The 4x multiplier for Windows is based on empirical CI data:
+- Windows GitHub Actions runners have ~4x slower process spawn times
+- PowerShell startup is ~3x slower than bash
+- Windows temp directories have higher latency than Linux tmpfs
+- Coverage mode (`llvm-cov`) adds another 2x overhead
+
+The multipliers stack: Windows + Coverage = 8x base timeout.
+
 ### 11.2 Recurring Failure Mode Detection
 
 This repo has a recurring failure mode: tests can pass while real-world usage is broken.

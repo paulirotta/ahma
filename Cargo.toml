@@ -55,7 +55,7 @@ opentelemetry-otlp = { version = "0.31", features = [
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 regex = "1.12.3"
 reqwest = { version = "0.13.2", default-features = false }
-rmcp = { version = "1.1.1", features = [
+rmcp = { version = "1.2.0", features = [
     "server",
     "client",
     "macros",
@@ -67,7 +67,7 @@ rmcp = { version = "1.1.1", features = [
 schemars = "1.2.1"
 serde = "1.0.228"
 serde_json = "1.0.149"
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 thiserror = "2.0.18"
 tokio = { version = "1.50.0", features = [
     "macros",

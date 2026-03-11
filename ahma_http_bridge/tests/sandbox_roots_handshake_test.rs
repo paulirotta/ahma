@@ -24,6 +24,7 @@
 
 mod common;
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::{
     SANDBOX_BYPASS_ENV_VARS, SandboxTestEnv, ServerGuard, encode_file_uri, malformed_uris,
     parse_file_uri,
@@ -38,18 +39,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::sleep;
 
-fn coverage_mode() -> bool {
-    std::env::var_os("LLVM_PROFILE_FILE").is_some() || std::env::var_os("CARGO_LLVM_COV").is_some()
-}
-
 fn roots_handshake_timeout() -> Duration {
-    if coverage_mode() {
-        Duration::from_secs(120)
-    } else if cfg!(windows) {
-        Duration::from_secs(150)
-    } else {
-        Duration::from_secs(15)
-    }
+    TestTimeouts::get(TimeoutCategory::Handshake)
 }
 
 // =============================================================================
@@ -110,11 +101,12 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
 
     // Wait for port
     let start = std::time::Instant::now();
-    let timeout = Duration::from_secs(10);
+    let timeout = TestTimeouts::get(TimeoutCategory::ProcessSpawn);
+    let poll_interval = TestTimeouts::poll_interval();
     let mut port = 0;
 
     while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100))
+        if let Ok(line) = rx.recv_timeout(poll_interval)
             && let Some(idx) = line.find("AHMA_BOUND_PORT=")
         {
             let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
@@ -138,9 +130,11 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
     // Wait for server to be ready (health check)
     let client = Client::new();
     let health_url = format!("http://127.0.0.1:{}/health", port);
+    let health_timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
+    let health_start = std::time::Instant::now();
 
-    for _ in 0..50 {
-        sleep(Duration::from_millis(100)).await;
+    while health_start.elapsed() < health_timeout {
+        sleep(TestTimeouts::poll_interval()).await;
         if let Ok(resp) = client.get(&health_url).send().await
             && resp.status().is_success()
         {
@@ -166,7 +160,7 @@ async fn send_mcp_request(
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .timeout(Duration::from_secs(60));
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
 
     if let Some(id) = session_id {
         req = req.header("Mcp-Session-Id", id);
@@ -268,7 +262,7 @@ async fn wait_for_tool_ready(
             }
         }
 
-        sleep(Duration::from_millis(100)).await;
+        sleep(TestTimeouts::poll_interval()).await;
     }
 
     Err(format!(
@@ -307,7 +301,7 @@ async fn answer_roots_list_with_uris(
             return Err("Timeout waiting for roots/list over SSE".to_string());
         }
 
-        let chunk = tokio::time::timeout(Duration::from_millis(500), stream.next())
+        let chunk = tokio::time::timeout(TestTimeouts::poll_interval(), stream.next())
             .await
             .ok()
             .flatten();
@@ -423,7 +417,7 @@ async fn test_empty_roots_rejection() {
     });
 
     // Give time for roots/list exchange
-    sleep(Duration::from_millis(500)).await;
+    sleep(TestTimeouts::short_delay()).await;
     let _ = sse_task.await;
 
     // Try to call a tool - should fail because sandbox wasn't initialized
@@ -573,7 +567,7 @@ async fn test_session_with_only_malformed_uris() {
             .await
     });
 
-    sleep(Duration::from_millis(500)).await;
+    sleep(TestTimeouts::short_delay()).await;
     let _ = sse_task.await;
 
     // Tool call should fail - no valid roots
@@ -1119,7 +1113,7 @@ async fn test_post_lock_roots_change_rejected() {
 
     // Give the stdio I/O time to process - Windows CI can be slow with inter-process communication
     if cfg!(windows) {
-        sleep(Duration::from_secs(2)).await;
+        sleep(TestTimeouts::short_delay()).await;
     }
 
     wait_for_tool_ready(&client, &base_url, &session_id, initial_root.path())
@@ -1172,7 +1166,7 @@ async fn test_post_lock_roots_change_rejected() {
         Ok(_) => {
             // Notification was accepted - verify session is now invalid
             // Try another tool call - should fail
-            sleep(Duration::from_millis(100)).await;
+            sleep(TestTimeouts::poll_interval()).await;
 
             let tool_call_2 = json!({
                 "jsonrpc": "2.0",

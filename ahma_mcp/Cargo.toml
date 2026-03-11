@@ -16,6 +16,7 @@ name = "ahma-mcp"
 path = "src/shell/bin.rs"
 
 [dependencies]
+ahma_common = { path = "../ahma_common" }
 ahma_http_bridge = { path = "../ahma_http_bridge" }
 ahma_http_mcp_client = { path = "../ahma_http_mcp_client" }
 anyhow.workspace = true

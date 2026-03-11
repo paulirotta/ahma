@@ -12,6 +12,7 @@
 
 mod common;
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::{McpTestClient, SandboxTestEnv, ServerGuard};
 use futures::StreamExt;
 use reqwest::Client;
@@ -19,7 +20,6 @@ use serde_json::{Value, json};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::sleep;
 
@@ -82,9 +82,12 @@ async fn start_deferred_sandbox_server(
 
     let client = Client::new();
     let health_url = format!("http://127.0.0.1:{}/health", port);
+    let timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
+    let poll_interval = TestTimeouts::poll_interval();
+    let start = std::time::Instant::now();
 
-    for _ in 0..50 {
-        sleep(Duration::from_millis(300)).await;
+    while start.elapsed() < timeout {
+        sleep(poll_interval).await;
         if let Ok(resp) = client.get(&health_url).send().await
             && resp.status().is_success()
         {
@@ -109,7 +112,7 @@ async fn send_mcp_request(
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .timeout(Duration::from_secs(60));
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
 
     if let Some(id) = session_id {
         req = req.header("Mcp-Session-Id", id);
@@ -153,7 +156,7 @@ async fn send_mcp_request_raw(
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .timeout(Duration::from_secs(60));
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
 
     if let Some(id) = session_id {
         req = req.header("Mcp-Session-Id", id);
@@ -367,7 +370,7 @@ async fn test_slow_client_handshake() {
         let id = request_id.expect("Did not receive roots/list request");
 
         // SIMULATE DELAY (e.g. user prompt)
-        sleep(Duration::from_secs(2)).await;
+        sleep(TestTimeouts::scale_secs(2)).await;
 
         // Send response
         let roots_json = vec![json!({"uri": root_uri, "name": "root"})];
@@ -383,16 +386,8 @@ async fn test_slow_client_handshake() {
         // Wait for notifications/sandbox/configured so the sandbox is truly Active
         // before the task returns.  Without this, the retry tool call races with
         // the subprocess confirming sandbox activation and incorrectly gets 409.
-        let configured_secs = if std::env::var_os("LLVM_PROFILE_FILE").is_some()
-            || std::env::var_os("CARGO_LLVM_COV").is_some()
-        {
-            120
-        } else if cfg!(windows) {
-            45
-        } else {
-            15
-        };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(configured_secs);
+        let sandbox_ready_timeout = TestTimeouts::get(TimeoutCategory::SandboxReady);
+        let deadline = tokio::time::Instant::now() + sandbox_ready_timeout;
         while let Ok(Some(chunk)) = tokio::time::timeout_at(deadline, stream.next()).await {
             if let Ok(bytes) = chunk {
                 let text = String::from_utf8_lossy(&bytes);
@@ -404,7 +399,7 @@ async fn test_slow_client_handshake() {
     });
 
     // Try to call tool during the delay - should fail with strict gating
-    sleep(Duration::from_secs(1)).await;
+    sleep(TestTimeouts::short_delay()).await;
     let tool_call = json!({
         "jsonrpc": "2.0",
         "id": 2,

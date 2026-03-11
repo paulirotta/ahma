@@ -1,9 +1,9 @@
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use notify::{Event, RecursiveMode, Watcher};
 use rmcp::service::{Peer, RoleServer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing;
 
 use super::AhmaMcpService;
@@ -123,11 +123,7 @@ impl AhmaMcpService {
 
         // Use the list_roots() method provided by Peer<RoleServer>
         // Add timeout to prevent infinite hang if response never arrives (Windows stdio issue)
-        let timeout_duration = if cfg!(windows) {
-            Duration::from_secs(60)
-        } else {
-            Duration::from_secs(30)
-        };
+        let timeout_duration = TestTimeouts::get(TimeoutCategory::Handshake);
 
         let list_result = match tokio::time::timeout(timeout_duration, peer.list_roots()).await {
             Ok(result) => result,

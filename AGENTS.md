@@ -171,6 +171,28 @@ All tests run on Linux, macOS, **and Windows** CI. Follow these rules to avoid p
 - **Avoid `#[cfg(unix)]` gating when cross-platform alternatives exist.** If a test is genuinely Unix-only (e.g. uses `std::os::unix::fs::symlink`), gating is correct. But never gate a test that could be rewritten with cross-platform APIs.
 - **Be aware that `Path::starts_with` is case-sensitive on Windows** even though the filesystem is case-insensitive. Use `dunce::canonicalize` on both sides of comparisons.
 
+### Platform-Aware Timeouts (REQUIRED)
+
+**Never hardcode timeouts.** Windows CI runners are 3-5x slower than Linux/macOS. Use `ahma_common::timeouts`:
+
+```rust
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+
+// Use semantic categories with platform-appropriate defaults
+let timeout = TestTimeouts::get(TimeoutCategory::Handshake);  // 60s base, 240s on Windows
+
+// Scale custom durations by platform multiplier
+let custom = TestTimeouts::scale_secs(5);  // 5s base, 20s on Windows
+
+// Platform-appropriate polling interval
+let interval = TestTimeouts::poll_interval();  // 100ms Unix, 500ms Windows
+
+// Short delay after async operations (e.g., post-SSE exchange)
+sleep(TestTimeouts::short_delay()).await;
+```
+
+Available categories: `ProcessSpawn`, `Handshake`, `ToolCall`, `SandboxReady`, `HttpRequest`, `SseStream`, `HealthCheck`, `Cleanup`, `Quick`. See SPEC.md §10.8 for details.
+
 ### Hard Invariants (Do Not “Test Around” These)
 
 #### MCP Streamable HTTP Handshake (HTTP Bridge)

@@ -1,3 +1,4 @@
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use futures::StreamExt;
 use reqwest::Client;
 use reqwest::header::HeaderMap;
@@ -66,7 +67,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .json(&init_request)
-            .timeout(Duration::from_secs(30))
+            .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
             .send()
             .await
             .map_err(|e| format!("Initialize request failed: {}", e))?;
@@ -102,7 +103,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Mcp-Session-Id", session_id)
             .json(&initialized_notification)
-            .timeout(Duration::from_secs(30))
+            .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
             .send()
             .await
             .map_err(|e| format!("initialized notification failed: {}", e))?;
@@ -119,19 +120,8 @@ impl McpTestClient {
         Ok(())
     }
 
-    fn coverage_mode() -> bool {
-        std::env::var_os("LLVM_PROFILE_FILE").is_some()
-            || std::env::var_os("CARGO_LLVM_COV").is_some()
-    }
-
     fn roots_handshake_timeout() -> Duration {
-        if Self::coverage_mode() {
-            Duration::from_secs(120)
-        } else if cfg!(windows) {
-            Duration::from_secs(90)
-        } else {
-            Duration::from_secs(45)
-        }
+        TestTimeouts::get(TimeoutCategory::Handshake)
     }
 
     fn pop_next_sse_event(buffer: &mut String) -> Option<String> {
@@ -226,7 +216,7 @@ impl McpTestClient {
                 );
             }
 
-            let Some(chunk) = tokio::time::timeout(Duration::from_millis(500), stream.next())
+            let Some(chunk) = tokio::time::timeout(TestTimeouts::poll_interval(), stream.next())
                 .await
                 .ok()
                 .flatten()
@@ -281,7 +271,7 @@ impl McpTestClient {
             .header("Content-Type", "application/json")
             .header("Mcp-Session-Id", session_id)
             .json(&roots_response)
-            .timeout(Duration::from_secs(30))
+            .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
             .send()
             .await
             .map_err(|e| format!("Failed to send roots response: {}", e))?;
@@ -371,7 +361,7 @@ impl McpTestClient {
 
         let response = req_builder
             .json(request)
-            .timeout(Duration::from_secs(30))
+            .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?;
