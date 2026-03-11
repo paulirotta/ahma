@@ -130,6 +130,11 @@ jobs:
         with:
           shared-key: windows-fallback-build
 
+      - name: Configure sccache cache keys
+        run: |
+          echo "SCCACHE_GHA_CACHE_TO=sccache-Linux-X64-clippy-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-Linux-X64-clippy-day${{ steps.day-number.outputs.day }},sccache-Linux-X64-clippy-day,sccache-Linux-X64-nextest-day,sccache-Linux-X64-coverage-day" >> $GITHUB_ENV
+
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
@@ -242,6 +247,11 @@ jobs:
         with:
           shared-key: windows-fallback-nextest
 
+      - name: Configure sccache cache keys
+        run: |
+          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day${{ steps.day-number.outputs.day }},sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day,sccache-${{ runner.os }}-${{ runner.arch }}-clippy-day,sccache-${{ runner.os }}-${{ runner.arch }}-android-day" >> $GITHUB_ENV
+
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
 
@@ -324,6 +334,11 @@ jobs:
           key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Configure sccache cache keys
+        run: |
+          echo "SCCACHE_GHA_CACHE_TO=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }},sccache-macOS-ARM64-android-day,sccache-macOS-ARM64-nextest-day" >> $GITHUB_ENV
 
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -428,6 +443,11 @@ jobs:
           ./gradlew tasks > /dev/null &
           echo "Gradle warming up slowly in background..."
         working-directory: ./test-data/AndoidTestBasicViews
+
+      - name: Configure sccache cache keys
+        run: |
+          echo "SCCACHE_GHA_CACHE_TO=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }},sccache-Linux-X64-coverage-day,sccache-Linux-X64-clippy-day,sccache-Linux-X64-nextest-day" >> $GITHUB_ENV
 
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -613,6 +633,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows-fallback-release
+
+      - name: Configure sccache cache keys
+        if: "!matrix.use_cross"
+        run: |
+          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }},sccache-${{ matrix.platform }}-release-day" >> $GITHUB_ENV
 
       - name: sccache-action
         if: "!matrix.use_cross"

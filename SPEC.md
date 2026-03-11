@@ -840,6 +840,10 @@ To maintain high performance and avoid cache bloat, the following strategies are
 - **R13.2.1**: **sccache** **must** be used as the compiler wrapper across all CI jobs.
 - **R13.2.2**: The **GitHub Actions Backend** (`SCCACHE_GHA_ENABLED: "true"`) **must** be used for `sccache` to allow atomic uploads of object files directly to the GHA cache API.
 - **R13.2.3**: `SCCACHE_DIRECT: "true"` **should** be enabled for Windows runners to optimize compiler invocation.
+- **R13.2.4**: Each CI job **must** use unique `SCCACHE_GHA_CACHE_TO` keys to prevent concurrent write conflicts. Key format: `sccache-{OS}-{ARCH}-{JOB}-day{DAY}`.
+- **R13.2.5**: Each CI job **must** use `SCCACHE_GHA_CACHE_FROM` with comma-separated fallbacks to enable cache sharing between related jobs on the same platform.
+- **R13.2.6**: Debug-profile jobs on the same platform (clippy, nextest, android, coverage) **should** include each other in their `CACHE_FROM` lists since they produce compatible cache entries.
+- **R13.2.7**: Release-profile jobs **must not** include debug caches in `CACHE_FROM` since `--release` flag produces incompatible cache entries.
 
 ### 13.3 Cargo Registry Caching
 - **R13.3.1**: The Cargo registry (`~/.cargo/registry`) and git database (`~/.cargo/git`) **must** be cached using `actions/cache` or specialized actions, adhering to the Daily Rotation rule.
