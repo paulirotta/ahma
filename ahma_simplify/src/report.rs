@@ -49,7 +49,11 @@ impl RepoSummary {
                     (p, avg)
                 })
                 .collect();
-            package_scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            package_scores.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            });
 
             language_summaries.insert(
                 lang,
@@ -487,6 +491,29 @@ mod tests {
         assert!(report.contains("file2.py"));
         assert!(!report.contains("(Rust)"));
         assert!(!report.contains("(Python)"));
+    }
+
+    #[test]
+    fn test_repo_summary_orders_packages_by_simplicity_desc_then_name() {
+        let files = vec![
+            test_file("mod_b/main.py", Language::Python, 40.0, 20.0, 10.0, 100.0, 60.0),
+            test_file("mod_c/main.py", Language::Python, 60.0, 15.0, 8.0, 90.0, 70.0),
+            test_file("mod_a/main.py", Language::Python, 80.0, 10.0, 5.0, 80.0, 80.0),
+            test_file("mod_d/main.py", Language::Python, 60.0, 12.0, 7.0, 85.0, 72.0),
+        ];
+
+        let summary = RepoSummary::from_files(&files, Path::new("."));
+        let python = summary.language_summaries.get(&Language::Python).unwrap();
+
+        assert_eq!(
+            python.package_scores,
+            vec![
+                ("mod_a".to_string(), 80.0),
+                ("mod_c".to_string(), 60.0),
+                ("mod_d".to_string(), 60.0),
+                ("mod_b".to_string(), 40.0),
+            ]
+        );
     }
 
     #[test]
