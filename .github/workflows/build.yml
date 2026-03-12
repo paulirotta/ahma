@@ -73,7 +73,7 @@ jobs:
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
           Add-MpPreference -ExclusionPath "$env:TEMP"
 
-      - uses: rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
           rustflags: ""
@@ -185,7 +185,7 @@ jobs:
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
           Add-MpPreference -ExclusionPath "$env:TEMP"
 
-      - uses: rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
           rustflags: ""
@@ -308,7 +308,7 @@ jobs:
           echo "Gradle warming up slowly in background..."
         working-directory: ./test-data/AndoidTestBasicViews
 
-      - uses: rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
 
@@ -388,7 +388,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - uses: rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: llvm-tools-preview
           rustflags: ""
@@ -569,7 +569,7 @@ jobs:
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
           Add-MpPreference -ExclusionPath "$env:TEMP"
 
-      - uses: rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
           rustflags: ""
