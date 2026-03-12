@@ -111,8 +111,11 @@ async fn test_concurrent_tool_calls() {
 
 /// High-volume stress test for concurrent requests.
 ///
-/// Spawns its own test server and sends 50 concurrent echo requests,
-/// then asserts that at least 90% succeed.
+/// Spawns its own test server and sends concurrent echo requests,
+/// then asserts that at least 90% succeed. On Windows, the request
+/// count is reduced because each `sandboxed_shell` spawns a
+/// PowerShell process through AppContainer, and 2-CPU CI runners
+/// cannot handle 50 concurrent heavyweight processes.
 #[tokio::test]
 async fn test_high_volume_concurrent_requests() {
     let server = match spawn_test_server().await {
@@ -134,7 +137,10 @@ async fn test_high_volume_concurrent_requests() {
         return;
     }
     let mcp = Arc::new(mcp);
-    let num_requests = 50;
+    // Windows CI runners have 2 CPUs and each sandboxed_shell spawns a
+    // PowerShell process through AppContainer — 50 concurrent processes
+    // causes resource exhaustion and timeouts.
+    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
     let start = Instant::now();
 
     // Create many concurrent echo requests

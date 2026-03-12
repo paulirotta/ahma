@@ -1,6 +1,7 @@
 //! Test to reproduce and fix the VSCode GitHub Copilot Chat catastrophic failure
 //! Error: "tool parameters array type must have items"
 
+use ahma_mcp::test_utils::cli::build_binary_cached;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::utils::logging::init_test_logging;
 use futures::future::join_all;
@@ -12,21 +13,11 @@ use serde_json::Value;
 async fn test_array_parameters_must_have_items_property() -> anyhow::Result<()> {
     init_test_logging();
 
-    // Force rebuild to ensure we're testing the latest code in CI
-    eprintln!("Building latest binary to avoid stale cache issues...");
-    let build_output = std::process::Command::new("cargo")
-        .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
-        .output()
-        .expect("Failed to build binary");
-
-    if !build_output.status.success() {
-        eprintln!(
-            "Build stderr: {}",
-            String::from_utf8_lossy(&build_output.stderr)
-        );
-        panic!("Failed to build ahma_mcp binary");
-    }
-    eprintln!("Binary built successfully");
+    // Ensure the binary exists (skips build if already present, e.g. on CI).
+    // Using build_binary_cached avoids feature-mismatch rebuilds when the CI
+    // test runner uses --no-default-features but isn't aware of that here.
+    let binary_path = build_binary_cached("ahma_mcp", "ahma-mcp");
+    eprintln!("Using binary: {}", binary_path.display());
 
     // Create a test client with the real tool configurations (assume new_client is now async)
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
