@@ -640,6 +640,44 @@ fs::write(&test_file, "test content").unwrap();
 - **R15.4.2**: Integration tests involving child processes or networks **must** use generous timeouts (30s+). A 10s timeout that works in `release` mode will reliably fail in `coverage` mode.
 - **R15.4.3**: Flaky failures that occur ONLY in coverage CI jobs almost always indicate timeouts being too tight for the instrumented binary overhead.
 
+#### R15.5: Dual-Transport Test Coverage (HTTP Bridge)
+
+The HTTP bridge exposes a single `/mcp` POST endpoint whose response format is content-negotiated via the `Accept` header:
+
+| `Accept` value         | Handler                                  | Response                                    |
+|------------------------|------------------------------------------|---------------------------------------------|
+| `application/json`     | `handle_session_isolated_request`        | Single JSON-RPC response body               |
+| `text/event-stream`    | `handle_session_isolated_request_sse`    | SSE stream: notifications + response event  |
+
+**Requirement**: Every test that exercises tool execution (i.e. calls `tools/call` or `tools/list`) MUST cover BOTH response modes.
+
+**Implementation pattern** — extract the test body into a shared `async fn run_<case>(mode: TransportMode)`, then add two `#[tokio::test]` entry points:
+
+```rust
+async fn run_my_tool_test(mode: TransportMode) {
+    let Some((_server, mcp)) = setup_test_mcp(mode).await else { return; };
+    // ... assertions ...
+}
+
+#[tokio::test]
+async fn test_my_tool_json() { run_my_tool_test(TransportMode::Json).await; }
+
+#[tokio::test]
+async fn test_my_tool_sse()  { run_my_tool_test(TransportMode::Sse).await; }
+```
+
+**Naming convention** — append `_json` / `_sse` suffix to every test entry point that covers a specific transport mode.  Do NOT use these suffixes for tests that are transport-agnostic (e.g. pure protocol handshake tests, session lifecycle tests, or SSE-specific protocol tests such as event-ID replay).
+
+**Infrastructure** — use `common::setup_test_mcp(mode)` (defined in `tests/common/mod.rs`).  This spawns a fresh server, completes the full MCP handshake including roots exchange, and returns an `McpTestClient` configured with the requested `TransportMode`. The client's `send_request()` / `call_tool()` / `list_tools()` methods automatically use the correct `Accept` header.
+
+**Exemptions** — the following test files are transport-specific by design and do NOT need `_json` / `_sse` variants:
+- `sse_streaming_test.rs` — validates POST SSE content-negotiation, event IDs, Last-Event-Id replay
+- `sse_endpoint_test.rs`  — validates GET `/mcp` SSE notification stream and event structure
+- `handshake_*.rs`       — validates session handshake protocol invariants
+- `sandbox_*.rs`         — validates sandbox gating rules
+
+**Concurrency limits** — all test files using `setup_test_mcp` spawn one server per test function.  They MUST be listed in the `threads-required = 2` override filters in `.config/nextest.toml` for both `default` and `ci` profiles to prevent resource storms on 2-CPU CI runners.
+
 ### 10.6 Testing Patterns and Helpers
 
 > [!IMPORTANT]

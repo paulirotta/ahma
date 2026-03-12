@@ -212,6 +212,33 @@ If a test client cannot follow this sequence, fix the client/test harness (or th
 #### Sandbox Gating Must Be Observable
 `tools/call` before sandbox lock MUST return HTTP 409 with JSON-RPC error code `-32001` ("Sandbox initializing..."). Tests should assert this explicitly where relevant.
 
+#### Dual-Transport Coverage (HTTP Bridge Tool Tests — SPEC.md §R15.5)
+Every test that calls `tools/call` or `tools/list` via the HTTP bridge **must run against BOTH response modes**: `Accept: application/json` (JSON transport) and `Accept: text/event-stream` (SSE transport).
+
+**Pattern** — extract the body into a shared `run_*` function, add `_json` / `_sse` entry points:
+
+```rust
+async fn run_my_tool(mode: TransportMode) {
+    let Some((_server, mcp)) = setup_test_mcp(mode).await else { return; };
+    let result = mcp.call_tool("tool_name", json!({})).await;
+    assert!(result.success, "{:?}", result.error);
+}
+
+#[tokio::test]
+async fn test_my_tool_json() { run_my_tool(TransportMode::Json).await; }
+#[tokio::test]
+async fn test_my_tool_sse()  { run_my_tool(TransportMode::Sse).await; }
+```
+
+**Setup** — use `common::setup_test_mcp(mode)` (in `tests/common/mod.rs`). It spawns a server, completes the full MCP handshake, and returns an `McpTestClient` wired to the requested transport. Do **not** use the old `sse_test_helpers::{ensure_server_available, call_tool}` functions — those are legacy and lack session handling.
+
+**Nextest** — add new test files to the `threads-required = 2` override filters in `.config/nextest.toml` (both `default` and `ci` profiles) so they don't storm 2-CPU CI runners.
+
+**Exemptions** (keep SSE-only, no `_json`/`_sse` split):
+- `sse_streaming_test.rs`, `sse_endpoint_test.rs` — SSE protocol behaviour
+- `handshake_*.rs` — session handshake invariants
+- `sandbox_*.rs` — sandbox gating rules
+
 #### No Print-Only Integration Tests
 Integration tests MUST include assertions on:
 - success/failure (`result.success` or HTTP status)

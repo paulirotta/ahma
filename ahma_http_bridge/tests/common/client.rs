@@ -6,6 +6,18 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// Transport mode for MCP POST requests: content negotiated via the `Accept` header.
+///
+/// - `Json` (default): `Accept: application/json` — the server returns a single JSON-RPC response.
+/// - `Sse`: `Accept: text/event-stream` — the server streams an SSE response containing
+///   zero or more notification events followed by the JSON-RPC response event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransportMode {
+    #[default]
+    Json,
+    Sse,
+}
+
 use super::protocol::{JsonRpcRequest, JsonRpcResponse};
 use super::uri::encode_file_uri;
 
@@ -24,6 +36,7 @@ pub struct McpTestClient {
     client: Client,
     base_url: String,
     session_id: Option<String>,
+    transport_mode: TransportMode,
 }
 
 impl McpTestClient {
@@ -33,12 +46,19 @@ impl McpTestClient {
             client: Client::new(),
             base_url: base_url.to_string(),
             session_id: None,
+            transport_mode: TransportMode::Json,
         }
     }
 
     /// Create a new MCP test client from a running test server.
     pub fn for_server(server: &super::server::TestServerInstance) -> Self {
         Self::with_url(&server.base_url())
+    }
+
+    /// Set the transport mode for all subsequent `send_request` / `call_tool` calls.
+    pub fn with_transport(mut self, mode: TransportMode) -> Self {
+        self.transport_mode = mode;
+        self
     }
 
     fn mcp_url(&self) -> String {
@@ -348,7 +368,17 @@ impl McpTestClient {
     }
 
     /// Send a raw JSON-RPC request with session handling.
+    ///
+    /// Dispatches to the JSON or SSE path based on `self.transport_mode`.
     pub async fn send_request(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse, String> {
+        match self.transport_mode {
+            TransportMode::Json => self.send_request_json(request).await,
+            TransportMode::Sse => self.send_request_sse(request).await,
+        }
+    }
+
+    /// JSON transport path: `Accept: application/json`, returns a single JSON-RPC response.
+    async fn send_request_json(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse, String> {
         let mut req_builder = self
             .client
             .post(self.mcp_url())
@@ -376,6 +406,72 @@ impl McpTestClient {
             .json()
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))
+    }
+
+    /// SSE transport path: `Accept: text/event-stream`.
+    ///
+    /// Reads the resulting SSE stream and returns the first event that looks
+    /// like a JSON-RPC response (has `result` or `error`), skipping any
+    /// interleaved notification events.
+    async fn send_request_sse(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse, String> {
+        let mut req_builder = self
+            .client
+            .post(self.mcp_url())
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream");
+
+        if let Some(ref session_id) = self.session_id {
+            req_builder = req_builder.header("Mcp-Session-Id", session_id);
+        }
+
+        // No reqwest-level timeout: the SSE stream may take a while to deliver
+        // the response event.  The deadline loop below bounds overall wait time.
+        let response = req_builder
+            .json(request)
+            .send()
+            .await
+            .map_err(|e| format!("SSE request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(format!("HTTP {}: {}", status, text));
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let deadline = Instant::now() + TestTimeouts::get(TimeoutCategory::ToolCall);
+
+        loop {
+            if Instant::now() > deadline {
+                return Err("Timeout waiting for SSE response event".to_string());
+            }
+
+            let Some(chunk) = tokio::time::timeout(TestTimeouts::poll_interval(), stream.next())
+                .await
+                .ok()
+                .flatten()
+            else {
+                continue;
+            };
+
+            let bytes = chunk.map_err(|e| format!("SSE stream read error: {}", e))?;
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+            while let Some(raw_event) = Self::pop_next_sse_event(&mut buffer) {
+                let Some(value) = Self::event_data_to_json(&raw_event) else {
+                    continue;
+                };
+                // Notifications carry a `method` field; responses carry `result` or `error`.
+                if value.get("method").is_some() {
+                    continue;
+                }
+                if value.get("result").is_some() || value.get("error").is_some() {
+                    return serde_json::from_value(value)
+                        .map_err(|e| format!("Failed to deserialize SSE response: {}", e));
+                }
+            }
+        }
     }
 
     /// Call a tool and return the result.

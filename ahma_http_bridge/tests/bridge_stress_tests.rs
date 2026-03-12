@@ -3,22 +3,29 @@
 //! High-volume and concurrent request tests for the HTTP SSE bridge.
 //! Each test spawns its own server process on a dynamic port so no external
 //! server is required.
+//!
+//! Every test that exercises tool calls runs twice: once with
+//! `Accept: application/json` (JSON transport) and once with
+//! `Accept: text/event-stream` (SSE transport), named `_json` / `_sse`
+//! respectively.
 
 mod common;
 
-use common::{McpTestClient, spawn_test_server};
+use common::{McpTestClient, TransportMode, spawn_test_server};
 use futures::future::join_all;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Stress test for concurrent tool calls.
-///
-/// Spawns its own test server and sends 14 concurrent tool calls covering
-/// file-tools and sandboxed_shell, then asserts that the majority succeed.
-#[tokio::test]
-async fn test_concurrent_tool_calls() {
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Initialise a client against a freshly spawned server and run the
+/// 14-request concurrent batch.  Returns early (test passes trivially) on
+/// server/init failure so as not to break CI when the binary is unavailable.
+async fn run_concurrent_tool_calls(transport: TransportMode) {
     let server = match spawn_test_server().await {
         Ok(s) => s,
         Err(e) => {
@@ -27,7 +34,7 @@ async fn test_concurrent_tool_calls() {
         }
     };
 
-    let mut mcp = McpTestClient::with_url(&server.base_url());
+    let mut mcp = McpTestClient::with_url(&server.base_url()).with_transport(transport);
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if mcp
         .initialize_with_roots("stress-client", &[root])
@@ -40,7 +47,6 @@ async fn test_concurrent_tool_calls() {
     let mcp = Arc::new(mcp);
     let start = Instant::now();
 
-    // Create a batch of concurrent requests
     let requests = vec![
         ("file-tools_pwd", json!({})),
         ("file-tools_ls", json!({"path": "."})),
@@ -63,7 +69,6 @@ async fn test_concurrent_tool_calls() {
 
     let num_requests = requests.len();
 
-    // Execute all requests concurrently
     let futures: Vec<_> = requests
         .into_iter()
         .map(|(name, args)| {
@@ -75,7 +80,6 @@ async fn test_concurrent_tool_calls() {
     let results = join_all(futures).await;
     let total_duration = start.elapsed();
 
-    // Analyze results
     let mut successes = 0;
     let mut failures = 0;
     let mut total_tool_time: u128 = 0;
@@ -90,7 +94,7 @@ async fn test_concurrent_tool_calls() {
         total_tool_time += result.duration_ms;
     }
 
-    println!("\n📊 Concurrent Test Results:");
+    println!("\n📊 Concurrent Test Results ({:?}):", transport);
     println!("   Total requests: {}", num_requests);
     println!("   Successes: {}", successes);
     println!("   Failures: {}", failures);
@@ -101,23 +105,17 @@ async fn test_concurrent_tool_calls() {
         total_tool_time as f64 / total_duration.as_millis() as f64
     );
 
-    // All core file tools should succeed
     assert!(
         successes >= 8,
-        "At least 8 out of {} requests should succeed",
-        num_requests
+        "At least 8 out of {} requests should succeed ({:?} transport)",
+        num_requests,
+        transport
     );
 }
 
-/// High-volume stress test for concurrent requests.
-///
-/// Spawns its own test server and sends concurrent echo requests,
-/// then asserts that at least 90% succeed. On Windows, the request
-/// count is reduced because each `sandboxed_shell` spawns a
-/// PowerShell process through AppContainer, and 2-CPU CI runners
-/// cannot handle 50 concurrent heavyweight processes.
-#[tokio::test]
-async fn test_high_volume_concurrent_requests() {
+/// High-volume echo stress run.  `num_requests` is caller-controlled so that
+/// the Windows variant can use a smaller count.
+async fn run_high_volume_concurrent_requests(num_requests: usize, transport: TransportMode) {
     let server = match spawn_test_server().await {
         Ok(s) => s,
         Err(e) => {
@@ -126,7 +124,7 @@ async fn test_high_volume_concurrent_requests() {
         }
     };
 
-    let mut mcp = McpTestClient::with_url(&server.base_url());
+    let mut mcp = McpTestClient::with_url(&server.base_url()).with_transport(transport);
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if mcp
         .initialize_with_roots("stress-client", &[root])
@@ -137,13 +135,8 @@ async fn test_high_volume_concurrent_requests() {
         return;
     }
     let mcp = Arc::new(mcp);
-    // Windows CI runners have 2 CPUs and each sandboxed_shell spawns a
-    // PowerShell process through AppContainer — 50 concurrent processes
-    // causes resource exhaustion and timeouts.
-    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
     let start = Instant::now();
 
-    // Create many concurrent echo requests
     let futures: Vec<_> = (0..num_requests)
         .map(|i| {
             let mcp = Arc::clone(&mcp);
@@ -163,7 +156,7 @@ async fn test_high_volume_concurrent_requests() {
     let successes = results.iter().filter(|r| r.success).count();
     let failures = results.iter().filter(|r| !r.success).count();
 
-    println!("\n📊 High-Volume Stress Test Results:");
+    println!("\n📊 High-Volume Stress Test Results ({:?}):", transport);
     println!("   Total requests: {}", num_requests);
     println!("   Successes: {}", successes);
     println!("   Failures: {}", failures);
@@ -173,11 +166,44 @@ async fn test_high_volume_concurrent_requests() {
         num_requests as f64 / total_duration.as_secs_f64()
     );
 
-    // At least 90% should succeed
     let success_rate = successes as f64 / num_requests as f64;
     assert!(
         success_rate >= 0.9,
-        "Success rate {:.1}% below 90% threshold",
-        success_rate * 100.0
+        "Success rate {:.1}% below 90% threshold ({:?} transport)",
+        success_rate * 100.0,
+        transport
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test entries — JSON transport
+// ---------------------------------------------------------------------------
+
+/// Concurrent tool calls using `Accept: application/json`.
+#[tokio::test]
+async fn test_concurrent_tool_calls_json() {
+    run_concurrent_tool_calls(TransportMode::Json).await;
+}
+
+/// Concurrent tool calls using `Accept: text/event-stream`.
+#[tokio::test]
+async fn test_concurrent_tool_calls_sse() {
+    run_concurrent_tool_calls(TransportMode::Sse).await;
+}
+
+/// High-volume echo stress using `Accept: application/json`.
+///
+/// On Windows the count is reduced because each `sandboxed_shell` spawns a
+/// PowerShell process through AppContainer.
+#[tokio::test]
+async fn test_high_volume_concurrent_requests_json() {
+    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
+    run_high_volume_concurrent_requests(num_requests, TransportMode::Json).await;
+}
+
+/// High-volume echo stress using `Accept: text/event-stream`.
+#[tokio::test]
+async fn test_high_volume_concurrent_requests_sse() {
+    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
+    run_high_volume_concurrent_requests(num_requests, TransportMode::Sse).await;
 }
