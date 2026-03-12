@@ -45,6 +45,10 @@ async fn start_http_bridge(
         "--sandbox-scope",
         &sandbox_scope.to_string_lossy(),
         "--log-to-stderr",
+        // Use a generous handshake timeout so slow CI runners (coverage, Windows)
+        // complete the SSE roots exchange before the server-side timer fires.
+        "--handshake-timeout-secs",
+        "300",
     ]);
 
     // IMPORTANT:
@@ -1340,6 +1344,10 @@ async fn start_http_bridge_dynamic(
         "--sandbox-scope",
         &sandbox_scope.to_string_lossy(),
         "--log-to-stderr",
+        // Use a generous handshake timeout so slow CI runners (coverage, Windows)
+        // complete the SSE roots exchange before the server-side timer fires.
+        "--handshake-timeout-secs",
+        "300",
     ])
     .env_remove("NEXTEST")
     .env_remove("NEXTEST_EXECUTION_MODE")
