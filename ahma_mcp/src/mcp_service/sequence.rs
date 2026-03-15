@@ -472,7 +472,7 @@ pub fn should_skip_step_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use crate::test_utils::client::create_test_config;
     use rmcp::model::CallToolRequestParams;
     use serde_json::{Map, Value, json};

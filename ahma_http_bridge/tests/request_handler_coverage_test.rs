@@ -12,7 +12,6 @@ use futures::StreamExt;
 use reqwest::Client;
 use serde_json::json;
 use std::time::Instant;
-use tempfile::TempDir;
 use tokio::time::sleep;
 
 const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
@@ -358,18 +357,17 @@ async fn test_tools_list_sse() {
 
 /// Run tools/call with timeout_seconds in arguments to cover calculate_tool_timeout.
 async fn run_tools_call_timeout(mode: TransportMode) {
-    let temp = TempDir::new().expect("temp dir");
-    let root = temp.path().to_path_buf();
     let Some((_server, mcp)) = common::setup_test_mcp(mode).await else {
         return;
     };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let result = mcp
         .call_tool(
             "sandboxed_shell",
             json!({
                 "command": "echo ok",
-                "working_directory": root.to_string_lossy(),
+                "working_directory": cwd.to_string_lossy(),
                 "timeout_seconds": 30
             }),
         )
