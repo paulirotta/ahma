@@ -146,7 +146,7 @@ impl AhmaMcpService {
 
     /// Calculate intelligent timeout based on operation timeouts and default await timeout
     pub async fn calculate_intelligent_timeout(&self, tool_filters: &[String]) -> f64 {
-        const DEFAULT_AWAIT_TIMEOUT: f64 = 240.0;
+        const DEFAULT_AWAIT_TIMEOUT: f64 = 600.0;
 
         let pending_ops = self.operation_monitor.get_all_active_operations().await;
 

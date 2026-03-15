@@ -1124,6 +1124,104 @@ mod tests {
         assert!(text.contains("already completed"));
     }
 
+    #[tokio::test]
+    async fn handle_cancel_operation_not_found() {
+        let service = make_service().await;
+        let args = json!({"id": "op_nonexistent_xyz"}).as_object().unwrap().clone();
+        let result = service.handle_cancel(args).await.expect("cancel");
+        let text = first_text(&result);
+        assert!(text.contains("not found"));
+        assert!(text.contains("op_nonexistent_xyz"));
+    }
+
+    #[tokio::test]
+    async fn handle_cancel_success_without_reason_uses_default_message() {
+        let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(
+            Duration::from_secs(30),
+        )));
+        let service = make_service_with_monitor(monitor.clone(), Arc::new(None)).await;
+
+        let op = Operation::new(
+            "op_no_reason".to_string(),
+            "test_tool".to_string(),
+            "desc".to_string(),
+            None,
+        );
+        monitor.add_operation(op).await;
+
+        let args = json!({"id": "op_no_reason"}).as_object().unwrap().clone();
+        let result = service.handle_cancel(args).await.expect("cancel");
+        let text = first_text(&result);
+        assert!(text.contains("has been cancelled successfully"));
+        assert!(text.contains("No reason provided (default: user-initiated)"));
+    }
+
+    #[tokio::test]
+    async fn handle_cancel_already_failed_reports_failed() {
+        let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(
+            Duration::from_secs(30),
+        )));
+        let service = make_service_with_monitor(monitor.clone(), Arc::new(None)).await;
+
+        let mut op = Operation::new(
+            "op_failed".to_string(),
+            "test_tool".to_string(),
+            "desc".to_string(),
+            None,
+        );
+        op.state = OperationStatus::Failed;
+        monitor.add_operation(op).await;
+
+        let args = json!({"id": "op_failed"}).as_object().unwrap().clone();
+        let result = service.handle_cancel(args).await.expect("cancel");
+        let text = first_text(&result);
+        assert!(text.contains("already failed"));
+    }
+
+    #[tokio::test]
+    async fn handle_cancel_already_cancelled_reports_cancelled() {
+        let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(
+            Duration::from_secs(30),
+        )));
+        let service = make_service_with_monitor(monitor.clone(), Arc::new(None)).await;
+
+        let mut op = Operation::new(
+            "op_cancelled".to_string(),
+            "test_tool".to_string(),
+            "desc".to_string(),
+            None,
+        );
+        op.state = OperationStatus::Cancelled;
+        monitor.add_operation(op).await;
+
+        let args = json!({"id": "op_cancelled"}).as_object().unwrap().clone();
+        let result = service.handle_cancel(args).await.expect("cancel");
+        let text = first_text(&result);
+        assert!(text.contains("already cancelled"));
+    }
+
+    #[tokio::test]
+    async fn handle_cancel_already_timed_out_reports_timed_out() {
+        let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(
+            Duration::from_secs(30),
+        )));
+        let service = make_service_with_monitor(monitor.clone(), Arc::new(None)).await;
+
+        let mut op = Operation::new(
+            "op_timed_out".to_string(),
+            "test_tool".to_string(),
+            "desc".to_string(),
+            None,
+        );
+        op.state = OperationStatus::TimedOut;
+        monitor.add_operation(op).await;
+
+        let args = json!({"id": "op_timed_out"}).as_object().unwrap().clone();
+        let result = service.handle_cancel(args).await.expect("cancel");
+        let text = first_text(&result);
+        assert!(text.contains("timed out"));
+    }
+
     #[test]
     fn parse_file_uri_to_path_accepts_localhost_and_decodes() {
         let p = AhmaMcpService::parse_file_uri_to_path(
@@ -1141,9 +1239,65 @@ mod tests {
     }
 
     #[test]
+    fn parse_file_uri_to_path_accepts_absolute_without_localhost() {
+        let p = AhmaMcpService::parse_file_uri_to_path("file:///home/user/file.txt")
+            .expect("path");
+        assert_eq!(p.to_string_lossy(), "/home/user/file.txt");
+    }
+
+    #[test]
+    fn parse_file_uri_to_path_strips_query_only() {
+        let p = AhmaMcpService::parse_file_uri_to_path("file:///path/to/file?query=1")
+            .expect("path");
+        assert_eq!(p.to_string_lossy(), "/path/to/file");
+    }
+
+    #[test]
+    fn parse_file_uri_to_path_strips_fragment_only() {
+        let p = AhmaMcpService::parse_file_uri_to_path("file:///path/to/file#section")
+            .expect("path");
+        assert_eq!(p.to_string_lossy(), "/path/to/file");
+    }
+
+    #[test]
     fn percent_decode_utf8_rejects_invalid_hex() {
         assert!(AhmaMcpService::percent_decode_utf8("/a%ZZ").is_none());
         assert!(AhmaMcpService::percent_decode_utf8("/a%2").is_none());
+    }
+
+    #[test]
+    fn percent_decode_utf8_decodes_space() {
+        let decoded = AhmaMcpService::percent_decode_utf8("/path%20to%20file").expect("decode");
+        assert_eq!(decoded, "/path to file");
+    }
+
+    #[test]
+    fn percent_decode_utf8_preserves_plain_text() {
+        let decoded = AhmaMcpService::percent_decode_utf8("/path/to/file").expect("decode");
+        assert_eq!(decoded, "/path/to/file");
+    }
+
+    #[test]
+    fn percent_decode_utf8_uppercase_hex() {
+        let decoded = AhmaMcpService::percent_decode_utf8("path%2Ffile").expect("decode");
+        assert_eq!(decoded, "path/file");
+    }
+
+    #[test]
+    fn percent_decode_utf8_truncated_percent_at_end() {
+        assert!(AhmaMcpService::percent_decode_utf8("/path%").is_none());
+    }
+
+    #[test]
+    fn percent_decode_utf8_invalid_utf8_returns_none() {
+        // %FF decodes to byte 0xFF which is invalid as standalone UTF-8
+        assert!(AhmaMcpService::percent_decode_utf8("%FF").is_none());
+    }
+
+    #[test]
+    fn percent_decode_utf8_empty_string() {
+        let decoded = AhmaMcpService::percent_decode_utf8("").expect("decode");
+        assert_eq!(decoded, "");
     }
 
     #[tokio::test]

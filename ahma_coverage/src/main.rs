@@ -156,7 +156,7 @@ fn main() -> Result<()> {
         }
     }
 
-    parsed_files.sort_by(|a, b| a.2.cmp(&b.2));
+    parsed_files.sort_by(|a, b| b.2.cmp(&a.2));
     let top_files = parsed_files.into_iter().take(20).collect::<Vec<_>>();
 
     let mut uncovered_details = Vec::new();

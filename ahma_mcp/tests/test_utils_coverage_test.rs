@@ -3,6 +3,7 @@
 //! These tests verify the pure utility functions in test_utils
 //! that are reusable across the test suite.
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::{self, strip_ansi};
 
 #[test]
@@ -296,4 +297,243 @@ async fn test_read_file_contents_non_existing() {
 
     let result = test_utils::fs::read_file_contents(&file_path).await;
     assert!(result.is_err());
+}
+
+// Tests for test_utils::project
+#[tokio::test]
+async fn test_create_rust_project_empty_options() {
+    let temp_dir = test_utils::project::create_rust_project(Default::default())
+        .await
+        .unwrap();
+    let path = temp_dir.path();
+    assert!(path.exists());
+    assert!(path.is_dir());
+    assert!(!path.join("Cargo.toml").exists());
+    assert!(!path.join("test1.txt").exists());
+    assert!(!path.join(".ahma").exists());
+}
+
+#[tokio::test]
+async fn test_create_rust_project_with_cargo() {
+    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+        with_cargo: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let path = temp_dir.path();
+    assert!(path.join("Cargo.toml").exists());
+    assert!(path.join("src/main.rs").exists());
+    let cargo = tokio::fs::read_to_string(path.join("Cargo.toml")).await.unwrap();
+    assert!(cargo.contains("name = \"project\""));
+    let main = tokio::fs::read_to_string(path.join("src/main.rs")).await.unwrap();
+    assert!(main.contains("println!"));
+}
+
+#[tokio::test]
+async fn test_create_rust_project_with_text_files() {
+    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+        with_text_files: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let path = temp_dir.path();
+    let t1 = tokio::fs::read_to_string(path.join("test1.txt")).await.unwrap();
+    let t2 = tokio::fs::read_to_string(path.join("test2.txt")).await.unwrap();
+    assert_eq!(t1, "line1\nline2\nline3\n");
+    assert_eq!(t2, "foo\nbar\nbaz\n");
+}
+
+#[tokio::test]
+async fn test_create_rust_project_with_tool_configs() {
+    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+        with_tool_configs: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let path = temp_dir.path();
+    let echo_json = tokio::fs::read_to_string(path.join(".ahma/echo.json")).await.unwrap();
+    assert!(echo_json.contains("\"name\": \"echo\""));
+    assert!(echo_json.contains("\"command\": \"echo\""));
+}
+
+#[tokio::test]
+async fn test_create_rust_project_custom_prefix() {
+    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+        prefix: Some("custom_prefix_".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let path = temp_dir.path();
+    let name = path.file_name().unwrap().to_string_lossy();
+    assert!(name.starts_with("custom_prefix_"));
+}
+
+#[tokio::test]
+async fn test_create_full_rust_project() {
+    let temp_dir = test_utils::project::create_full_rust_project().await.unwrap();
+    let path = temp_dir.path();
+    assert!(path.join("Cargo.toml").exists());
+    assert!(path.join("src/main.rs").exists());
+    assert!(path.join("test1.txt").exists());
+    assert!(path.join("test2.txt").exists());
+    assert!(path.join(".ahma/echo.json").exists());
+}
+
+// Tests for test_utils::fs path helpers
+#[test]
+fn test_get_workspace_dir() {
+    let ws = test_utils::fs::get_workspace_dir();
+    assert!(ws.is_absolute());
+    assert!(ws.exists());
+    assert!(ws.is_dir());
+    assert!(ws.join("Cargo.toml").exists());
+}
+
+#[test]
+fn test_get_workspace_path() {
+    let p = test_utils::fs::get_workspace_path(".ahma");
+    assert!(p.is_absolute());
+    assert!(p.ends_with(".ahma"));
+}
+
+#[test]
+fn test_get_tools_dir() {
+    let tools = test_utils::fs::get_tools_dir();
+    assert!(tools.is_absolute());
+    assert!(tools.ends_with(".ahma"));
+}
+
+#[test]
+fn test_get_workspace_tools_dir() {
+    let tools = test_utils::fs::get_workspace_tools_dir();
+    assert!(tools.is_absolute());
+    assert_eq!(tools, test_utils::fs::get_tools_dir());
+}
+
+#[tokio::test]
+async fn test_create_temp_tools_dir() {
+    let timeout = TestTimeouts::get(TimeoutCategory::ProcessSpawn);
+    let result = tokio::time::timeout(timeout, test_utils::fs::create_temp_tools_dir()).await;
+    let (temp_dir, _client) = result
+        .expect("create_temp_tools_dir timed out")
+        .expect("create_temp_tools_dir failed");
+    assert!(temp_dir.path().exists());
+    assert!(temp_dir.path().join("tools").exists());
+    assert!(temp_dir.path().join("tools").is_dir());
+}
+
+// --- test_utils::cli ---
+
+#[test]
+fn test_get_binary_path_default_target_dir() {
+    let path = test_utils::cli::get_binary_path("ahma_mcp", "ahma-mcp");
+    let workspace = test_utils::fs::get_workspace_dir();
+    assert!(
+        path.starts_with(&workspace),
+        "Path {:?} should start with workspace {:?}",
+        path,
+        workspace
+    );
+    assert!(
+        path.ends_with("ahma-mcp") || path.ends_with("ahma-mcp.exe"),
+        "Path {:?} should end with binary name",
+        path
+    );
+    assert!(
+        path.to_str().unwrap().contains("debug"),
+        "Path should contain debug directory: {:?}",
+        path
+    );
+}
+
+#[test]
+fn test_get_binary_path_with_absolute_cargo_target_dir() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let abs_target = temp_dir.path().join("custom_target");
+    std::fs::create_dir_all(&abs_target).unwrap();
+    let abs_str = abs_target.to_str().unwrap().to_string();
+
+    let saved = std::env::var("CARGO_TARGET_DIR").ok();
+    unsafe {
+        std::env::set_var("CARGO_TARGET_DIR", &abs_str);
+    }
+
+    let path = test_utils::cli::get_binary_path("pkg", "bin");
+
+    if let Some(s) = saved {
+        unsafe {
+            std::env::set_var("CARGO_TARGET_DIR", s);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CARGO_TARGET_DIR");
+        }
+    }
+
+    assert!(
+        path.starts_with(&abs_target),
+        "Path {:?} should use absolute CARGO_TARGET_DIR {:?}",
+        path,
+        abs_target
+    );
+    assert_eq!(path.parent().unwrap().file_name().unwrap(), "debug");
+}
+
+#[test]
+fn test_get_binary_path_with_relative_cargo_target_dir() {
+    let workspace = test_utils::fs::get_workspace_dir();
+    let saved = std::env::var("CARGO_TARGET_DIR").ok();
+    unsafe {
+        std::env::set_var("CARGO_TARGET_DIR", "target");
+    }
+
+    let path = test_utils::cli::get_binary_path("ahma_mcp", "ahma-mcp");
+
+    if let Some(s) = saved {
+        unsafe {
+            std::env::set_var("CARGO_TARGET_DIR", s);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CARGO_TARGET_DIR");
+        }
+    }
+
+    let expected_dir = workspace.join("target").join("debug");
+    assert!(
+        path.starts_with(&expected_dir)
+            || path
+                .parent()
+                .map(|p| p.starts_with(&expected_dir))
+                .unwrap_or(false),
+        "Path {:?} should be under workspace/target/debug when CARGO_TARGET_DIR=target",
+        path
+    );
+}
+
+#[test]
+fn test_build_binary_cached_returns_existing_binary() {
+    let path = test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    assert!(path.exists(), "ahma-mcp binary should exist at {:?}", path);
+}
+
+#[test]
+fn test_build_binary_cached_cache_hit() {
+    let path1 = test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    let path2 = test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    assert_eq!(path1, path2, "Cached paths should be identical");
+}
+
+#[test]
+fn test_test_command_includes_no_sandbox() {
+    let binary = test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    let mut cmd = test_utils::cli::test_command(&binary);
+    let output = cmd.arg("--help").output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ahma") || stdout.contains("MCP"));
 }

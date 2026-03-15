@@ -141,3 +141,125 @@ macro_rules! skip_if_disabled_async {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::path::Path;
+
+    #[test]
+    fn test_is_tool_disabled_env_true() {
+        let tool = "__COV_ENV_TRUE__";
+        let env_var = format!("AHMA_DISABLE_TOOL_{}", tool.to_uppercase());
+        unsafe { env::set_var(&env_var, "true") };
+        let result = is_tool_disabled(tool);
+        unsafe { env::remove_var(&env_var) };
+        assert!(result);
+    }
+
+    #[test]
+    fn test_is_tool_disabled_env_one() {
+        let tool = "__COV_ENV_ONE__";
+        let env_var = format!("AHMA_DISABLE_TOOL_{}", tool.to_uppercase());
+        unsafe { env::set_var(&env_var, "1") };
+        let result = is_tool_disabled(tool);
+        unsafe { env::remove_var(&env_var) };
+        assert!(result);
+    }
+
+    #[test]
+    fn test_is_tool_disabled_env_false_returns_false() {
+        let tool = "__COV_ENV_FALSE__";
+        let env_var = format!("AHMA_DISABLE_TOOL_{}", tool.to_uppercase());
+        unsafe { env::set_var(&env_var, "false") };
+        let result = is_tool_disabled(tool);
+        unsafe { env::remove_var(&env_var) };
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_is_tool_disabled_nonexistent_tool_returns_false() {
+        assert!(!is_tool_disabled("__nonexistent_tool_xyz_123__"));
+    }
+
+    #[test]
+    fn test_is_tool_disabled_config_enabled_false() {
+        let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let ahma_dir = workspace_dir.join(".ahma");
+        let tool_name = format!("__cov_disabled_{}", std::process::id());
+        let config_path = ahma_dir.join(format!("{}.json", tool_name));
+        let content = r#"{"enabled": false}"#;
+        let _ = std::fs::create_dir_all(&ahma_dir);
+        let restore = std::fs::write(&config_path, content).is_ok();
+        let result = is_tool_disabled(&tool_name);
+        if restore {
+            let _ = std::fs::remove_file(&config_path);
+        }
+        assert!(result);
+    }
+
+    #[test]
+    fn test_is_tool_disabled_config_enabled_false_no_space() {
+        let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let ahma_dir = workspace_dir.join(".ahma");
+        let tool_name = format!("__cov_nospace_{}", std::process::id());
+        let config_path = ahma_dir.join(format!("{}.json", tool_name));
+        let content = r#"{"enabled":false}"#;
+        let _ = std::fs::create_dir_all(&ahma_dir);
+        let restore = std::fs::write(&config_path, content).is_ok();
+        let result = is_tool_disabled(&tool_name);
+        if restore {
+            let _ = std::fs::remove_file(&config_path);
+        }
+        assert!(result);
+    }
+
+    #[test]
+    fn test_init_test_logging_does_not_panic() {
+        init_test_logging();
+    }
+
+    #[test]
+    fn test_init_test_sandbox_does_not_panic() {
+        init_test_sandbox();
+    }
+
+    #[test]
+    fn test_strip_ansi_plain_text() {
+        assert_eq!(strip_ansi("hello"), "hello");
+        assert_eq!(strip_ansi("no escape here"), "no escape here");
+    }
+
+    #[test]
+    fn test_strip_ansi_csi_sequence() {
+        let input = "\u{1b}[31mred\u{1b}[0m";
+        assert_eq!(strip_ansi(input), "red");
+    }
+
+    #[test]
+    fn test_strip_ansi_esc_alone() {
+        let input = "a\u{1b}b";
+        assert_eq!(strip_ansi(input), "ab");
+    }
+
+    #[test]
+    fn test_strip_ansi_mixed() {
+        let input = "before\u{1b}[32mgreen\u{1b}[0mafter";
+        assert_eq!(strip_ansi(input), "beforegreenafter");
+    }
+
+    #[test]
+    fn test_skip_if_disabled_macro_when_disabled() {
+        let tool = "__COV_MACRO_DISABLED__";
+        let env_var = format!("AHMA_DISABLE_TOOL_{}", tool.to_uppercase());
+        unsafe { env::set_var(&env_var, "true") };
+        let mut ran = false;
+        (|| {
+            skip_if_disabled!(tool);
+            ran = true;
+        })();
+        unsafe { env::remove_var(&env_var) };
+        assert!(!ran, "macro should have caused early return");
+    }
+}
