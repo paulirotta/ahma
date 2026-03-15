@@ -295,10 +295,11 @@ async fn test_client_response_invalid_roots() {
                     .find_map(|l| l.strip_prefix("data:"))
                     .map(str::trim)
                     && let Ok(v) = serde_json::from_str::<serde_json::Value>(data)
-                        && v.get("method").and_then(|m| m.as_str()) == Some("roots/list") {
-                            roots_req_id = v.get("id").cloned();
-                            break;
-                        }
+                    && v.get("method").and_then(|m| m.as_str()) == Some("roots/list")
+                {
+                    roots_req_id = v.get("id").cloned();
+                    break;
+                }
             }
             if roots_req_id.is_some() {
                 break;

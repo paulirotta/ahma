@@ -287,8 +287,11 @@ fn test_something() {
 **Never** create test files directly in the repository structure. Always use `tempfile::tempdir()` or `tempfile::TempDir::new()`.
 
 ### Running Tests
+
+> **Local vs CI parallelism**: plain `cargo nextest run` uses the `default` nextest profile, which runs tests with full CPU parallelism (no `test-threads` cap).  This is intentional — developer machines such as an M4 Ultra have ample resources.  CI uses `cargo nextest run --profile ci` (set in `build.yml`), which caps parallelism to `num-cpus` (= 2 on GitHub Actions runners) and applies `threads-required = 2` to resource-heavy tests, allowing only one such test at a time.  **Never add `--test-threads` or a `test-threads` setting to `[profile.default]` — that would throttle local developer machines unnecessarily.**
+
 ```bash
-# Run all tests
+# Run all tests (full parallelism locally — no throttle)
 cargo nextest run
 
 # Run tests with coverage

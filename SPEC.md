@@ -682,7 +682,7 @@ async fn test_my_tool_sse()  { run_my_tool_test(TransportMode::Sse).await; }
 - `handshake_*.rs`       — validates session handshake protocol invariants
 - `sandbox_*.rs`         — validates sandbox gating rules
 
-**Concurrency limits** — all test files using `setup_test_mcp` spawn one server per test function.  They MUST be listed in the `threads-required = 2` override filters in `.config/nextest.toml` for both `default` and `ci` profiles to prevent resource storms on 2-CPU CI runners.
+**Concurrency limits** — all test files using `setup_test_mcp` spawn one server per test function.  They MUST be listed in the `threads-required = 2` override filter in the `[profile.ci.overrides]` section of `.config/nextest.toml` to prevent resource storms on GitHub Actions' 2-CPU runners (where `test-threads = "num-cpus"` = 2 and `threads-required = 2` together allow only one such test to run at a time).  The `[profile.default]` section intentionally omits `threads-required` so that local developer machines (e.g. an M4 Ultra with many cores) run tests with full parallelism.  The CI profile is activated explicitly via `cargo nextest run --profile ci` in `build.yml`; plain `cargo nextest run` always uses the default profile.
 
 ### 10.6 Testing Patterns and Helpers
 

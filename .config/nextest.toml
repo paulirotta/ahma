@@ -12,12 +12,17 @@ retries = 0
 failure-output = "immediate"
 success-output = "immediate"
 
-# CI profile with similar optimizations but may have different retry settings
+# CI profile — activated with `cargo nextest run --profile ci` in build.yml.
+# On GitHub Actions runners (2 CPUs), test-threads = "num-cpus" = 2, which
+# combined with threads-required = 2 below means only 1 resource-heavy test
+# runs at a time.  This prevents port conflicts, cargo target-dir lock
+# contention, and process-spawn storms on low-core runners.
 [profile.ci]
 retries = 0
 slow-timeout = { period = "180s", terminate-after = 3 }
-# Limit parallelism on CI to reduce resource contention
-# GitHub Actions runners have 2 cores; use more conservative parallelism
+# Equals the number of available cores on the runner (2 on GitHub Actions).
+# This is the primary throttle for CI; the default profile does NOT set this
+# so developers run with full parallelism on powerful local machines.
 test-threads = "num-cpus"
 # Show output immediately for better CI diagnostics
 failure-output = "immediate"
@@ -30,9 +35,9 @@ filter = "test(handshake_timeout_test::)"
 threads-required = 2
 retries = 0
 
-# CI mirrors: subprocess-spawning tests need concurrency limits just like
-# the default profile.  Without these, 2-CPU Windows runners suffer from
-# cargo target-dir lock contention and process-spawn storms.
+# Subprocess-spawning tests each start an ahma_mcp child process.  On 2-CPU
+# CI runners (test-threads = 2) reserving 2 slots means only 1 runs at a
+# time, avoiding cargo target-dir lock contention and process-spawn storms.
 [[profile.ci.overrides]]
 filter = "test(path_security) | test(mcp_service_coverage_improvement) | test(mcp_callback_coverage) | test(schema_validation) | test(mcp_integration_tests) | test(logging_coverage) | test(mcp_service_edge_cases) | test(mcp_service_integration_coverage) | test(sequence_failure_edge_cases) | test(tools_dir_auto_detection)"
 threads-required = 2
@@ -42,18 +47,15 @@ filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | t
 threads-required = 2
 slow-timeout = { period = "180s", terminate-after = 3 }
 
-# Subprocess-spawning tests: each spawns an ahma_mcp child process.
-# Limit concurrency to avoid OS-level resource contention under heavy load.
-[[profile.default.overrides]]
-filter = "test(path_security) | test(mcp_service_coverage_improvement) | test(mcp_callback_coverage) | test(schema_validation) | test(mcp_integration_tests) | test(logging_coverage) | test(mcp_service_edge_cases) | test(mcp_service_integration_coverage) | test(sequence_failure_edge_cases) | test(tools_dir_auto_detection)"
-threads-required = 2
-
 # HTTP bridge integration tests spawn ahma-mcp server subprocesses.
-# On Windows CI (2 CPUs), parallel server startups cause resource contention
-# and sandbox handshake timeouts. Reserve extra slots to limit concurrency.
+# Locally (default profile) these run with full parallelism — the M4 Ultra
+# and similar developer machines have enough resources to handle concurrent
+# servers.  Throttling via threads-required only happens in the ci profile
+# (see [[profile.ci.overrides]] below), where GitHub Actions runners have 2
+# CPUs and parallel server startups cause lock contention and handshake
+# timeouts.
 [[profile.default.overrides]]
 filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(shell_tool_tests::) | test(file_tool_tests::) | test(git_tool_tests::) | test(python_tool_tests::) | test(tool_integration_test::) | test(request_handler_coverage_test::)"
-threads-required = 2
 slow-timeout = { period = "120s", terminate-after = 3 }
 
 # Coverage profile for cargo llvm-cov (instrumentation makes tests much slower)
