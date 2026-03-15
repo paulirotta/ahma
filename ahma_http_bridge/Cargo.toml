@@ -10,16 +10,16 @@ version.workspace = true
 [dependencies]
 ahma_common = { path = "../ahma_common" }
 anyhow.workspace = true
-axum = { version = "0.8.8", features = ["http2", "tokio"] }
+axum = { version = "0.8", features = ["http2", "tokio"] }
 bytes = "1.11"
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
-dashmap = "6.1.0"
+dashmap = "6.1"
 futures.workspace = true
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true, optional = true }
-owo-colors = "4.3.0"
+owo-colors = "4.3"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
@@ -30,13 +30,13 @@ tokio = { workspace = true, features = [
     "process",
     "sync",
 ] }
-tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { workspace = true, features = ["io", "codec"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing-opentelemetry = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
-uuid = { version = "1.22.0", features = ["v4", "serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [features]
 opentelemetry = [
@@ -49,8 +49,8 @@ opentelemetry = [
 ahma_mcp = { path = "../ahma_mcp" }
 dunce.workspace = true
 futures.workspace = true
-reqwest = { workspace = true, features = ["json", "stream"] }
-serial_test = "3.4.0"
+reqwest = { workspace = true, features = ["json", "stream", "http3"] }
+serial_test = "3.4"
 tempfile.workspace = true
-tower = { version = "0.5.3", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 urlencoding = "2.1"

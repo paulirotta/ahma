@@ -44,7 +44,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_NET_RETRY: 10
   CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: false
-  RUSTFLAGS: -C debuginfo=0 # Do not produce debug symbols to keep memory usage down
+  RUSTFLAGS: -C debuginfo=0 --cfg reqwest_unstable # Do not produce debug symbols; enable HTTP/3 (QUIC) in reqwest
   RUST_BACKTRACE: 1
   IS_DEV_BUILD: "true" # Set "true" to speed up builds for CI testing
   RUSTC_WRAPPER: sccache

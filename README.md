@@ -16,7 +16,7 @@ _Create MCP tools agents from your command line tools with one JSON file, then w
 
 ## Ahma is
 - **secure by default**: this is a toolbox for AI to use command line tools safely. It helps move past the  'do you trust this tool/author?' prompts. Trust is not a security model. Asking the user working fast on several tasks for permission to `rm -rf ~` is irresponsible, not a security model.
-- **fast by default**: command line tool calls become *deterministic and asynchronous subagents*. This saves time by allowing AI agents to continue thinking and planning while awaiting one or more long-running command line tasks.
+- **fast by default**: command line tool calls become *deterministic and asynchronous subagents*. HTTP/3 (QUIC) is the preferred transport for all HTTP clients, delivering lower latency through 0-RTT connection establishment and improved multiplexing. HTTP streaming (MCP Streamable HTTP) is the default transport for the HTTP bridge, enabling full-duplex communication with event replay. AI agents continue thinking and planning while awaiting one or more long-running command line tasks.
 - **principle of least privilege (PoLP)**: You may optionally disalbe direct calls to `sandboxed_shell` and instead specify the allowed arguments to each command line tool by creating a `.ahma/toolname.json` file.
 - **batteries included**: Bundled tools can be selectively enabled, e.g. `--simplify` in your `mcp.json` for vibe code complexity reduction to improve maintainability.
 - **flexible**: Supporting agentic development workflows or powering business agents are just two use cases. The rest is up to your creative imagination.
@@ -206,7 +206,8 @@ Example `mcp.json` for VS Code:
             ]
         }
     }
-}```
+}
+```
 
 Example `mcp.json` for Cursor:
 

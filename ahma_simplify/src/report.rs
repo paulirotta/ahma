@@ -362,6 +362,8 @@ TARGET: {rel_str}
 SIMPLICITY: {score:.0}% | ISSUE: {culprit}
 METRICS: Cognitive={cog}, Cyclomatic={cyc}, SLOC={sloc}, MI={mi:.1}
 
+Create a team of agents or subagents to handle this refactoring:
+
 STEP 1 - READ the simplicity report above and the target file. The report
          identifies specific hotspot functions causing complexity.
 
@@ -375,6 +377,8 @@ STEP 3 - IMPLEMENT focused changes:
    - Break functions longer than ~40 lines into focused units
 
 STEP 4 - VERIFY by running the project's test suite.
+
+STEP 5 - Summarize the changes and the numerical improvements in simplicity metrics after the refactoring.
 
 Execute all steps now. Do not stop at planning.",
         issue_number = issue_number,

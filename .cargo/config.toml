@@ -7,10 +7,13 @@ fetch-recurse-submodules = false
 [target.aarch64-unknown-linux-gnu]
 # Use mold - far lower RAM usage than GNU ld, and much faster.
 # gcc 12+ supports -fuse-ld=mold natively; no clang needed.
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# --cfg reqwest_unstable enables HTTP/3 (QUIC) support in reqwest.
+rustflags = ["-C", "link-arg=-fuse-ld=mold", "--cfg", "reqwest_unstable"]
 
 [build]
 # Limit parallel jobs to avoid OOM-killing the linker on Pi 5 (8 GB RAM,
 # nearly-full zram swap).  Compilation is still parallelised; this caps how
 # many large link invocations run simultaneously.
 jobs = 4
+# Enable reqwest's unstable HTTP/3 (QUIC) feature.
+rustflags = ["--cfg", "reqwest_unstable"]

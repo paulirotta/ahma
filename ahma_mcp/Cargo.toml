@@ -28,13 +28,13 @@ directories.workspace = true
 dirs.workspace = true
 dunce.workspace = true
 futures.workspace = true
-notify = "8.2.0"
+notify = "8.2"
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true, optional = true }
 rand = "0.10.0"
 regex.workspace = true
-reqwest = { workspace = true, features = ["json", "rustls"] }
+reqwest = { workspace = true, features = ["json", "rustls", "http3"] }
 rmcp.workspace = true
 schemars.workspace = true
 serde.workspace = true

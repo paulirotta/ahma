@@ -130,8 +130,14 @@ impl HttpMcpTransport {
             None => AuthState::Unauthenticated,
         };
 
+        // Build HTTP client preferring HTTP/3 (QUIC) when the server supports it.
+        // reqwest with the `http3` feature automatically upgrades via Alt-Svc headers.
+        let http_client = reqwest::Client::builder()
+            .build()
+            .map_err(|e| McpHttpError::Custom(format!("Failed to build HTTP client: {e}")))?;
+
         let transport = Self {
-            client: reqwest::Client::new(),
+            client: http_client,
             mcp_url: url,
             auth_state: Arc::new(StateMachine::new(initial_state)),
             oauth_client,

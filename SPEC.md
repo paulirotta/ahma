@@ -18,6 +18,7 @@
 | STDIO Mode | tests-pass | Direct MCP server over stdio for IDE integration |
 | HTTP Bridge Mode | tests-pass | HTTP/SSE proxy for web clients |
 | HTTP Streaming (Streamable HTTP) | tests-pass | POST SSE with event IDs, event history, Last-Event-Id replay, full multiplexing |
+| HTTP/3 (QUIC) Client Preference | tests-pass | All HTTP clients prefer HTTP/3 (QUIC) when server supports it; transparent fallback to HTTP/2 and HTTP/1.1 |
 | Session Isolation (HTTP) | tests-pass | Per-session sandbox scope via MCP `roots/list` |
 | Built-in `status` Tool | tests-pass | Non-blocking progress check for async operations |
 | Built-in `await` Tool | tests-pass | Blocking wait for operation completion |
@@ -52,6 +53,7 @@ _"Create agents from your command line tools with one JSON file, then watch them
 | rmcp | 0.13.0 | MCP protocol implementation |
 | Tokio | 1.x | Async runtime |
 | Landlock | 0.4.4 | Linux kernel sandboxing |
+| reqwest | 0.13.2 (http3) | HTTP client with HTTP/3 (QUIC) preference |
 | schemars | 1.2.0 | JSON Schema generation |
 
 ---
@@ -431,6 +433,10 @@ ahma-mcp --list-tools --http http://localhost:3000
   - **R8.6.3**: Event history buffer maintains recent events (bounded to 1000 events per session) for `Last-Event-Id` replay support.
   - **R8.6.4**: GET requests with `Last-Event-Id: N` replay all events with ID > N from the per-session history buffer, enabling seamless reconnection after temporary network loss.
   - **R8.6.5**: Event IDs are independent per session and start at 1. Event history is cleared when the session ends.
+- **R8.7**: **HTTP/3 (QUIC) Client Preference**: All HTTP clients built with `reqwest` use the `http3` feature to prefer HTTP/3 (QUIC) transport when the server advertises support via Alt-Svc headers.
+  - **R8.7.1**: HTTP/3 uses QUIC (UDP-based) for reduced connection latency and improved multiplexing compared to HTTP/2 over TCP.
+  - **R8.7.2**: Transparent fallback to HTTP/2 or HTTP/1.1 when the server does not support HTTP/3.
+  - **R8.7.3**: Both SSE and HTTP streaming endpoints work correctly with HTTP/3-capable clients.
 
 ### R9: Session Isolation
 

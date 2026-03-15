@@ -350,7 +350,10 @@ mod sandboxed_shell_tests {
         let test_file = "shell_created.txt";
 
         let script = if cfg!(windows) {
-            format!("Set-Content -Path {} -Value 'content' -Encoding UTF8", test_file)
+            format!(
+                "Set-Content -Path {} -Value 'content' -Encoding UTF8",
+                test_file
+            )
         } else {
             format!("echo 'content' > {}", test_file)
         };

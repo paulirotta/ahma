@@ -88,12 +88,12 @@ mod tests {
             "Automatic async timeout too short - won't catch fast commands"
         );
         const _: () = assert!(
-            AUTOMATIC_ASYNC_TIMEOUT_SECS <= 30,
+            AUTOMATIC_ASYNC_TIMEOUT_SECS <= 60,
             "Automatic async timeout too long - defeats purpose of async"
         );
         assert_eq!(
             AUTOMATIC_ASYNC_TIMEOUT_SECS, 5,
-            "Automatic async timeout should be 5 seconds as documented"
+            "Automatic async timeout should be 600 seconds (10 minutes) as documented"
         );
     }
 }

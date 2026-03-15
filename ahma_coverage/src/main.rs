@@ -52,12 +52,16 @@ fn main() -> Result<()> {
     }
 
     let file = File::open(input_path).context("Failed to open coverage.json")?;
-    let data: CoverageData = serde_json::from_reader(file).context("Failed to parse coverage.json")?;
+    let data: CoverageData =
+        serde_json::from_reader(file).context("Failed to parse coverage.json")?;
 
-    let cov_data = data.data.first().context("Error: Invalid coverage.json format.")?;
-    
+    let cov_data = data
+        .data
+        .first()
+        .context("Error: Invalid coverage.json format.")?;
+
     let mut output = File::create(output_path).context("Failed to create coverage_summary.md")?;
-    
+
     writeln!(output, "# Code Coverage Summary\n")?;
 
     // Totals section
@@ -65,7 +69,7 @@ fn main() -> Result<()> {
         writeln!(output, "## Totals\n")?;
         writeln!(output, "| Category | Count | Covered | Percent |")?;
         writeln!(output, "|----------|-------|---------|---------|")?;
-        
+
         let categories = [
             ("Lines", &totals.lines),
             ("Functions", &totals.functions),
@@ -74,7 +78,11 @@ fn main() -> Result<()> {
         ];
 
         for (name, stats) in categories {
-            writeln!(output, "| {} | {} | {} | {:.2}% |", name, stats.count, stats.covered, stats.percent)?;
+            writeln!(
+                output,
+                "| {} | {} | {} | {:.2}% |",
+                name, stats.count, stats.covered, stats.percent
+            )?;
         }
         writeln!(output, "")?;
     }
@@ -154,7 +162,11 @@ fn main() -> Result<()> {
     let mut uncovered_details = Vec::new();
 
     for (filename, line_cov, _, table_uncovered, uncovered_ranges) in &top_files {
-        writeln!(output, "| {} | {:.2}% | {} |", filename, line_cov, table_uncovered)?;
+        writeln!(
+            output,
+            "| {} | {:.2}% | {} |",
+            filename, line_cov, table_uncovered
+        )?;
         uncovered_details.push((filename.clone(), *line_cov, uncovered_ranges.clone()));
     }
 

@@ -27,16 +27,16 @@ rust-version = "1.93.1"
 version = "0.5.4"
 
 [workspace.dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0"
 async-trait = "0.1.89"
-chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.5.60", features = ["derive"] }
-ctrlc = "3.5.2"
-directories = "6.0.0"
-dirs = "6.0.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+ctrlc = "3.5"
+directories = "6.0"
+dirs = "6.0"
 dunce = "1.0"
-futures = "0.3.32"
-landlock = "0.4.4"
+futures = "0.3"
+landlock = "0.4"
 opentelemetry = { version = "0.31", features = ["trace"] }
 # Windows-only kernel binding crate (only fetched when compiling for Windows)
 windows-sys = { version = "0.61", features = [
@@ -53,9 +53,9 @@ opentelemetry-otlp = { version = "0.31", features = [
     "reqwest-rustls",
 ] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-regex = "1.12.3"
-reqwest = { version = "0.13.2", default-features = false }
-rmcp = { version = "1.2.0", features = [
+regex = "1.12"
+reqwest = { version = "0.13", default-features = false }
+rmcp = { version = "1.2", features = [
     "server",
     "client",
     "macros",
@@ -64,25 +64,25 @@ rmcp = { version = "1.2.0", features = [
     "elicitation",
     "schemars",
 ] }
-schemars = "1.2.1"
-serde = "1.0.228"
-serde_json = "1.0.149"
-tempfile = "3.27.0"
-thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = [
+schemars = "1.2"
+serde = "1.0"
+serde_json = "1.0"
+tempfile = "3.27"
+thiserror = "2.0"
+tokio = { version = "1.50", features = [
     "macros",
     "rt-multi-thread",
     "process",
     "fs",
     "signal",
 ] }
-tokio-util = "0.7.18"
-toml = "1.0.6"
-tracing = "0.1.44"
-tracing-appender = "0.2.4"
+tokio-util = "0.7"
+toml = "1.0"
+tracing = "0.1"
+tracing-appender = "0.2"
 tracing-opentelemetry = "0.32"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-url = "2.5.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
 
 [profile.release]
 lto = "thin"
