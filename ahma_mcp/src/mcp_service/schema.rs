@@ -200,6 +200,16 @@ fn add_working_directory_property(properties: &mut Map<String, Value>) {
     );
 }
 
+fn build_schema_object(properties: Map<String, Value>, required: Vec<Value>) -> Map<String, Value> {
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
+    if !required.is_empty() {
+        schema.insert("required".to_string(), Value::Array(required));
+    }
+    schema
+}
+
 fn generate_single_command_schema(
     tool_config: &ToolConfig,
     leaf_subcommand: &(String, &SubcommandConfig),
@@ -211,13 +221,7 @@ fn generate_single_command_schema(
         add_working_directory_property(&mut properties);
     }
 
-    let mut schema = Map::new();
-    schema.insert("type".to_string(), Value::String("object".to_string()));
-    schema.insert("properties".to_string(), Value::Object(properties));
-    if !required.is_empty() {
-        schema.insert("required".to_string(), Value::Array(required));
-    }
-    schema
+    build_schema_object(properties, required)
 }
 
 /// Processes a single subcommand entry for multi-command schema generation.
@@ -257,7 +261,8 @@ fn generate_multi_command_schema(
         .map(|(path, sub_config)| build_subcommand_entry(path, sub_config, &mut all_properties))
         .unzip();
 
-    if !subcommand_enum.is_empty() {
+    let has_subcommands = !subcommand_enum.is_empty();
+    if has_subcommands {
         all_properties.insert(
             "subcommand".to_string(),
             serde_json::json!({ "type": "string", "description": "The subcommand to execute.", "enum": subcommand_enum }),
@@ -268,15 +273,12 @@ fn generate_multi_command_schema(
         add_working_directory_property(&mut all_properties);
     }
 
-    let mut schema = Map::new();
-    schema.insert("type".to_string(), Value::String("object".to_string()));
-    schema.insert("properties".to_string(), Value::Object(all_properties));
-    if !subcommand_enum.is_empty() {
-        schema.insert(
-            "required".to_string(),
-            Value::Array(vec![Value::String("subcommand".to_string())]),
-        );
-    }
+    let required = if has_subcommands {
+        vec![Value::String("subcommand".to_string())]
+    } else {
+        vec![]
+    };
+    let mut schema = build_schema_object(all_properties, required);
     if !one_of.is_empty() {
         schema.insert("oneOf".to_string(), Value::Array(one_of));
     }

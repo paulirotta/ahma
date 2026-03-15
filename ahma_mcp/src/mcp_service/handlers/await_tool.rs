@@ -75,29 +75,7 @@ impl AhmaMcpService {
         );
 
         let wait_start = Instant::now();
-        let (warning_tx, mut warning_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let warning_task = {
-            let warning_tx = warning_tx.clone();
-            let timeout_secs = timeout_seconds;
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs_f64(timeout_secs * 0.5)).await;
-                let _ = warning_tx.send(format!(
-                    "Wait operation 50% complete ({:.0}s remaining)",
-                    timeout_secs * 0.5
-                ));
-                tokio::time::sleep(std::time::Duration::from_secs_f64(timeout_secs * 0.25)).await;
-                let _ = warning_tx.send(format!(
-                    "Wait operation 75% complete ({:.0}s remaining)",
-                    timeout_secs * 0.25
-                ));
-                tokio::time::sleep(std::time::Duration::from_secs_f64(timeout_secs * 0.15)).await;
-                let _ = warning_tx.send(format!(
-                    "Wait operation 90% complete ({:.0}s remaining)",
-                    timeout_secs * 0.1
-                ));
-            })
-        };
+        let (warning_task, mut warning_rx) = spawn_progress_warnings(timeout_seconds);
 
         let wait_result = tokio::time::timeout(timeout_duration, async {
             let futures: Vec<_> = pending_ops
@@ -119,22 +97,7 @@ impl AhmaMcpService {
         }
 
         match wait_result {
-            Ok(contents) => {
-                let elapsed = wait_start.elapsed();
-                if !contents.is_empty() {
-                    let mut result_contents = vec![Content::text(format!(
-                        "Completed {} operations in {:.2}s",
-                        contents.len(),
-                        elapsed.as_secs_f64()
-                    ))];
-                    result_contents.extend(contents);
-                    Ok(CallToolResult::success(result_contents))
-                } else {
-                    Ok(CallToolResult::success(vec![Content::text(
-                        "No operations completed within timeout period".to_string(),
-                    )]))
-                }
-            }
+            Ok(contents) => Ok(build_completion_result(contents, wait_start)),
             Err(_) => {
                 self.handle_await_timeout(wait_start, timeout_seconds, &pending_ops)
                     .await
@@ -237,33 +200,11 @@ impl AhmaMcpService {
         &self,
         op_id: String,
     ) -> Result<CallToolResult, McpError> {
-        // Check if operation exists
-        let operation = self.operation_monitor.get_operation(&op_id).await;
-
-        if operation.is_none() {
-            // Check if it's in completed operations
-            let completed_ops = self.operation_monitor.get_completed_operations().await;
-            if let Some(completed_op) = completed_ops.iter().find(|op| op.id == op_id) {
-                let mut contents = vec![Content::text(format!(
-                    "Operation {} already completed",
-                    op_id
-                ))];
-                contents.extend(common::serialize_operations_to_content(
-                    std::slice::from_ref(completed_op),
-                ));
-                return Ok(CallToolResult::success(contents));
-            } else {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Operation {} not found",
-                    op_id
-                ))]));
-            }
+        if self.operation_monitor.get_operation(&op_id).await.is_none() {
+            return Ok(self.format_already_completed_or_not_found(&op_id).await);
         }
 
-        // Wait for the specific operation
         tracing::info!("Waiting for operation: {}", op_id);
-
-        // Use a reasonable timeout (e.g., 5 minutes)
         let timeout_duration = std::time::Duration::from_secs(300);
         let wait_start = Instant::now();
 
@@ -275,15 +216,9 @@ impl AhmaMcpService {
 
         match wait_result {
             Ok(Some(completed_op)) => {
-                let elapsed = wait_start.elapsed();
-                let mut contents = vec![Content::text(format!(
-                    "Completed 1 operations in {:.2}s",
-                    elapsed.as_secs_f64()
-                ))];
-                contents.extend(common::serialize_operations_to_content(
-                    std::slice::from_ref(&completed_op),
-                ));
-                Ok(CallToolResult::success(contents))
+                let contents =
+                    common::serialize_operations_to_content(std::slice::from_ref(&completed_op));
+                Ok(build_completion_result(contents, wait_start))
             }
             Ok(None) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Operation {} completed but no result available",
@@ -294,6 +229,24 @@ impl AhmaMcpService {
                 op_id
             ))])),
         }
+    }
+
+    async fn format_already_completed_or_not_found(&self, op_id: &str) -> CallToolResult {
+        let completed_ops = self.operation_monitor.get_completed_operations().await;
+        let Some(completed_op) = completed_ops.iter().find(|op| op.id == op_id) else {
+            return CallToolResult::success(vec![Content::text(format!(
+                "Operation {} not found",
+                op_id
+            ))]);
+        };
+        let mut contents = vec![Content::text(format!(
+            "Operation {} already completed",
+            op_id
+        ))];
+        contents.extend(common::serialize_operations_to_content(
+            std::slice::from_ref(completed_op),
+        ));
+        CallToolResult::success(contents)
     }
 
     async fn generate_remediation_suggestions(&self, still_running: &[Operation]) -> Vec<String> {
@@ -317,34 +270,84 @@ impl AhmaMcpService {
     }
 
     async fn collect_lock_file_suggestions(&self, steps: &mut Vec<String>) {
-        const LOCK_PATTERNS: &[&str] = &[
-            ".cargo-lock",
-            ".lock",
-            "package-lock.json",
-            "yarn.lock",
-            ".npm-lock",
-            "composer.lock",
-            "Pipfile.lock",
-            ".bundle-lock",
-        ];
         for dir in &["target", "node_modules", ".cargo", "tmp", "temp"] {
-            if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    if let Some(name) = entry.file_name().to_str()
-                        && LOCK_PATTERNS.iter().any(|p| name.contains(p))
-                    {
-                        steps.push(format!(
-                            "• Remove potential stale lock file: rm {}/{}",
-                            dir, name
-                        ));
-                    }
-                }
-            }
+            scan_dir_for_lock_files(dir, steps).await;
         }
         if tokio::fs::metadata(".").await.is_ok() {
             steps.push("• Check available disk space: df -h .".to_string());
         }
     }
+}
+
+const LOCK_PATTERNS: &[&str] = &[
+    ".cargo-lock",
+    ".lock",
+    "package-lock.json",
+    "yarn.lock",
+    ".npm-lock",
+    "composer.lock",
+    "Pipfile.lock",
+    ".bundle-lock",
+];
+
+fn is_lock_file(name: &str) -> bool {
+    LOCK_PATTERNS.iter().any(|p| name.contains(p))
+}
+
+async fn scan_dir_for_lock_files(dir: &str, steps: &mut Vec<String>) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        if is_lock_file(&name) {
+            steps.push(format!(
+                "• Remove potential stale lock file: rm {}/{}",
+                dir, name
+            ));
+        }
+    }
+}
+
+fn spawn_progress_warnings(
+    timeout_secs: f64,
+) -> (
+    tokio::task::JoinHandle<()>,
+    tokio::sync::mpsc::UnboundedReceiver<String>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = tokio::spawn(async move {
+        for (pct, remaining_factor) in [(50, 0.5), (75, 0.25), (90, 0.1)] {
+            tokio::time::sleep(std::time::Duration::from_secs_f64(
+                timeout_secs * remaining_factor,
+            ))
+            .await;
+            let _ = tx.send(format!(
+                "Wait operation {}% complete ({:.0}s remaining)",
+                pct,
+                timeout_secs * remaining_factor
+            ));
+        }
+    });
+    (handle, rx)
+}
+
+fn build_completion_result(contents: Vec<Content>, wait_start: Instant) -> CallToolResult {
+    let elapsed = wait_start.elapsed();
+    if contents.is_empty() {
+        return CallToolResult::success(vec![Content::text(
+            "No operations completed within timeout period".to_string(),
+        )]);
+    }
+    let mut result_contents = vec![Content::text(format!(
+        "Completed {} operations in {:.2}s",
+        contents.len(),
+        elapsed.as_secs_f64()
+    ))];
+    result_contents.extend(contents);
+    CallToolResult::success(result_contents)
 }
 
 fn collect_process_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {

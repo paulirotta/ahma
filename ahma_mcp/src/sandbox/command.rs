@@ -95,7 +95,7 @@ impl Sandbox {
     }
 
     /// Create a sandboxed shell command (e.g. `bash -c "..."` on Unix,
-    /// `pwsh -NoProfile -NonInteractive -Command "..."` on Windows).
+    /// `powershell -NoProfile -NonInteractive -Command "..."` on Windows).
     pub fn create_shell_command(
         &self,
         shell_program: &str,
@@ -150,7 +150,7 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         let shell = "sh";
         #[cfg(target_os = "windows")]
-        let shell = "pwsh";
+        let shell = "powershell";
 
         let result = sandbox.create_shell_command(shell, "echo hello", td.path());
         assert!(

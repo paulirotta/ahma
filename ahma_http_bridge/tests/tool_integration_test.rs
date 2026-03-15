@@ -61,7 +61,10 @@ async fn run_list_tools_returns_all_expected_tools(mode: TransportMode) {
         eprintln!("WARNING  missing expected tools: {:?}", missing);
     }
 
-    assert!(!tools.is_empty(), "Server should return at least some tools");
+    assert!(
+        !tools.is_empty(),
+        "Server should return at least some tools"
+    );
 
     for core in &["sandboxed_shell", "file-tools_pwd"] {
         if tool_names.contains(core) {
@@ -166,7 +169,10 @@ async fn run_core_tools_comprehensive(mode: TransportMode) {
             "file-tools_grep",
             json!({"pattern": "name", "files": ["Cargo.toml"]}),
         ),
-        ("sandboxed_shell", json!({"command": "echo 'integration test'"})),
+        (
+            "sandboxed_shell",
+            json!({"command": "echo 'integration test'"}),
+        ),
     ];
 
     let mut pass = 0usize;
@@ -213,8 +219,7 @@ async fn run_core_tools_comprehensive(mode: TransportMode) {
         assert!(
             r.success,
             "sandboxed_shell must succeed ({:?}): {:?}",
-            mode,
-            r.error
+            mode, r.error
         );
     }
 }

@@ -338,8 +338,8 @@ impl Adapter {
         // Create sandboxed command.
         // `create_shell_command` is only needed for raw /bin/sh invocations where
         // the caller has NOT already added the -c flag via a subcommand config.
-        // For bash/pwsh the preparer already embeds -c/-Command; always use
-        // create_command so the sandbox wrapper is applied without double-wrapping.
+        // For bash/powershell the preparer already embeds -c/-Command; always
+        // use create_command so the sandbox wrapper is applied without double-wrapping.
         let mut cmd = if program == "/bin/sh" {
             let full_command = args_vec.join(" ");
             self.sandbox
@@ -586,8 +586,8 @@ impl Adapter {
             // Build sandboxed process command.
             // `create_shell_command` injects -c (Unix) or -NoProfile … -Command (Windows).
             // Only use it for raw /bin/sh invocations where no -c flag was pre-added.
-            // For bash/pwsh the preparer already adds the flag; create_command applies
-            // the sandbox wrapper without double-wrapping.
+            // For bash/powershell the preparer already adds the flag; create_command
+            // applies the sandbox wrapper without double-wrapping.
             let wd_path = std::path::PathBuf::from(&wd_clone);
             let proc_cmd_result = if program_with_subcommand == "/bin/sh" {
                 let full_command = args_vec.join(" ");

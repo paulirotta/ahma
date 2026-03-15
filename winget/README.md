@@ -49,10 +49,7 @@ export WINGET_TOKEN=<your-github-token>
 
 ## Requirements
 
-- **Runtime**: PowerShell 7+ (`pwsh`) must be installed for `ahma-mcp` to function.
-  ```powershell
-  winget install Microsoft.PowerShell
-  ```
+- **Runtime**: PowerShell (built into Windows 10/11) is required for `ahma-mcp` to function. No additional installation needed.
 - **Windows**: 10 or later (x64).
 
 ## Submission checklist

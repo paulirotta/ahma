@@ -4,8 +4,6 @@ _Create MCP tools agents from your command line tools with one JSON file, then w
 
 ## Ahma solves
 
-Why teams use Ahma:
-
 - **Unsafe AI terminal access**: Most AI terminal workflows rely on trust prompts, not real containment. Ahma enforces kernel-level sandbox boundaries so AI can operate inside your project scope without unrestricted filesystem access.
 - **Agents and LLMs blocked by long-running synchronous commands**: Build, test, and deploy tasks can stall an agent for minutes. Ahma runs tool calls async-first, so agents can keep planning and executing while work completes in the background.
 - **Slow tool onboarding for AI workflows**: Ahma makes your custom tools AI-friendly. It gives you no code definition of CLI tools in JSON with hot-reload when you edit the tool definition.
@@ -39,13 +37,12 @@ MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor,
 | **Live log monitoring** | Raw output only | Pattern-matched alerts streamed to AI (error/warn/info levels) |
 | **PoLP enforcement** | Any command, any argument | Call directly, or define a JSON file to restrict which arguments can be passed to a command line tool |
 
-## Supported OS
+## OS Support
 
-Linux and macOS are fully supported with kernel-level sandboxing. **Windows x64 support is in active development** — the runtime (PowerShell-first shell pool, file URI parsing) is implemented but the Windows sandbox backend is not yet complete. Windows builds fail closed in strict mode until the sandbox backend ships.
-
-Raspberry Pi is supported with `--no-sandbox` until the kernel is updated to support Landlock (kernel ≥ 5.13).
-
-**Windows requirements (when available):** PowerShell 7+ (`pwsh`) must be installed — download from https://aka.ms/powershell
+- **macOS** — Full support with kernel-level sandboxing (Seatbelt)
+- **Linux (Ubuntu, RHEL)** — Intel and ARM. Full support with Landlock (kernel ≥ 5.13)
+- **Raspberry Pi** — 64-bit and 32-bit. Use `--no-sandbox` until kernel-level sandboxing is supported (Landlock requires kernel ≥ 5.13)
+- **Windows** — Full support. Uses the built-in PowerShell (5.1+) included with Windows 10/11
 
 ## Installation Script
 

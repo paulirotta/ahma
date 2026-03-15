@@ -40,6 +40,7 @@ threads-required = 2
 [[profile.ci.overrides]]
 filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(shell_tool_tests::) | test(file_tool_tests::) | test(git_tool_tests::) | test(python_tool_tests::) | test(tool_integration_test::)"
 threads-required = 2
+slow-timeout = { period = "180s", terminate-after = 3 }
 
 # Subprocess-spawning tests: each spawns an ahma_mcp child process.
 # Limit concurrency to avoid OS-level resource contention under heavy load.
@@ -53,6 +54,7 @@ threads-required = 2
 [[profile.default.overrides]]
 filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(shell_tool_tests::) | test(file_tool_tests::) | test(git_tool_tests::) | test(python_tool_tests::) | test(tool_integration_test::)"
 threads-required = 2
+slow-timeout = { period = "120s", terminate-after = 3 }
 
 # Coverage profile for cargo llvm-cov (instrumentation makes tests much slower)
 [profile.coverage]

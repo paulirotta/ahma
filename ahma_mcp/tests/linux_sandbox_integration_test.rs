@@ -52,18 +52,17 @@ fn check_lsm_list_for_landlock() -> bool {
 
 /// Spawn a child that enforces Landlock and verifies writes outside scope are blocked.
 fn probe_landlock_in_child() -> bool {
-    let temp = match TempDir::new() {
-        Ok(temp) => temp,
-        Err(_) => return false,
-    };
+    probe_landlock_in_child_inner().unwrap_or(false)
+}
+
+fn probe_landlock_in_child_inner() -> Option<bool> {
+    let temp = TempDir::new().ok()?;
     let sandbox_subdir = temp.path().join("probe_scope");
-    if fs::create_dir(&sandbox_subdir).is_err() {
-        return false;
-    }
+    fs::create_dir(&sandbox_subdir).ok()?;
     let blocked_file = temp.path().join("probe_blocked.txt");
     let sandbox_scope_str = sandbox_subdir.to_string_lossy().to_string();
 
-    let output = unsafe {
+    let result = unsafe {
         Command::new("/bin/sh")
             .arg("-c")
             .arg(format!("echo probe > {}", blocked_file.display()))
@@ -73,11 +72,10 @@ fn probe_landlock_in_child() -> bool {
                 Ok(())
             })
             .output()
-    };
-    match output {
-        Ok(result) => !result.status.success() && !blocked_file.exists(),
-        Err(_) => false,
     }
+    .ok()?;
+
+    Some(!result.status.success() && !blocked_file.exists())
 }
 
 /// Kernel version guard (Landlock requires Linux 5.13+).
@@ -455,22 +453,24 @@ fn test_landlock_works_with_bash() {
     );
 }
 
+fn print_landlock_diagnostics() {
+    if let Ok(content) = fs::read_to_string("/sys/kernel/security/lsm") {
+        eprintln!("  LSMs enabled: {}", content.trim());
+    }
+    if let Ok(output) = Command::new("uname").arg("-r").output() {
+        eprintln!(
+            "  Kernel version: {}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        );
+    }
+}
+
 /// Verify that Landlock is available on this system (informational test)
 #[test]
 fn test_landlock_availability_check() {
-    // This test always runs to provide diagnostic information
     if is_landlock_available() {
         eprintln!("OK Landlock is available on this system");
-
-        // Additional diagnostics
-        if let Ok(content) = fs::read_to_string("/sys/kernel/security/lsm") {
-            eprintln!("  LSMs enabled: {}", content.trim());
-        }
-
-        if let Ok(output) = Command::new("uname").arg("-r").output() {
-            let version = String::from_utf8_lossy(&output.stdout);
-            eprintln!("  Kernel version: {}", version.trim());
-        }
+        print_landlock_diagnostics();
     } else {
         eprintln!("✗ Landlock is NOT available on this system");
         eprintln!("  Requirements: Linux kernel 5.13+ with Landlock LSM enabled");

@@ -60,6 +60,10 @@ pub struct FunctionHotspot {
     pub sloc: f64,
 }
 
+fn is_named_function(entry: &SpaceEntry) -> bool {
+    entry.kind == "function" && entry.name != "<anonymous>"
+}
+
 impl FunctionHotspot {
     const MAX_HOTSPOTS: usize = 5;
 
@@ -83,20 +87,23 @@ impl FunctionHotspot {
             if !Self::is_nontrivial_function(entry) {
                 continue;
             }
-            hotspots.push(FunctionHotspot {
-                name: entry.name.clone(),
-                start_line: entry.start_line,
-                end_line: entry.end_line,
-                cognitive: entry.metrics.cognitive.sum,
-                cyclomatic: entry.metrics.cyclomatic.sum,
-                sloc: entry.metrics.loc.sloc,
-            });
+            hotspots.push(Self::from_space_entry(entry));
+        }
+    }
+
+    fn from_space_entry(entry: &SpaceEntry) -> FunctionHotspot {
+        FunctionHotspot {
+            name: entry.name.clone(),
+            start_line: entry.start_line,
+            end_line: entry.end_line,
+            cognitive: entry.metrics.cognitive.sum,
+            cyclomatic: entry.metrics.cyclomatic.sum,
+            sloc: entry.metrics.loc.sloc,
         }
     }
 
     fn is_nontrivial_function(entry: &SpaceEntry) -> bool {
-        entry.kind == "function"
-            && entry.name != "<anonymous>"
+        is_named_function(entry)
             && (entry.metrics.cognitive.sum > 0.0 || entry.metrics.cyclomatic.sum > 1.0)
     }
 }
@@ -280,14 +287,12 @@ impl FileSimplicity {
     ) {
         for entry in spaces {
             Self::accumulate_function_mi(&entry.spaces, weighted_sum, total_weight);
-            if entry.kind != "function"
-                || entry.name == "<anonymous>"
-                || entry.metrics.loc.sloc <= 0.0
-            {
+            if !is_named_function(entry) || entry.metrics.loc.sloc <= 0.0 {
                 continue;
             }
-            *weighted_sum += entry.metrics.mi.mi_visual_studio * entry.metrics.loc.sloc;
-            *total_weight += entry.metrics.loc.sloc;
+            let sloc = entry.metrics.loc.sloc;
+            *weighted_sum += entry.metrics.mi.mi_visual_studio * sloc;
+            *total_weight += sloc;
         }
     }
 }

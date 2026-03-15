@@ -62,7 +62,7 @@ fn test_sandbox_create_shell_command_test_mode() {
     #[cfg(not(target_os = "windows"))]
     let shell = "sh";
     #[cfg(target_os = "windows")]
-    let shell = "pwsh";
+    let shell = "powershell";
 
     let result = sandbox.create_shell_command(shell, "echo hello", td.path());
     assert!(
@@ -86,7 +86,7 @@ fn test_sandbox_create_shell_command_strict_mode() {
     #[cfg(not(target_os = "windows"))]
     let shell = "sh";
     #[cfg(target_os = "windows")]
-    let shell = "pwsh";
+    let shell = "powershell";
 
     let result = sandbox.create_shell_command(shell, "echo hello", td.path());
     assert!(

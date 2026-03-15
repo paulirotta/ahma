@@ -5,7 +5,7 @@
 #   - Windows x86_64 (x64)
 #
 # Requirements:
-#   - PowerShell 5.1+ (built in to Windows 10/11; we target pwsh 7+ for runtime use)
+#   - PowerShell 5.1+ (built in to Windows 10/11)
 #   - Internet access to GitHub releases
 #
 # Environment variables:
@@ -101,5 +101,4 @@ Write-Host "Ensure $installDir is in your PATH."
 Write-Host "To add permanently, run:"
 Write-Host "  [Environment]::SetEnvironmentVariable('PATH', `"`$env:PATH;$installDir`", 'User')"
 Write-Host ""
-Write-Host "PowerShell 7+ (pwsh) is required at runtime:"
-Write-Host "  winget install Microsoft.PowerShell"
+Write-Host "PowerShell (built into Windows 10/11) is used at runtime. No additional installation needed."

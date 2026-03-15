@@ -12,7 +12,7 @@
 | Linux Sandbox (Landlock) | tests-pass | Kernel-level FS sandboxing on Linux 5.13+ |
 | macOS Sandbox (Seatbelt) | tests-pass | Kernel-level FS sandboxing via `sandbox-exec` |
 | Nested Sandbox Detection | tests-pass | Detects Cursor/VS Code/Docker outer sandboxes |
-| Windows Runtime (PowerShell) | in-progress | `pwsh`-first shell pool; cross-platform path security + file URI; parity tests green |
+| Windows Runtime (PowerShell) | in-progress | Built-in PowerShell (5.1+) shell pool; cross-platform path security + file URI; parity tests green |
 | Windows Sandbox backend | in-progress | Job Object enforcement done; AppContainer profile + DACL grant implemented (Windows CI validation required for `tests-pass`) |
 | Windows Pre-built Releases | in-progress | `x86_64-pc-windows-msvc`; `.zip` CI artifacts; `install.ps1`; winget manifests + `job-publish-winget` CI job |
 | STDIO Mode | tests-pass | Direct MCP server over stdio for IDE integration |
@@ -65,7 +65,7 @@ _"Create agents from your command line tools with one JSON file, then watch them
 | `adapter` | Primary engine for executing external CLI tools (sync/async) |
 | `mcp_service` | Implements `rmcp::ServerHandler` - handles `tools/list`, `tools/call`, etc. |
 | `operation_monitor` | Tracks background operations (progress, timeout, cancellation) |
-| `shell_pool` | Pre-warmed bash/PowerShell shells for 5-20ms command startup latency |
+| `shell_pool` | Pre-warmed bash/PowerShell (5.1+) shells for 5-20ms command startup latency |
 | `sandbox` | Kernel-level sandboxing (Landlock on Linux, Seatbelt on macOS) |
 | `config` | MTDF (Multi-Tool Definition Format) configuration models |
 | `callback_system` | Event notification system for async operations |
@@ -246,8 +246,8 @@ The planned implementation uses two mechanisms in order of preference:
 - **R6.3.5**: Filesystem root scopes (`C:\`, `D:\`, UNC `\\server\share`) **must** be
   rejected by `canonicalize_scopes` with `SandboxError::PrerequisiteFailed`, identical to
   Unix `/` rejection.
-- **R6.3.6**: PowerShell Core (`pwsh`) **must** be documented as a runtime requirement;
-  the server should emit a clear startup error if `pwsh` is absent.
+- **R6.3.6**: PowerShell (built into Windows 10/11) **must** be documented as a runtime requirement;
+  the server should emit a clear startup error if `powershell` is absent.
 - **R6.3.7**: All existing integration tests that exercise sandbox gating logic **must**
   pass on Windows CI with no `#[ignore]` waivers.
 - **R6.3.8**: **Cross-Platform Test Scripts**: When tests dynamically generate and execute scripts (e.g., to verify log monitoring or stdout capture), they **must** provide equivalent logic for both `bash` (Unix) and `PowerShell` (Windows). Tests **must not** rely on `bash.exe` or `sh.exe` being present on Windows (avoids WSL dependencies). All such tests **must** use a uniform helper method (e.g., `write_cross_platform_script`) to ensure consistency and prevent platform-specific leaks.

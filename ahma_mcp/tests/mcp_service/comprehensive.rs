@@ -8,7 +8,6 @@ use ahma_mcp::test_utils::client::ClientBuilder;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, json};
-use std::borrow::Cow;
 
 /// Test that hardcoded tools are properly listed
 #[tokio::test]
@@ -113,36 +112,31 @@ async fn test_status_tool_comprehensive() -> Result<()> {
     Ok(())
 }
 
+fn assert_error_in_text(text: &str) {
+    let lower = text.to_lowercase();
+    assert!(
+        lower.contains("error")
+            || lower.contains("not found")
+            || lower.contains("unknown")
+            || lower.contains("invalid"),
+        "Expected error keywords in: {text}"
+    );
+}
+
 /// Test error handling for unknown tools
 #[tokio::test]
 async fn test_unknown_tool_error_handling() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    let params = Map::new();
+    let call_param = CallToolRequestParams::new("unknown_tool").with_arguments(Map::new());
 
-    let call_param = CallToolRequestParams::new("unknown_tool").with_arguments(params);
-
-    let result = client.call_tool(call_param).await;
-
-    // Should handle unknown tools gracefully
-    match result {
+    match client.call_tool(call_param).await {
         Ok(tool_result) => {
-            // Check if error is communicated in response content
-            if let Some(content) = tool_result.content.first()
-                && let Some(text_content) = content.as_text()
-            {
-                let text_lower = text_content.text.to_lowercase();
-                assert!(
-                    text_lower.contains("error")
-                        || text_lower.contains("not found")
-                        || text_lower.contains("unknown")
-                        || text_lower.contains("invalid")
-                );
+            if let Some(text) = tool_result.content.first().and_then(|c| c.as_text()) {
+                assert_error_in_text(&text.text);
             }
         }
-        Err(_) => {
-            // Error response is also acceptable for unknown tools
-        }
+        Err(_) => { /* Error response is also acceptable for unknown tools */ }
     }
 
     client.cancel().await?;
@@ -217,38 +211,51 @@ async fn test_path_validation_security() -> Result<()> {
     Ok(())
 }
 
+fn assert_valid_tool_schema(schema_json: &serde_json::Value) {
+    let obj = schema_json.as_object().expect("schema should be an object");
+    assert!(
+        obj.contains_key("type")
+            || obj.contains_key("properties")
+            || obj.contains_key("oneOf")
+            || obj.contains_key("anyOf"),
+        "Schema missing type information: {schema_json}"
+    );
+}
+
 /// Test tool schema generation and validation
 #[tokio::test]
 async fn test_tool_schema_validation() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
     let tools = client.list_all_tools().await?;
 
-    // Verify all tools have valid schemas
     for tool in &tools {
-        // Basic tool structure validation
         assert!(!tool.name.is_empty());
-        assert!(tool.description.is_some());
-        assert!(!tool.description.as_ref().unwrap().is_empty());
+        let desc = tool
+            .description
+            .as_ref()
+            .expect("tool should have description");
+        assert!(!desc.is_empty());
 
-        // Schema validation
-        // Should be valid JSON
         let schema_json = serde_json::to_value(&*tool.input_schema)?;
-        assert!(schema_json.is_object());
-
-        // Should have type information
-        if let Some(obj) = schema_json.as_object() {
-            // JSON Schema should have a type or properties
-            assert!(
-                obj.contains_key("type")
-                    || obj.contains_key("properties")
-                    || obj.contains_key("oneOf")
-                    || obj.contains_key("anyOf")
-            );
-        }
+        assert_valid_tool_schema(&schema_json);
     }
 
     client.cancel().await?;
     Ok(())
+}
+
+async fn call_tool_gracefully(
+    client: &rmcp::service::RunningService<rmcp::service::RoleClient, ()>,
+    tool_name: &str,
+    args: serde_json::Value,
+) {
+    let mut call_param = CallToolRequestParams::new(tool_name.to_string());
+    if let Some(arguments) = args.as_object().cloned() {
+        call_param = call_param.with_arguments(arguments);
+    }
+    if let Ok(tool_result) = client.call_tool(call_param).await {
+        assert!(!tool_result.content.is_empty());
+    }
 }
 
 /// Test resilience under stress and mixed operations
@@ -256,7 +263,6 @@ async fn test_tool_schema_validation() -> Result<()> {
 async fn test_service_resilience_stress() -> Result<()> {
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    // Execute a mix of valid and invalid operations
     let operations = vec![
         ("status", json!({})),
         ("invalid_tool_123", json!({})),
@@ -266,29 +272,12 @@ async fn test_service_resilience_stress() -> Result<()> {
     ];
 
     for (tool_name, args) in operations {
-        let mut call_param = CallToolRequestParams::new(Cow::Borrowed(tool_name));
-        if let Some(arguments) = args.as_object().cloned() {
-            call_param = call_param.with_arguments(arguments);
-        }
-
-        let result = client.call_tool(call_param).await;
-
-        // Service should handle both valid and invalid requests gracefully
-        match result {
-            Ok(tool_result) => {
-                assert!(!tool_result.content.is_empty());
-            }
-            Err(_) => {
-                // Errors are acceptable for invalid tools
-            }
-        }
+        call_tool_gracefully(&client, tool_name, args).await;
     }
 
-    // Service should still be functional after error conditions
-    let final_params = Map::new();
-    let final_call_param = CallToolRequestParams::new("status").with_arguments(final_params);
-
-    let final_result = client.call_tool(final_call_param).await?;
+    let final_result = client
+        .call_tool(CallToolRequestParams::new("status").with_arguments(Map::new()))
+        .await?;
     assert!(!final_result.content.is_empty());
 
     client.cancel().await?;

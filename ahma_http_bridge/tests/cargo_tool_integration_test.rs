@@ -560,7 +560,7 @@ async fn test_sandboxed_shell_execution_with_assertions() {
     }
 
     // Test 2: echo returns expected output
-    // Use double quotes so the string is treated identically by both bash and pwsh.
+    // Use double quotes so the string is treated identically by both bash and powershell.
     let result = client
         .call_tool(
             "sandboxed_shell",

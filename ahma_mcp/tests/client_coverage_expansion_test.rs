@@ -425,12 +425,8 @@ async fn test_client_with_custom_tools_dir() -> Result<()> {
 
 /// Helper to extract operation ID from response
 fn extract_op_id(text: &str) -> String {
-    if let Some(id_start) = text.find("ID: ") {
-        let id_text = &text[id_start + 4..];
-        if let Some(job_id) = id_text.split_whitespace().next() {
-            return job_id.to_string();
-        }
-    }
-    // Return a placeholder if not found
-    "unknown".to_string()
+    text.find("ID: ")
+        .and_then(|i| text[i + 4..].split_whitespace().next())
+        .unwrap_or("unknown")
+        .to_string()
 }

@@ -168,7 +168,7 @@ All tests run on Linux, macOS, **and Windows** CI. Follow these rules to avoid p
   - `test_out_of_scope_path()` — guaranteed outside any sandbox scope
   - `test_blocked_device_path()` — platform device path (`/dev/null` or `NUL`)
   - `test_abs(&["a","b"])` and `test_root()` — platform-rooted absolute paths
-- **Never hardcode `/bin/sh`, `/bin/bash`, or bash-specific syntax** (e.g. `>&2`, `2>&1`) in shell command strings sent through the tool pipeline. On Windows the shell is `pwsh` (PowerShell), which uses different redirection syntax.
+- **Never hardcode `/bin/sh`, `/bin/bash`, or bash-specific syntax** (e.g. `>&2`, `2>&1`) in shell command strings sent through the tool pipeline. On Windows the shell is `powershell` (PowerShell 5.1+), which uses different redirection syntax.
 - **Prefer `std::env::temp_dir()`** over `/tmp` for any temp-related logic.
 - **Use `Path`/`PathBuf` APIs** instead of string manipulation for path separators — never assume `/` or `\\`.
 - **Avoid `#[cfg(unix)]` gating when cross-platform alternatives exist.** If a test is genuinely Unix-only (e.g. uses `std::os::unix::fs::symlink`), gating is correct. But never gate a test that could be rewritten with cross-platform APIs.

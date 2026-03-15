@@ -8,7 +8,7 @@ use tokio::time::sleep;
 fn short_sleep_command() -> &'static str {
     #[cfg(windows)]
     {
-        // `sandboxed_shell` executes through pwsh on Windows.
+        // `sandboxed_shell` executes through powershell on Windows.
         "Start-Sleep -Milliseconds 200"
     }
 

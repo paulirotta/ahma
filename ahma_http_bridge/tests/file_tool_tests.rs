@@ -7,6 +7,17 @@ mod common;
 use common::{TransportMode, setup_test_mcp};
 use serde_json::json;
 
+macro_rules! require_tools {
+    ($mcp:expr, $($tool:expr),+ $(,)?) => {
+        $(
+            if !$mcp.is_tool_available($tool).await {
+                eprintln!("WARNING  {} not available, skipping", $tool);
+                return;
+            }
+        )+
+    };
+}
+
 // ---------------------------------------------------------------------------
 // file-tools_pwd
 // ---------------------------------------------------------------------------
@@ -15,10 +26,7 @@ async fn run_file_tools_pwd(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_pwd").await {
-        eprintln!("WARNING  file-tools_pwd not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_pwd");
 
     let result = mcp.call_tool("file-tools_pwd", json!({})).await;
 
@@ -48,10 +56,7 @@ async fn run_file_tools_ls(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_ls").await {
-        eprintln!("WARNING  file-tools_ls not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_ls");
 
     let result = mcp.call_tool("file-tools_ls", json!({"path": "."})).await;
 
@@ -84,10 +89,7 @@ async fn run_file_tools_ls_with_options(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_ls").await {
-        eprintln!("WARNING  file-tools_ls not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_ls");
 
     let result = mcp
         .call_tool(
@@ -132,10 +134,7 @@ async fn run_file_tools_cat(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_cat").await {
-        eprintln!("WARNING  file-tools_cat not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_cat");
 
     let result = mcp
         .call_tool("file-tools_cat", json!({"files": ["Cargo.toml"]}))
@@ -169,10 +168,7 @@ async fn run_file_tools_head(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_head").await {
-        eprintln!("WARNING  file-tools_head not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_head");
 
     let result = mcp
         .call_tool(
@@ -206,10 +202,7 @@ async fn run_file_tools_tail(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_tail").await {
-        eprintln!("WARNING  file-tools_tail not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_tail");
 
     let result = mcp
         .call_tool(
@@ -243,10 +236,7 @@ async fn run_file_tools_grep(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_grep").await {
-        eprintln!("WARNING  file-tools_grep not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_grep");
 
     let result = mcp
         .call_tool(
@@ -280,10 +270,7 @@ async fn run_file_tools_find(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_find").await {
-        eprintln!("WARNING  file-tools_find not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_find");
 
     let result = mcp
         .call_tool(
@@ -324,19 +311,7 @@ async fn run_file_tools_touch_and_rm(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-
-    if !mcp.is_tool_available("file-tools_touch").await {
-        eprintln!("WARNING  file-tools_touch not available, skipping");
-        return;
-    }
-    if !mcp.is_tool_available("file-tools_rm").await {
-        eprintln!("WARNING  file-tools_rm not available, skipping");
-        return;
-    }
-    if !mcp.is_tool_available("file-tools_ls").await {
-        eprintln!("WARNING  file-tools_ls not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_touch", "file-tools_rm", "file-tools_ls");
 
     let temp_file = format!("test_integration_{}.tmp", std::process::id());
 
@@ -400,15 +375,7 @@ async fn run_file_tools_cp_and_mv(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-
-    if !mcp.is_tool_available("file-tools_cp").await {
-        eprintln!("WARNING  file-tools_cp not available, skipping");
-        return;
-    }
-    if !mcp.is_tool_available("file-tools_mv").await {
-        eprintln!("WARNING  file-tools_mv not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_cp", "file-tools_mv");
 
     let pid = std::process::id();
     let src_file = format!("test_cp_src_{}.tmp", pid);
@@ -487,10 +454,7 @@ async fn run_file_tools_diff(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_diff").await {
-        eprintln!("WARNING  file-tools_diff not available, skipping");
-        return;
-    }
+    require_tools!(mcp, "file-tools_diff");
 
     let pid = std::process::id();
     let file1 = format!("test_diff1_{}.tmp", pid);
@@ -551,10 +515,7 @@ async fn run_file_tools_sed(mode: TransportMode) {
     let Some((_server, mcp)) = setup_test_mcp(mode).await else {
         return;
     };
-    if !mcp.is_tool_available("sandboxed_shell").await {
-        eprintln!("WARNING  sandboxed_shell not available, skipping sed test");
-        return;
-    }
+    require_tools!(mcp, "sandboxed_shell");
 
     let result = mcp
         .call_tool(
@@ -572,17 +533,11 @@ async fn run_file_tools_sed(mode: TransportMode) {
     }
 
     let output = result.output.unwrap_or_default();
-
-    // sandboxed_shell may run asynchronously, returning operation ID instead of output
-    if output.contains("Asynchronous operation started") || output.contains("AHMA ID") {
-        eprintln!("WARNING  sandboxed_shell ran asynchronously, cannot validate sed output");
-        return;
-    }
-
     println!("sed output: {:?}", output);
 
-    if output.trim().is_empty() {
-        eprintln!("WARNING  sed command returned empty output, skipping assertion");
+    let is_async = output.contains("Asynchronous operation started") || output.contains("AHMA ID");
+    if is_async || output.trim().is_empty() {
+        eprintln!("WARNING  sed output unavailable (async or empty), skipping assertion");
         return;
     }
 

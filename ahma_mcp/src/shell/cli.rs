@@ -224,20 +224,21 @@ fn log_sandbox_mode(no_sandbox: bool) {
 }
 
 #[cfg(target_os = "windows")]
-fn check_powershell_core() {
-    let pwsh_check = std::process::Command::new("pwsh").arg("--version").output();
-    match pwsh_check {
+fn check_powershell_available() {
+    let ps_check = std::process::Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg("$PSVersionTable.PSVersion.ToString()")
+        .output();
+    match ps_check {
         Ok(out) if out.status.success() => {
             let ver = String::from_utf8_lossy(&out.stdout);
-            tracing::info!("PowerShell Core detected: {}", ver.trim());
+            tracing::info!("PowerShell detected: {}", ver.trim());
         }
         _ => {
             eprintln!(
-                "\nFAIL Error: PowerShell Core (pwsh) was not found.\n\n\
-                 ahma_mcp requires PowerShell 7+ as its runtime shell on Windows.\n\n\
-                 Install it with:\n\
-                 \n  winget install Microsoft.PowerShell\n\
-                 \nOr download from: https://github.com/PowerShell/PowerShell/releases\n"
+                "\nFAIL Error: PowerShell was not found.\n\n\
+                 ahma_mcp requires PowerShell (built into Windows 10/11) as its runtime shell.\n"
             );
             std::process::exit(1);
         }
@@ -476,33 +477,42 @@ pub async fn run() -> Result<()> {
     let log_level = if cli.debug { "debug" } else { "info" };
     init_logging(log_level, !cli.log_to_stderr)?;
 
-    // Handle early-exit modes (no sandbox needed)
+    if let Some(early_result) = handle_early_exit_modes(&cli).await {
+        return early_result;
+    }
+
+    let sandbox = initialize_sandbox(&mut cli)?;
+
+    #[cfg(target_os = "windows")]
+    check_powershell_available();
+
+    dispatch_mode(cli, sandbox).await
+}
+
+async fn handle_early_exit_modes(cli: &Cli) -> Option<Result<()>> {
     if cli.list_tools {
         tracing::info!("Running in list-tools mode");
-        return modes::run_list_tools_mode(&cli).await;
+        return Some(modes::run_list_tools_mode(cli).await);
     }
-
     if let Some(ref target) = cli.validate {
         tracing::info!("Running in validate mode");
-        return run_validation_mode(target);
+        return Some(run_validation_mode(target));
     }
+    None
+}
 
-    // Initialize sandbox
-    let policy = resolve_sandbox_policy(&cli);
+fn initialize_sandbox(cli: &mut Cli) -> Result<Option<Arc<sandbox::Sandbox>>> {
+    let policy = resolve_sandbox_policy(cli);
     cli.no_sandbox = policy.no_sandbox;
 
     check_sandbox_availability(policy.no_sandbox)?;
 
-    let scopes = resolve_sandbox_scopes(&cli)?;
+    let scopes = resolve_sandbox_scopes(cli)?;
     let scopes = add_temp_scope_if_requested(scopes, policy.tmp_access);
-    let sandbox = create_sandbox_instance(scopes, &policy, &cli)?;
+    let sandbox = create_sandbox_instance(scopes, &policy, cli)?;
 
     log_sandbox_mode(policy.no_sandbox);
-
-    #[cfg(target_os = "windows")]
-    check_powershell_core();
-
-    dispatch_mode(cli, sandbox).await
+    Ok(sandbox)
 }
 
 fn run_validation_mode(target: &str) -> Result<()> {

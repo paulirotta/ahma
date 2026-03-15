@@ -126,41 +126,37 @@ fn format_completed_operation(op: &Operation) -> rmcp::model::CallToolResult {
     }
 }
 
+fn format_structured_output(stdout_str: &str, stderr_str: &str, exit_code: i64) -> String {
+    if exit_code != 0 {
+        return format!(
+            "Exit code: {}\nStdout:\n{}\nStderr:\n{}",
+            exit_code, stdout_str, stderr_str
+        );
+    }
+
+    match (stdout_str.is_empty(), stderr_str.is_empty()) {
+        (true, false) => stderr_str.to_string(),
+        (false, false) => format!("{}\n{}", stdout_str, stderr_str),
+        _ => stdout_str.to_string(),
+    }
+}
+
 /// Extracts human-readable output from an operation result JSON value.
 fn extract_output_from_result(result: &Option<Value>) -> String {
     let Some(val) = result else {
         return String::new();
     };
 
-    // Handle structured result with stdout/stderr/exit_code
     if let (Some(stdout), Some(stderr)) = (val.get("stdout"), val.get("stderr")) {
         let stdout_str = stdout.as_str().unwrap_or_default();
         let stderr_str = stderr.as_str().unwrap_or_default();
         let exit_code = val.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-
-        if exit_code == 0 {
-            if stdout_str.is_empty() && !stderr_str.is_empty() {
-                return stderr_str.to_string();
-            } else if !stdout_str.is_empty() && !stderr_str.is_empty() {
-                return format!("{}\n{}", stdout_str, stderr_str);
-            } else {
-                return stdout_str.to_string();
-            }
-        } else {
-            return format!(
-                "Exit code: {}\nStdout:\n{}\nStderr:\n{}",
-                exit_code, stdout_str, stderr_str
-            );
-        }
+        return format_structured_output(stdout_str, stderr_str, exit_code);
     }
 
-    // Handle string result (error message)
-    if let Some(s) = val.as_str() {
-        return s.to_string();
-    }
-
-    // Fallback: serialize the value
-    serde_json::to_string_pretty(val).unwrap_or_default()
+    val.as_str()
+        .map(String::from)
+        .unwrap_or_else(|| serde_json::to_string_pretty(val).unwrap_or_default())
 }
 
 #[cfg(test)]

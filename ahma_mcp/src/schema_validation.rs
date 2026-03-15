@@ -56,6 +56,41 @@ const ASYNC_KEYWORDS: &[&str] = &[
     r"\bbackground\b",
 ];
 
+const VALID_OPTION_TYPES: &[&str] = &["string", "boolean", "integer", "array"];
+
+fn type_alias_suggestion(option_type: &str) -> Option<String> {
+    match option_type {
+        "bool" => Some("Use 'boolean' instead of 'bool'".to_string()),
+        "int" => Some("Use 'integer' instead of 'int'".to_string()),
+        "str" => Some("Use 'string' instead of 'str'".to_string()),
+        _ => None,
+    }
+}
+
+fn validate_option_type(option_type: &str, path: &str, errors: &mut Vec<SchemaValidationError>) {
+    if VALID_OPTION_TYPES.contains(&option_type) {
+        return;
+    }
+
+    let suggestion = type_alias_suggestion(option_type);
+    let error_type = if suggestion.is_some() {
+        ValidationErrorType::InvalidValue
+    } else {
+        ValidationErrorType::InvalidType
+    };
+
+    errors.push(SchemaValidationError {
+        error_type,
+        field_path: format!("{}.type", path),
+        message: format!(
+            "Invalid option type '{}'. Must be one of: {}",
+            option_type,
+            VALID_OPTION_TYPES.join(", ")
+        ),
+        suggestion,
+    });
+}
+
 fn check_async_keywords_in_sync_command(description: &str) -> bool {
     let desc_lower = description.to_lowercase();
     ASYNC_KEYWORDS.iter().any(|kw| {
@@ -433,42 +468,8 @@ impl MtdfValidator {
         path: &str,
         errors: &mut Vec<SchemaValidationError>,
     ) {
-        if option.name.is_empty() {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::MissingRequiredField,
-                field_path: format!("{}.name", path),
-                message: "Option name cannot be empty".to_string(),
-                suggestion: None,
-            });
-        }
-
-        // Validate type
-        let valid_types = ["string", "boolean", "integer", "array"];
-        if !valid_types.contains(&option.option_type.as_str()) {
-            let suggestion = match option.option_type.as_str() {
-                "bool" => Some("Use 'boolean' instead of 'bool'".to_string()),
-                "int" => Some("Use 'integer' instead of 'int'".to_string()),
-                "str" => Some("Use 'string' instead of 'str'".to_string()),
-                _ => None,
-            };
-
-            let error_type = if suggestion.is_some() {
-                ValidationErrorType::InvalidValue
-            } else {
-                ValidationErrorType::InvalidType
-            };
-
-            errors.push(SchemaValidationError {
-                error_type,
-                field_path: format!("{}.type", path),
-                message: format!(
-                    "Invalid option type '{}'. Must be one of: {}",
-                    option.option_type,
-                    valid_types.join(", ")
-                ),
-                suggestion,
-            });
-        }
+        validate_non_empty_field(&option.name, "name", path, errors);
+        validate_option_type(&option.option_type, path, errors);
     }
 }
 

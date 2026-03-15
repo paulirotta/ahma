@@ -16,7 +16,7 @@ use std::sync::Arc;
 fn platform_shell_program_for_test() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        "pwsh"
+        "powershell"
     }
     #[cfg(not(target_os = "windows"))]
     {

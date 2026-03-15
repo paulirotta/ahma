@@ -189,14 +189,14 @@ impl ShellError {
 // ---------------------------------------------------------------------------
 
 /// The shell binary for the pre-warmed protocol process.
-/// On Windows we use PowerShell Core (`pwsh`) for the health-check loop;
-/// on all other platforms we use `bash`.
+/// On Windows we use the built-in PowerShell (`powershell.exe`) for the
+/// health-check loop; on all other platforms we use `bash`.
 ///
 /// Also used by `mcp_service` handlers to build progress descriptions.
 pub(crate) fn platform_shell_program() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        "pwsh"
+        "powershell"
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -228,7 +228,7 @@ fn shell_args() -> &'static [&'static str] {
 fn initialize_protocol_script() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        // PowerShell Core (`pwsh -Command -`) reads the script from stdin;
+        // PowerShell (`powershell -Command -`) reads the script from stdin;
         // the while-loop then keeps reading further stdin lines for health checks.
         r#"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -406,7 +406,7 @@ impl PrewarmedShell {
         // Wrap initialization in timeout
         timeout(config.shell_spawn_timeout, async {
             // Spawn a pre-warmed protocol shell.
-            // On Windows: `pwsh -NoProfile -NonInteractive -Command -`
+            // On Windows: `powershell -NoProfile -NonInteractive -Command -`
             // On Unix:    `bash`
             let mut process = Command::new(platform_shell_program())
                 .args(shell_args())
