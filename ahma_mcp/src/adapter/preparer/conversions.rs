@@ -157,8 +157,8 @@ mod tests {
             Some("42".to_string())
         );
         assert_eq!(
-            coerce_cli_value(&json!(3.14)).unwrap(),
-            Some("3.14".to_string())
+            coerce_cli_value(&json!(1.5)).unwrap(),
+            Some("1.5".to_string())
         );
     }
 
