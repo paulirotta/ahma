@@ -84,16 +84,16 @@ fn main() -> Result<()> {
     writeln!(output, "| File | Coverage | Uncovered Lines |")?;
     writeln!(output, "|------|----------|-----------------|")?;
 
-    let mut uncovered_details = Vec::new();
+    let mut parsed_files = Vec::new();
 
     for file_entry in &cov_data.files {
         let line_cov = file_entry.summary.lines.percent;
         let mut uncovered_ranges = Vec::new();
+        let mut uncovered_count = 0;
 
         if line_cov < 100.0 {
             let mut uncovered_lines = BTreeSet::new();
             for seg in &file_entry.segments {
-                // seg: [line, column, count, hasCount, isRegionEntry, isGap]
                 if let Some(line) = seg.get(0).and_then(|v| v.as_u64()) {
                     if let Some(count) = seg.get(2).and_then(|v| v.as_u64()) {
                         if count == 0 {
@@ -102,6 +102,8 @@ fn main() -> Result<()> {
                     }
                 }
             }
+
+            uncovered_count = uncovered_lines.len();
 
             if !uncovered_lines.is_empty() {
                 let lines: Vec<u64> = uncovered_lines.into_iter().collect();
@@ -128,23 +130,32 @@ fn main() -> Result<()> {
             }
         }
 
-        let uncovered_str = if uncovered_ranges.is_empty() {
-            "-".to_string()
-        } else {
-            uncovered_ranges.join(", ")
-        };
+        if uncovered_count > 0 {
+            let uncovered_str = uncovered_ranges.join(", ");
+            let table_uncovered = if uncovered_str.len() < 50 {
+                uncovered_str.clone()
+            } else {
+                format!("{}...", &uncovered_str[..47])
+            };
 
-        let table_uncovered = if uncovered_str.len() < 50 {
-            uncovered_str.clone()
-        } else {
-            format!("{}...", &uncovered_str[..47])
-        };
-
-        writeln!(output, "| {} | {:.2}% | {} |", file_entry.filename, line_cov, table_uncovered)?;
-
-        if !uncovered_ranges.is_empty() {
-            uncovered_details.push((file_entry.filename.clone(), line_cov, uncovered_ranges));
+            parsed_files.push((
+                file_entry.filename.clone(),
+                line_cov,
+                uncovered_count,
+                table_uncovered,
+                uncovered_ranges,
+            ));
         }
+    }
+
+    parsed_files.sort_by(|a, b| a.2.cmp(&b.2));
+    let top_files = parsed_files.into_iter().take(20).collect::<Vec<_>>();
+
+    let mut uncovered_details = Vec::new();
+
+    for (filename, line_cov, _, table_uncovered, uncovered_ranges) in &top_files {
+        writeln!(output, "| {} | {:.2}% | {} |", filename, line_cov, table_uncovered)?;
+        uncovered_details.push((filename.clone(), *line_cov, uncovered_ranges.clone()));
     }
 
     // Detailed section
