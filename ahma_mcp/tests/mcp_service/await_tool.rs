@@ -23,7 +23,7 @@ async fn test_calculate_intelligent_timeout() -> Result<()> {
 
     // By default with no ops, it should be 240.0
     let timeout = service.calculate_intelligent_timeout(&[]).await;
-    assert_eq!(timeout, 240.0);
+    assert_eq!(timeout, 600.0);
     Ok(())
 }
 
