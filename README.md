@@ -2,11 +2,21 @@
 
 _Create MCP tools agents from your command line tools with one JSON file, then watch them complete your work faster with **true multi-threaded tool-use agentic AI workflows**. Built with a **security-first** philosophy, enforcing hard kernel-level boundaries by default._
 
+## Ahma solves
+
+Why teams use Ahma:
+
+- **Unsafe AI terminal access**: Most AI terminal workflows rely on trust prompts, not real containment. Ahma enforces kernel-level sandbox boundaries so AI can operate inside your project scope without unrestricted filesystem access.
+- **Agents and LLMs blocked by long-running synchronous commands**: Build, test, and deploy tasks can stall an agent for minutes. Ahma runs tool calls async-first, so agents can keep planning and executing while work completes in the background.
+- **Slow tool onboarding for AI workflows**: Ahma makes your custom tools AI-friendly. It gives you no code definition of CLI tools in JSON with hot-reload when you edit the tool definition.
+- **Too much privilege by default**: Generic shell access is often broader than needed. Ahma supports least-privilege tool definitions so you can constrain arguments and reduce blast radius.
+- **Do more work in less time**: Light up the full capabilities of your command line tools by telling AI to split your deterministic work into multiple background operations and fire them all at once. Ahma provides operation IDs, progress notifications, and built-in controls (`status`, `await`, `cancel`) for deterministic orchestration. Max concurrency is equal to the number of cores on your CPU.
+
 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |                                     |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------: |
 | [![CI](https://github.com/paulirotta/ahma/actions/workflows/build.yml/badge.svg)](https://github.com/paulirotta/ahma/actions/workflows/build.yml) [![Coverage Report](https://img.shields.io/badge/Coverage-Report-blue)](https://paulirotta.github.io/ahma/html/) [![Rust Docs](https://img.shields.io/badge/Rust-Docs-blue)](https://paulirotta.github.io/ahma/doc/) [![Code Simplicity](https://img.shields.io/badge/Code-Simplicity-green)](https://paulirotta.github.io/ahma/CODE_SIMPLICITY.html) [![Prebuilt Binaries](https://img.shields.io/badge/Prebuilt-Binaries-blueviolet)](https://github.com/paulirotta/ahma/actions/workflows/build.yml?query=branch%3Amain+event%3Apush+is%3Asuccess) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: Apache: 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2020) [![Rust](https://img.shields.io/badge/Rust-1.93%2B-B7410E.svg)](https://www.rust-lang.org/) | ![Ahma Logo](./assets/ahma.png) |
 
-Ahma is
+## Ahma is
 - **secure by default**: this is a toolbox for AI to use command line tools safely. It helps move past the  'do you trust this tool/author?' prompts. Trust is not a security model. Asking the user working fast on several tasks for permission to `rm -rf ~` is irresponsible, not a security model.
 - **fast by default**: command line tool calls become *deterministic and asynchronous subagents*. This saves time by allowing AI agents to continue thinking and planning while awaiting one or more long-running command line tasks.
 - **principle of least privilege (PoLP)**: You may optionally disalbe direct calls to `sandboxed_shell` and instead specify the allowed arguments to each command line tool by creating a `.ahma/toolname.json` file.
@@ -27,7 +37,7 @@ MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor,
 | **Structured tool schema** | Raw shell strings | Typed parameters, validation, subcommands via `.ahma/*.json` |
 | **Progressive disclosure** | All tools always listed | Bundles revealed on demand — preserves AI context window |
 | **Live log monitoring** | Raw output only | Pattern-matched alerts streamed to AI (error/warn/info levels) |
-| **PoLP enforcement** | Any command, any argument | Optionally restrict to declared arguments per tool |
+| **PoLP enforcement** | Any command, any argument | Call directly, or define a JSON file to restrict which arguments can be passed to a command line tool |
 
 ## Supported OS
 
