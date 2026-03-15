@@ -94,7 +94,7 @@ pub fn escape_shell_argument(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     // --- resolve_bool ---
     #[test]
@@ -289,9 +289,6 @@ mod tests {
 
     #[test]
     fn test_escape_shell_argument_with_single_quotes() {
-        assert_eq!(
-            escape_shell_argument("it's"),
-            "'it'\"'\"'s'"
-        );
+        assert_eq!(escape_shell_argument("it's"), "'it'\"'\"'s'");
     }
 }

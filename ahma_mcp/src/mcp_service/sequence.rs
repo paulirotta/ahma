@@ -472,6 +472,13 @@ pub fn should_skip_step_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    
+    use crate::test_utils::client::create_test_config;
+    use rmcp::model::CallToolRequestParams;
+    use serde_json::{Map, Value, json};
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::sync::{Arc, RwLock};
 
     fn make_test_sequence_step(
         tool: &str,
@@ -636,5 +643,157 @@ mod tests {
             &step,
             temp.path().to_str().unwrap()
         ));
+    }
+
+    // ============= merge_step_arguments tests =============
+
+    #[test]
+    fn test_merge_step_arguments_excludes_meta_params() {
+        let mut parent = Map::new();
+        parent.insert(
+            "working_directory".to_string(),
+            Value::String("/tmp".into()),
+        );
+        parent.insert("execution_mode".to_string(), Value::String("Sync".into()));
+        parent.insert("timeout_seconds".to_string(), json!(30));
+        parent.insert("custom_arg".to_string(), Value::String("parent_val".into()));
+
+        let mut step = Map::new();
+        step.insert("message".to_string(), Value::String("step_val".into()));
+
+        let merged = merge_step_arguments(&parent, &step);
+
+        assert!(!merged.contains_key("working_directory"));
+        assert!(!merged.contains_key("execution_mode"));
+        assert!(!merged.contains_key("timeout_seconds"));
+        assert_eq!(
+            merged.get("custom_arg"),
+            Some(&Value::String("parent_val".into()))
+        );
+        assert_eq!(
+            merged.get("message"),
+            Some(&Value::String("step_val".into()))
+        );
+    }
+
+    #[test]
+    fn test_merge_step_arguments_step_overrides_parent() {
+        let mut parent = Map::new();
+        parent.insert("message".to_string(), Value::String("parent_msg".into()));
+
+        let mut step = Map::new();
+        step.insert("message".to_string(), Value::String("step_msg".into()));
+
+        let merged = merge_step_arguments(&parent, &step);
+        assert_eq!(
+            merged.get("message"),
+            Some(&Value::String("step_msg".into()))
+        );
+    }
+
+    // ============= get_tool_config tests =============
+
+    #[test]
+    fn test_get_tool_config_found() {
+        let mut configs = HashMap::new();
+        let tc = make_dummy_tool_config();
+        configs.insert("test_tool".to_string(), tc.clone());
+        let configs = Arc::new(RwLock::new(configs));
+
+        let result = get_tool_config(&configs, "test_tool").unwrap();
+        assert_eq!(result.name, "test_tool");
+    }
+
+    #[test]
+    fn test_get_tool_config_not_found() {
+        let configs = Arc::new(RwLock::new(HashMap::new()));
+        let err = get_tool_config(&configs, "nonexistent").unwrap_err();
+        assert!(format!("{err:?}").contains("nonexistent"));
+        assert!(format!("{err:?}").contains("not configured"));
+    }
+
+    // ============= extract_working_directory tests =============
+
+    #[test]
+    fn test_extract_working_directory_from_params() {
+        let adapter = create_test_config(Path::new(".")).unwrap();
+        let mut params = CallToolRequestParams::new("test".to_string());
+        params = params.with_arguments(
+            json!({"working_directory": "/custom/path"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        let wd = extract_working_directory(&adapter, &params);
+        assert_eq!(wd, "/custom/path");
+    }
+
+    #[test]
+    fn test_extract_working_directory_fallback_default() {
+        let adapter = create_test_config(Path::new(".")).unwrap();
+        let params = CallToolRequestParams::new("test".to_string());
+        let wd = extract_working_directory(&adapter, &params);
+        assert_eq!(wd, ".");
+    }
+
+    // ============= find_step_subcommand tests =============
+
+    #[test]
+    fn test_find_step_subcommand_found() {
+        // Use JSON deserialization to match real config format (enabled uses default_enabled)
+        let config: ToolConfig = serde_json::from_str(
+            r#"{"name":"test_tool","description":"Test","command":"echo","enabled":true,"subcommand":[{"name":"default","description":"Default"}]}"#,
+        )
+        .unwrap();
+        let (sub, parts) = find_step_subcommand(&config, "default", "test_tool").unwrap();
+        assert_eq!(sub.name, "default");
+        assert!(!parts.is_empty());
+    }
+
+    #[test]
+    fn test_find_step_subcommand_not_found() {
+        let config = make_dummy_tool_config();
+        let err = find_step_subcommand(&config, "nonexistent_sub", "test_tool").unwrap_err();
+        assert!(format!("{err:?}").contains("nonexistent_sub"));
+        assert!(format!("{err:?}").contains("not found"));
+    }
+
+    // ============= next_id tests =============
+
+    #[test]
+    fn test_next_id_format_and_increment() {
+        let id1 = next_id();
+        let id2 = next_id();
+        assert!(id1.starts_with("op_"));
+        assert!(id2.starts_with("op_"));
+        let n1: u64 = id1.trim_start_matches("op_").parse().unwrap();
+        let n2: u64 = id2.trim_start_matches("op_").parse().unwrap();
+        assert!(n2 > n1);
+    }
+
+    // ============= format helpers with empty description =============
+
+    #[test]
+    fn test_format_step_started_message_empty_description() {
+        let mut step = make_test_sequence_step("cargo", "build", None);
+        step.description = Some(String::new());
+        let kind = SequenceKind::TopLevel;
+        let message = format_step_started_message(&kind, &step, "op_001");
+        assert!(message.contains("cargo"));
+        assert!(message.contains("op_001"));
+        assert!(!message.contains("()"));
+    }
+
+    #[test]
+    fn test_format_step_skipped_message_subcommand_without_description() {
+        let step = make_test_sequence_step("cargo", "clippy", None);
+        let dummy_config = make_dummy_tool_config();
+        let kind = SequenceKind::Subcommand {
+            base_config: &dummy_config,
+        };
+        let message = format_step_skipped_message(&kind, &step);
+        assert!(message.contains("clippy"));
+        assert!(message.contains("skipped"));
+        assert!(message.contains("Subcommand sequence step"));
     }
 }

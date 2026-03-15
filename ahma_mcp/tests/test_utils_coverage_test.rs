@@ -315,58 +315,72 @@ async fn test_create_rust_project_empty_options() {
 
 #[tokio::test]
 async fn test_create_rust_project_with_cargo() {
-    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
-        with_cargo: true,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let temp_dir =
+        test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+            with_cargo: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     let path = temp_dir.path();
     assert!(path.join("Cargo.toml").exists());
     assert!(path.join("src/main.rs").exists());
-    let cargo = tokio::fs::read_to_string(path.join("Cargo.toml")).await.unwrap();
+    let cargo = tokio::fs::read_to_string(path.join("Cargo.toml"))
+        .await
+        .unwrap();
     assert!(cargo.contains("name = \"project\""));
-    let main = tokio::fs::read_to_string(path.join("src/main.rs")).await.unwrap();
+    let main = tokio::fs::read_to_string(path.join("src/main.rs"))
+        .await
+        .unwrap();
     assert!(main.contains("println!"));
 }
 
 #[tokio::test]
 async fn test_create_rust_project_with_text_files() {
-    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
-        with_text_files: true,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let temp_dir =
+        test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+            with_text_files: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     let path = temp_dir.path();
-    let t1 = tokio::fs::read_to_string(path.join("test1.txt")).await.unwrap();
-    let t2 = tokio::fs::read_to_string(path.join("test2.txt")).await.unwrap();
+    let t1 = tokio::fs::read_to_string(path.join("test1.txt"))
+        .await
+        .unwrap();
+    let t2 = tokio::fs::read_to_string(path.join("test2.txt"))
+        .await
+        .unwrap();
     assert_eq!(t1, "line1\nline2\nline3\n");
     assert_eq!(t2, "foo\nbar\nbaz\n");
 }
 
 #[tokio::test]
 async fn test_create_rust_project_with_tool_configs() {
-    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
-        with_tool_configs: true,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let temp_dir =
+        test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+            with_tool_configs: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     let path = temp_dir.path();
-    let echo_json = tokio::fs::read_to_string(path.join(".ahma/echo.json")).await.unwrap();
+    let echo_json = tokio::fs::read_to_string(path.join(".ahma/echo.json"))
+        .await
+        .unwrap();
     assert!(echo_json.contains("\"name\": \"echo\""));
     assert!(echo_json.contains("\"command\": \"echo\""));
 }
 
 #[tokio::test]
 async fn test_create_rust_project_custom_prefix() {
-    let temp_dir = test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
-        prefix: Some("custom_prefix_".to_string()),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let temp_dir =
+        test_utils::project::create_rust_project(test_utils::project::TestProjectOptions {
+            prefix: Some("custom_prefix_".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     let path = temp_dir.path();
     let name = path.file_name().unwrap().to_string_lossy();
     assert!(name.starts_with("custom_prefix_"));
@@ -374,7 +388,9 @@ async fn test_create_rust_project_custom_prefix() {
 
 #[tokio::test]
 async fn test_create_full_rust_project() {
-    let temp_dir = test_utils::project::create_full_rust_project().await.unwrap();
+    let temp_dir = test_utils::project::create_full_rust_project()
+        .await
+        .unwrap();
     let path = temp_dir.path();
     assert!(path.join("Cargo.toml").exists());
     assert!(path.join("src/main.rs").exists());

@@ -1127,7 +1127,10 @@ mod tests {
     #[tokio::test]
     async fn handle_cancel_operation_not_found() {
         let service = make_service().await;
-        let args = json!({"id": "op_nonexistent_xyz"}).as_object().unwrap().clone();
+        let args = json!({"id": "op_nonexistent_xyz"})
+            .as_object()
+            .unwrap()
+            .clone();
         let result = service.handle_cancel(args).await.expect("cancel");
         let text = first_text(&result);
         assert!(text.contains("not found"));
@@ -1240,22 +1243,21 @@ mod tests {
 
     #[test]
     fn parse_file_uri_to_path_accepts_absolute_without_localhost() {
-        let p = AhmaMcpService::parse_file_uri_to_path("file:///home/user/file.txt")
-            .expect("path");
+        let p = AhmaMcpService::parse_file_uri_to_path("file:///home/user/file.txt").expect("path");
         assert_eq!(p.to_string_lossy(), "/home/user/file.txt");
     }
 
     #[test]
     fn parse_file_uri_to_path_strips_query_only() {
-        let p = AhmaMcpService::parse_file_uri_to_path("file:///path/to/file?query=1")
-            .expect("path");
+        let p =
+            AhmaMcpService::parse_file_uri_to_path("file:///path/to/file?query=1").expect("path");
         assert_eq!(p.to_string_lossy(), "/path/to/file");
     }
 
     #[test]
     fn parse_file_uri_to_path_strips_fragment_only() {
-        let p = AhmaMcpService::parse_file_uri_to_path("file:///path/to/file#section")
-            .expect("path");
+        let p =
+            AhmaMcpService::parse_file_uri_to_path("file:///path/to/file#section").expect("path");
         assert_eq!(p.to_string_lossy(), "/path/to/file");
     }
 

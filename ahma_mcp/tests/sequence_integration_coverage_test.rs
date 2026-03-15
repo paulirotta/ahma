@@ -398,3 +398,346 @@ async fn test_sequence_with_missing_tool_reference() -> Result<()> {
 }
 
 // ============================================================================
+// Sequence Skip-if-File Tests (skip_if_file_exists, skip_if_file_missing)
+// ============================================================================
+
+/// Test sequence with skip_if_file_exists - step is skipped when file exists
+#[tokio::test]
+async fn test_sequence_skip_if_file_exists() -> Result<()> {
+    init_test_logging();
+    let temp_dir = tempfile::tempdir()?;
+    let tools_dir = temp_dir.path().join(".ahma");
+    fs::create_dir_all(&tools_dir).await?;
+
+    // Create skip marker file BEFORE running sequence
+    let skip_marker = temp_dir.path().join("skip_when_exists.txt");
+    fs::write(&skip_marker, "exists").await?;
+
+    let echo_tool = r#"
+{
+    "name": "echo_skip",
+    "description": "Echo for skip testing",
+    "command": "echo",
+    "timeout_seconds": 10,
+    "synchronous": true,
+    "enabled": true,
+    "subcommand": [{"name": "default", "description": "echo", "positional_args": [{"name": "message", "type": "string", "required": false}]}]
+}
+"#;
+    fs::write(tools_dir.join("echo_skip.json"), echo_tool).await?;
+
+    let skip_sequence = format!(
+        r#"
+{{
+    "name": "skip_sequence",
+    "description": "Sequence with skip_if_file_exists",
+    "command": "sequence",
+    "timeout_seconds": 30,
+    "synchronous": true,
+    "enabled": true,
+    "sequence": [
+        {{"tool": "echo_skip", "subcommand": "default", "description": "Should run", "args": {{"message": "ran"}}}},
+        {{"tool": "echo_skip", "subcommand": "default", "description": "Should skip", "skip_if_file_exists": "{}", "args": {{"message": "skipped"}}}},
+        {{"tool": "echo_skip", "subcommand": "default", "description": "Should run", "args": {{"message": "ran2"}}}}
+    ]
+}}
+"#,
+        skip_marker.file_name().unwrap().to_str().unwrap()
+    );
+    fs::write(tools_dir.join("skip_sequence.json"), skip_sequence).await?;
+
+    let client = ClientBuilder::new()
+        .tools_dir(".ahma")
+        .working_dir(temp_dir.path())
+        .build()
+        .await?;
+
+    let tools = client.list_all_tools().await?;
+    let has_skip_seq = tools.iter().any(|t| t.name.as_ref() == "skip_sequence");
+
+    if has_skip_seq {
+        let params = CallToolRequestParams::new(Cow::Borrowed("skip_sequence")).with_arguments(
+            json!({"working_directory": temp_dir.path().to_str().unwrap()})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+
+        let result = client.call_tool(params).await?;
+
+        let all_text: String = result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect();
+
+        assert!(all_text.contains("ran"), "First step should run");
+        assert!(all_text.contains("ran2"), "Third step should run");
+        assert!(
+            all_text.contains("skipped"),
+            "Second step should be skipped"
+        );
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+/// Test sequence with skip_if_file_missing - step is skipped when file does NOT exist
+#[tokio::test]
+async fn test_sequence_skip_if_file_missing_with_default_wd() -> Result<()> {
+    init_test_logging();
+    let temp_dir = tempfile::tempdir()?;
+    let tools_dir = temp_dir.path().join(".ahma");
+    fs::create_dir_all(&tools_dir).await?;
+
+    let echo_tool = r#"
+{
+    "name": "echo_miss",
+    "description": "Echo for skip-missing testing",
+    "command": "echo",
+    "timeout_seconds": 10,
+    "synchronous": true,
+    "enabled": true,
+    "subcommand": [{"name": "default", "description": "echo", "positional_args": [{"name": "message", "type": "string", "required": false}]}]
+}
+"#;
+    fs::write(tools_dir.join("echo_miss.json"), echo_tool).await?;
+
+    let skip_missing_sequence = r#"
+{
+    "name": "skip_missing_sequence",
+    "description": "Sequence with skip_if_file_missing",
+    "command": "sequence",
+    "timeout_seconds": 30,
+    "synchronous": true,
+    "enabled": true,
+    "sequence": [
+        {"tool": "echo_miss", "subcommand": "default", "description": "Should run", "args": {"message": "step1"}},
+        {"tool": "echo_miss", "subcommand": "default", "description": "Should skip", "skip_if_file_missing": "nonexistent_file_xyz.txt", "args": {"message": "would_skip"}},
+        {"tool": "echo_miss", "subcommand": "default", "description": "Should run", "args": {"message": "step3"}}
+    ]
+}
+"#;
+    fs::write(
+        tools_dir.join("skip_missing_sequence.json"),
+        skip_missing_sequence,
+    )
+    .await?;
+
+    let client = ClientBuilder::new()
+        .tools_dir(".ahma")
+        .working_dir(temp_dir.path())
+        .build()
+        .await?;
+
+    let tools = client.list_all_tools().await?;
+    let has_skip_miss_seq = tools
+        .iter()
+        .any(|t| t.name.as_ref() == "skip_missing_sequence");
+
+    if has_skip_miss_seq {
+        let params = CallToolRequestParams::new(Cow::Borrowed("skip_missing_sequence"))
+            .with_arguments(json!({}).as_object().unwrap().clone());
+
+        let result = client.call_tool(params).await?;
+
+        let all_text: String = result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect();
+
+        assert!(all_text.contains("step1"), "First step should run");
+        assert!(all_text.contains("step3"), "Third step should run");
+        assert!(
+            all_text.contains("skipped"),
+            "Second step should be skipped"
+        );
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+// ============================================================================
+// Sequence Skip Logic Tests (skip_if_file_exists, skip_if_file_missing)
+// ============================================================================
+
+/// Test sequence with skip_if_file_exists - step is skipped when file exists (with working_dir param)
+#[tokio::test]
+async fn test_sequence_skip_if_file_exists_with_wd() -> Result<()> {
+    init_test_logging();
+    let temp_dir = tempfile::tempdir()?;
+    let tools_dir = temp_dir.path().join(".ahma");
+    fs::create_dir_all(&tools_dir).await?;
+
+    // Create skip_me marker file
+    let skip_marker = temp_dir.path().join("skip_me.txt");
+    std::fs::write(&skip_marker, "exists").unwrap();
+
+    let echo_tool = r#"
+{
+    "name": "echo_skip",
+    "description": "Echo for skip testing",
+    "command": "echo",
+    "timeout_seconds": 10,
+    "synchronous": true,
+    "enabled": true,
+    "subcommand": [{"name": "default", "description": "echo"}]
+}
+"#;
+    fs::write(tools_dir.join("echo_skip.json"), echo_tool).await?;
+
+    let skip_sequence_config = r#"
+{
+    "name": "skip_sequence",
+    "description": "Sequence with skip_if_file_exists",
+    "command": "sequence",
+    "timeout_seconds": 30,
+    "synchronous": true,
+    "enabled": true,
+    "sequence": [
+        {
+            "tool": "echo_skip",
+            "subcommand": "default",
+            "description": "Step 1 runs",
+            "args": {"message": "step1_ran"}
+        },
+        {
+            "tool": "echo_skip",
+            "subcommand": "default",
+            "description": "Step 2 skipped when file exists",
+            "skip_if_file_exists": "skip_me.txt",
+            "args": {"message": "step2_should_not_run"}
+        },
+        {
+            "tool": "echo_skip",
+            "subcommand": "default",
+            "description": "Step 3 runs after skip",
+            "args": {"message": "step3_ran"}
+        }
+    ]
+}
+"#;
+    fs::write(tools_dir.join("skip_sequence.json"), skip_sequence_config).await?;
+
+    let client = ClientBuilder::new()
+        .tools_dir(".ahma")
+        .working_dir(temp_dir.path())
+        .build()
+        .await?;
+
+    let params = CallToolRequestParams::new(Cow::Borrowed("skip_sequence")).with_arguments(
+        json!({"working_directory": temp_dir.path().to_string_lossy()})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+
+    let result = client.call_tool(params).await?;
+
+    let all_text: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect();
+
+    assert!(all_text.contains("step1_ran") || all_text.contains("Step 1"));
+    assert!(all_text.contains("step3_ran") || all_text.contains("Step 3"));
+    assert!(all_text.contains("skipped") || all_text.contains("Step 2"));
+    assert!(!all_text.contains("step2_should_not_run"));
+
+    client.cancel().await?;
+    Ok(())
+}
+
+/// Test sequence with skip_if_file_missing - step is skipped when file does not exist (explicit working_directory)
+#[tokio::test]
+async fn test_sequence_skip_if_file_missing_explicit_wd() -> Result<()> {
+    init_test_logging();
+    let temp_dir = tempfile::tempdir()?;
+    let tools_dir = temp_dir.path().join(".ahma");
+    fs::create_dir_all(&tools_dir).await?;
+
+    let echo_tool = r#"
+{
+    "name": "echo_missing",
+    "description": "Echo for missing-file skip testing",
+    "command": "echo",
+    "timeout_seconds": 10,
+    "synchronous": true,
+    "enabled": true,
+    "subcommand": [{"name": "default", "description": "echo"}]
+}
+"#;
+    fs::write(tools_dir.join("echo_missing.json"), echo_tool).await?;
+
+    let missing_skip_config = r#"
+{
+    "name": "missing_skip_sequence",
+    "description": "Sequence with skip_if_file_missing",
+    "command": "sequence",
+    "timeout_seconds": 30,
+    "synchronous": true,
+    "enabled": true,
+    "sequence": [
+        {
+            "tool": "echo_missing",
+            "subcommand": "default",
+            "description": "Step 1 runs",
+            "args": {"message": "step1_ran"}
+        },
+        {
+            "tool": "echo_missing",
+            "subcommand": "default",
+            "description": "Step 2 skipped when file missing",
+            "skip_if_file_missing": "nonexistent_file_xyz.txt",
+            "args": {"message": "step2_should_not_run"}
+        },
+        {
+            "tool": "echo_missing",
+            "subcommand": "default",
+            "description": "Step 3 runs after skip",
+            "args": {"message": "step3_ran"}
+        }
+    ]
+}
+"#;
+    fs::write(
+        tools_dir.join("missing_skip_sequence.json"),
+        missing_skip_config,
+    )
+    .await?;
+
+    let client = ClientBuilder::new()
+        .tools_dir(".ahma")
+        .working_dir(temp_dir.path())
+        .build()
+        .await?;
+
+    let params = CallToolRequestParams::new(Cow::Borrowed("missing_skip_sequence")).with_arguments(
+        json!({"working_directory": temp_dir.path().to_string_lossy()})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+
+    let result = client.call_tool(params).await?;
+
+    let all_text: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+        .collect();
+
+    assert!(all_text.contains("step1_ran") || all_text.contains("Step 1"));
+    assert!(all_text.contains("step3_ran") || all_text.contains("Step 3"));
+    assert!(all_text.contains("skipped"));
+    assert!(!all_text.contains("step2_should_not_run"));
+
+    client.cancel().await?;
+    Ok(())
+}
+
+// ============================================================================

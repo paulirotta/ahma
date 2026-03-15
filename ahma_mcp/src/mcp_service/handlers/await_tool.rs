@@ -403,3 +403,133 @@ fn collect_build_suggestions(still_running: &[Operation], steps: &mut Vec<String
         steps.push("• Consider running operations with verbose flags to see progress".to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operation_monitor::{Operation, OperationStatus};
+
+    fn make_op(id: &str, tool: &str, status: OperationStatus) -> Operation {
+        let mut op = Operation::new(id.to_string(), tool.to_string(), String::new(), None);
+        op.state = status;
+        op
+    }
+
+    #[test]
+    fn test_is_lock_file_matches() {
+        assert!(is_lock_file("Cargo.lock"));
+        assert!(is_lock_file("package-lock.json"));
+        assert!(is_lock_file("yarn.lock"));
+        assert!(is_lock_file(".cargo-lock"));
+    }
+
+    #[test]
+    fn test_is_lock_file_non_matches() {
+        assert!(!is_lock_file("Cargo.toml"));
+        assert!(!is_lock_file("src.rs"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_progress_warnings_returns_handle_and_rx() {
+        let (handle, mut rx) = spawn_progress_warnings(1.0);
+        handle.abort();
+        let _ = handle.await;
+        let _ = rx.try_recv();
+    }
+
+    #[test]
+    fn test_build_completion_result_empty_contents() {
+        let start = Instant::now();
+        let result = build_completion_result(vec![], start);
+        assert!(!result.content.is_empty());
+        let text = result.content.first().unwrap().as_text().unwrap();
+        assert!(text.text.contains("No operations completed"));
+    }
+
+    #[test]
+    fn test_build_completion_result_with_contents() {
+        use rmcp::model::Content;
+        let start = Instant::now();
+        let contents = vec![Content::text("op output".to_string())];
+        let result = build_completion_result(contents, start);
+        assert_eq!(result.content.len(), 2);
+        let first = result.content.first().unwrap().as_text().unwrap();
+        assert!(first.text.contains("Completed"));
+    }
+
+    #[test]
+    fn test_collect_process_suggestions() {
+        let ops = vec![
+            make_op("op1", "cargo_build", OperationStatus::InProgress),
+            make_op("op2", "cargo_test", OperationStatus::InProgress),
+        ];
+        let mut steps = Vec::new();
+        collect_process_suggestions(&ops, &mut steps);
+        assert!(!steps.is_empty());
+        assert!(steps.iter().any(|s| s.contains("cargo")));
+    }
+
+    #[test]
+    fn test_collect_network_suggestions_with_network_op() {
+        let ops = vec![make_op("op1", "git_clone", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        collect_network_suggestions(&ops, &mut steps);
+        assert!(steps.iter().any(|s| s.contains("Network")));
+    }
+
+    #[test]
+    fn test_collect_network_suggestions_no_network_op() {
+        let ops = vec![make_op("op1", "cargo_build", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        collect_network_suggestions(&ops, &mut steps);
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn test_collect_build_suggestions_with_build_op() {
+        let ops = vec![make_op("op1", "cargo_build", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        collect_build_suggestions(&ops, &mut steps);
+        assert!(steps.iter().any(|s| s.contains("Build")));
+    }
+
+    #[test]
+    fn test_collect_build_suggestions_no_build_op() {
+        let ops = vec![make_op("op1", "echo_tool", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        collect_build_suggestions(&ops, &mut steps);
+        assert!(steps.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_scan_dir_for_lock_files_finds_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_dir = temp.path().join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("Cargo.lock"), "").unwrap();
+
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let mut steps = Vec::new();
+        scan_dir_for_lock_files("target", &mut steps).await;
+
+        std::env::set_current_dir(&original_cwd).unwrap();
+
+        assert!(!steps.is_empty(), "Should find Cargo.lock");
+    }
+
+    #[tokio::test]
+    async fn test_scan_dir_for_lock_files_nonexistent_dir() {
+        let mut steps = Vec::new();
+        scan_dir_for_lock_files("nonexistent_dir_12345", &mut steps).await;
+        assert!(steps.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_calculate_intelligent_timeout() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let timeout = service.calculate_intelligent_timeout(&[]).await;
+        assert!(timeout >= 600.0);
+    }
+}
