@@ -123,9 +123,15 @@ async fn test_automatic_async_slow_command_returns_async_id() -> Result<()> {
 
     let start = std::time::Instant::now();
 
+    let command_str = if cfg!(windows) {
+        "Start-Sleep -Seconds 30; Write-Output done"
+    } else {
+        "sleep 30 && echo done"
+    };
+
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         json!({
-            "command": "sleep 30 && echo done"
+            "command": command_str
         })
         .as_object()
         .unwrap()

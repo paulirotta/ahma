@@ -754,7 +754,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install wingetcreate
-        shell: pwsh
+        shell: powershell
         run: |
           # winget is available on windows-latest but can be flaky on CI.
           # Download wingetcreate directly as a fallback to ensure reliability.

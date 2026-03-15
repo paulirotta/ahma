@@ -13,7 +13,7 @@ members = [
     "ahma_http_bridge",
     "ahma_http_mcp_client",
     "ahma_common",
-    "ahma_simplify",
+    "ahma_simplify", "ahma_coverage",
 ]
 
 resolver = "3"

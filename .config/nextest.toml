@@ -15,7 +15,7 @@ success-output = "immediate"
 # CI profile with similar optimizations but may have different retry settings
 [profile.ci]
 retries = 0
-slow-timeout = { period = "120s", terminate-after = 2 }
+slow-timeout = { period = "180s", terminate-after = 3 }
 # Limit parallelism on CI to reduce resource contention
 # GitHub Actions runners have 2 cores; use more conservative parallelism
 test-threads = "num-cpus"

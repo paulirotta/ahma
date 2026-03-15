@@ -36,7 +36,7 @@ async fn test_handle_await_with_pending_ops() -> Result<()> {
     let mut args = Map::new();
     args.insert(
         "command".to_string(),
-        json!("sleep 6 && echo 'done waiting'"),
+        json!(if cfg!(windows) { "Start-Sleep -Seconds 6; Write-Output 'done waiting'" } else { "sleep 6 && echo 'done waiting'" }),
     );
     args.insert("execution_mode".to_string(), json!("Asynchronous"));
 
@@ -96,7 +96,10 @@ async fn test_handle_await_with_tool_filter() -> Result<()> {
 
     // Start an async command
     let mut args = Map::new();
-    args.insert("command".to_string(), json!("sleep 6"));
+    args.insert(
+        "command".to_string(),
+        json!(if cfg!(windows) { "Start-Sleep -Seconds 6" } else { "sleep 6" }),
+    );
     args.insert("execution_mode".to_string(), json!("Asynchronous"));
 
     let call_param = CallToolRequestParams::new("sandboxed_shell").with_arguments(args);

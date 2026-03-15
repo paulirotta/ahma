@@ -30,6 +30,8 @@ tmp
 
 # Coverage reports
 coverage.json
+coverage_summary.md
+
 # Rust Code Analysis Results
 analysis_results/
 CODE_SIMPLICITY.*

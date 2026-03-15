@@ -349,13 +349,19 @@ mod sandboxed_shell_tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let test_file = "shell_created.txt";
 
+        let script = if cfg!(windows) {
+            format!("Set-Content -Path {} -Value 'content' -Encoding UTF8", test_file)
+        } else {
+            format!("echo 'content' > {}", test_file)
+        };
+
         let output = test_command(&binary)
             .current_dir(temp_dir.path())
             .args([
                 "--tools-dir",
                 tools_dir.to_str().unwrap(),
                 "sandboxed_shell",
-                &format!("echo 'content' > {}", test_file),
+                &script,
             ])
             .output()
             .expect("Failed to execute sandboxed_shell");
