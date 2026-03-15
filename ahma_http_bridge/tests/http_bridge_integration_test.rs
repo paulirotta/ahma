@@ -240,30 +240,12 @@ fn capped_backoff(base_ms: u64, attempt: usize, max_ms: u64) -> Duration {
     Duration::from_millis((base_ms.saturating_mul(attempt as u64)).min(max_ms))
 }
 
-fn coverage_mode() -> bool {
-    std::env::var_os("LLVM_PROFILE_FILE").is_some() || std::env::var_os("CARGO_LLVM_COV").is_some()
-}
-
 fn roots_handshake_timeout() -> Duration {
-    if coverage_mode() {
-        Duration::from_secs(120)
-    } else {
-        Duration::from_secs(45)
-    }
+    ahma_common::timeouts::TestTimeouts::get(ahma_common::timeouts::TimeoutCategory::Handshake)
 }
 
 fn post_roots_configured_grace_timeout() -> Duration {
-    if coverage_mode() {
-        // Coverage jobs can miss the follow-up notification on this specific
-        // GET SSE stream even after the bridge has accepted the roots/list
-        // response. Give it extra time, but keep the wait bounded so later
-        // tool-call retries can validate sandbox activation instead.
-        Duration::from_secs(30)
-    } else if cfg!(windows) {
-        Duration::from_secs(45)
-    } else {
-        Duration::from_secs(3)
-    }
+    ahma_common::timeouts::TestTimeouts::scale_secs(5)
 }
 
 fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
@@ -289,7 +271,10 @@ async fn send_tool_call_with_retry(
     session_id: &str,
     tool_call: &Value,
 ) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let timeout = ahma_common::timeouts::TestTimeouts::get(
+        ahma_common::timeouts::TimeoutCategory::SandboxReady,
+    );
+    let deadline = Instant::now() + timeout;
     let mut attempt = 0usize;
 
     loop {
@@ -496,13 +481,15 @@ fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
     // the authority (e.g. `file://localhost` or `file://`).
     //
     // On Windows:
-    //   1. Strip any `\\?\` extended-length prefix.
-    //   2. Convert backslashes to forward slashes.
-    //   3. Prepend "/" so the drive letter (e.g. "C:") is in the *path*
+    //   1. Canonicalize to resolve 8.3 short names (e.g. RUNNER~1 → runneradmin).
+    //   2. Strip any `\\?\` extended-length prefix.
+    //   3. Convert backslashes to forward slashes.
+    //   4. Prepend "/" so the drive letter (e.g. "C:") is in the *path*
     //      component, not the authority field of the URL.
     //      Without this step `file://localhostC%3A...` would put
     //      `localhostC%3A...` in the host field, breaking `url::Url::parse`.
-    let mut s = path.to_string_lossy().into_owned();
+    let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut s = canonical.to_string_lossy().into_owned();
 
     // Strip \\?\ prefix (Windows extended-length paths).
     if s.starts_with(r"\\?\") {

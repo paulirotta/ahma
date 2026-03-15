@@ -118,12 +118,15 @@ impl AhmaMcpService {
     /// This implements the MCP roots protocol where the server requests the
     /// client's workspace roots to establish sandbox boundaries.
     pub async fn configure_sandbox_from_roots(&self, peer: &Peer<RoleServer>) {
-        eprintln!("DEBUG: ahma_mcp calling peer.list_roots()");
-        tracing::info!("Requesting roots/list from client...");
-
-        // Use the list_roots() method provided by Peer<RoleServer>
-        // Add timeout to prevent infinite hang if response never arrives (Windows stdio issue)
         let timeout_duration = TestTimeouts::get(TimeoutCategory::Handshake);
+        eprintln!(
+            "DEBUG: ahma_mcp calling peer.list_roots() (timeout: {:?})",
+            timeout_duration
+        );
+        tracing::info!(
+            timeout = ?timeout_duration,
+            "Requesting roots/list from client..."
+        );
 
         let list_result = match tokio::time::timeout(timeout_duration, peer.list_roots()).await {
             Ok(result) => result,
