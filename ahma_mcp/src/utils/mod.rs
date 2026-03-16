@@ -15,6 +15,8 @@
 //!   upon the `chrono` crate to provide date and time manipulation features.
 
 pub mod logging;
+/// Safe stdout notification delivery for the subprocess-to-bridge protocol.
+pub mod stdio;
 /// Serde helpers for `SystemTime` values.
 pub mod time;
 /// Timestamp formatting helpers.

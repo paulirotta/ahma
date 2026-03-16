@@ -11,12 +11,12 @@ use crate::{
     sandbox,
     shell_pool::{ShellPoolConfig, ShellPoolManager},
     tool_availability::{evaluate_tool_availability, format_install_guidance},
+    utils::stdio::emit_stdout_notification,
 };
 use ahma_http_mcp_client::client::HttpMcpTransport;
 use anyhow::{Context, Result};
 use rmcp::ServiceExt;
 use std::{
-    io::Write,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -386,9 +386,8 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
             "jsonrpc": "2.0",
             "method": "notifications/sandbox/terminated",
             "params": { "reason": shutdown_reason }
-        })) && writeln!(std::io::stdout(), "\n{}", notification).is_ok()
-        {
-            let _ = std::io::stdout().flush();
+        })) {
+            let _ = emit_stdout_notification(&notification);
         }
 
         adapter_for_signal.shutdown().await;
@@ -411,9 +410,8 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
         "jsonrpc": "2.0",
         "method": "notifications/sandbox/terminated",
         "params": { "reason": reason }
-    })) && writeln!(std::io::stdout(), "\n{}", notification).is_ok()
-    {
-        let _ = std::io::stdout().flush();
+    })) {
+        let _ = emit_stdout_notification(&notification);
     }
 
     // Gracefully shutdown the adapter

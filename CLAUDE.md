@@ -139,6 +139,14 @@ cargo clippy --fix --allow-dirty   # Auto-fix lints
 - `info!`: Normal operation milestones (startup, shutdown, major state changes)
 - `debug!`: Detailed troubleshooting information
 
+#### Stdout Notification Writes (SPEC R5.6.1)
+- **Never use `println!` or `print!` to write protocol data on stdout.** These macros panic on any write error (e.g., broken pipe on Windows = OS error 232).
+- In **stdio server mode** (subprocess spawned by HTTP bridge), stdout is a pipe. The bridge may close it during shutdown, causing broken-pipe errors.
+- **Always use `crate::utils::stdio::emit_stdout_notification`** for all JSON-RPC notifications written to stdout. It classifies errors:
+  - Broken pipe → `debug` log, treated as non-fatal
+  - Other I/O errors → `warn` log, returned to caller
+- **`println!` is acceptable in CLI mode only** (`--list-tools`, single tool execution, validation) where stdout goes to a terminal, not a pipe.
+
 ---
 
 ## Testing Instructions
