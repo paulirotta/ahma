@@ -2,6 +2,7 @@ use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use notify::{Event, RecursiveMode, Watcher};
 use rmcp::service::{Peer, RoleServer};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing;
@@ -144,8 +145,9 @@ impl AhmaMcpService {
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/failed",
                     "params": { "error": format!("Timeout waiting for roots/list response after {:?}", timeout_duration) }
-                })) {
-                    println!("\n{}", notification);
+                })) && writeln!(std::io::stdout(), "\n{}", notification).is_ok()
+                {
+                    let _ = std::io::stdout().flush();
                 }
                 return;
             }
@@ -222,8 +224,9 @@ impl AhmaMcpService {
                                 "jsonrpc": "2.0",
                                 "method": "notifications/sandbox/failed",
                                 "params": { "error": e.to_string() }
-                            })) {
-                                println!("\n{}", notification);
+                            })) && writeln!(std::io::stdout(), "\n{}", notification).is_ok()
+                            {
+                                let _ = std::io::stdout().flush();
                             }
                             return;
                         }
@@ -254,7 +257,9 @@ impl AhmaMcpService {
                                         "params": { "error": e.to_string() }
                                     }))
                                 {
-                                    println!("\n{}", notification);
+                                    if writeln!(std::io::stdout(), "\n{}", notification).is_ok() {
+                                        let _ = std::io::stdout().flush();
+                                    }
                                 }
                                 std::process::exit(1);
                             }
@@ -285,9 +290,9 @@ impl AhmaMcpService {
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/configured"
                 })) {
-                    // Use println! with a leading newline to write to stdout so the bridge
-                    // picks it up even if it was concatenated with a previous partial message.
-                    println!("\n{}", notification);
+                    if writeln!(std::io::stdout(), "\n{}", notification).is_ok() {
+                        let _ = std::io::stdout().flush();
+                    }
                     eprintln!("DEBUG: Sent notifications/sandbox/configured");
                 } else {
                     eprintln!("DEBUG: Failed to serialize notifications/sandbox/configured");
@@ -299,8 +304,9 @@ impl AhmaMcpService {
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/failed",
                     "params": { "error": e.to_string() }
-                })) {
-                    println!("\n{}", notification);
+                })) && writeln!(std::io::stdout(), "\n{}", notification).is_ok()
+                {
+                    let _ = std::io::stdout().flush();
                 }
             }
         }
