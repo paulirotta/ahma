@@ -15,6 +15,7 @@ use rmcp::{
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 use serde_json::json;
+use std::path::PathBuf;
 use tokio::process::Command;
 
 /// A test client that wraps a running `ahma_mcp` server process.
@@ -64,23 +65,31 @@ impl Client {
         tools_dir: Option<&str>,
         extra_args: &[&str],
     ) -> Result<()> {
+        let command = if let Some(binary) = resolve_prebuilt_ahma_mcp_binary().await {
+            Command::new(binary)
+        } else {
+            eprintln!(
+                "Warning: Using slow 'cargo run' path. Run 'cargo build -p ahma_mcp --bin ahma-mcp' first for faster tests."
+            );
+            let mut cmd = Command::new("cargo");
+            cmd.arg("run")
+                .arg("--package")
+                .arg("ahma_mcp")
+                .arg("--bin")
+                .arg("ahma-mcp")
+                .arg("--");
+            cmd
+        };
+
         let client = ()
-            .serve(TokioChildProcess::new(Command::new("cargo").configure(
-                |cmd| {
-                    cmd.arg("run")
-                        .arg("--package")
-                        .arg("ahma_mcp")
-                        .arg("--bin")
-                        .arg("ahma-mcp")
-                        .arg("--");
-                    if let Some(dir) = tools_dir {
-                        cmd.arg("--tools-dir").arg(dir);
-                    }
-                    for arg in extra_args {
-                        cmd.arg(arg);
-                    }
-                },
-            ))?)
+            .serve(TokioChildProcess::new(command.configure(|cmd| {
+                if let Some(dir) = tools_dir {
+                    cmd.arg("--tools-dir").arg(dir);
+                }
+                for arg in extra_args {
+                    cmd.arg(arg);
+                }
+            }))?)
             .await?;
         self.service = Some(client);
         Ok(())
@@ -155,6 +164,46 @@ impl Client {
         let result = service.call_tool(params).await?;
         first_text_content(&result.content)
     }
+}
+
+fn workspace_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to locate workspace root")
+        .to_path_buf()
+}
+
+async fn resolve_prebuilt_ahma_mcp_binary() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(path) = std::env::var("AHMA_TEST_BINARY") {
+        candidates.push(PathBuf::from(path));
+    }
+
+    let workspace = workspace_dir();
+    let bin_name = format!("ahma-mcp{}", std::env::consts::EXE_SUFFIX);
+
+    if let Ok(target_dir_raw) = std::env::var("CARGO_TARGET_DIR") {
+        let target_dir = PathBuf::from(target_dir_raw);
+        let target_dir = if target_dir.is_absolute() {
+            target_dir
+        } else {
+            workspace.join(target_dir)
+        };
+        candidates.push(target_dir.join("debug").join(&bin_name));
+        candidates.push(target_dir.join("release").join(&bin_name));
+    }
+
+    candidates.push(workspace.join("target").join("debug").join(&bin_name));
+    candidates.push(workspace.join("target").join("release").join(&bin_name));
+
+    for candidate in candidates {
+        if tokio::fs::metadata(&candidate).await.is_ok() {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 fn extract_id(text: &str) -> Result<String> {

@@ -1,5 +1,6 @@
 use super::common;
 use crate::AhmaMcpService;
+use crate::mcp_service::schema;
 use crate::operation_monitor::Operation;
 use rmcp::model::{CallToolRequestParams, CallToolResult, Content, ErrorData as McpError};
 use serde_json::{Map, Value};
@@ -13,23 +14,15 @@ impl AhmaMcpService {
         let mut properties = Map::new();
         properties.insert(
             "tools".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Comma-separated tool name prefixes to await for (optional; waits for all if omitted)"
-            }),
+            schema::string_property(
+                "Comma-separated tool name prefixes to await for (optional; waits for all if omitted)",
+            ),
         );
         properties.insert(
             "id".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Specific operation ID to await for (optional)"
-            }),
+            schema::string_property("Specific operation ID to await for (optional)"),
         );
-
-        let mut schema = Map::new();
-        schema.insert("type".to_string(), Value::String("object".to_string()));
-        schema.insert("properties".to_string(), Value::Object(properties));
-        Arc::new(schema)
+        schema::object_input_schema(properties, &[])
     }
 
     /// Handles the 'await' tool call.
@@ -141,7 +134,7 @@ impl AhmaMcpService {
                 error_message.push_str(&format!("\n• {} ({})", op.id, op.tool_name));
             }
         }
-        Ok(CallToolResult::success(vec![Content::text(error_message)]))
+        Ok(common::text_result(error_message))
     }
 
     /// Calculate intelligent timeout based on operation timeouts and default await timeout
@@ -184,16 +177,14 @@ impl AhmaMcpService {
             return Ok(CallToolResult::success(contents));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
-            if tool_filters.is_empty() {
-                "No pending operations to await for.".to_string()
-            } else {
-                format!(
-                    "No pending operations for tools: {}",
-                    tool_filters.join(", ")
-                )
-            },
-        )]))
+        Ok(common::text_result(if tool_filters.is_empty() {
+            "No pending operations to await for.".to_string()
+        } else {
+            format!(
+                "No pending operations for tools: {}",
+                tool_filters.join(", ")
+            )
+        }))
     }
 
     async fn handle_await_specific_operation(
@@ -220,24 +211,21 @@ impl AhmaMcpService {
                     common::serialize_operations_to_content(std::slice::from_ref(&completed_op));
                 Ok(build_completion_result(contents, wait_start))
             }
-            Ok(None) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(None) => Ok(common::text_result(format!(
                 "Operation {} completed but no result available",
                 op_id
-            ))])),
-            Err(_) => Ok(CallToolResult::success(vec![Content::text(format!(
+            ))),
+            Err(_) => Ok(common::text_result(format!(
                 "Timeout waiting for operation {}",
                 op_id
-            ))])),
+            ))),
         }
     }
 
     async fn format_already_completed_or_not_found(&self, op_id: &str) -> CallToolResult {
         let completed_ops = self.operation_monitor.get_completed_operations().await;
         let Some(completed_op) = completed_ops.iter().find(|op| op.id == op_id) else {
-            return CallToolResult::success(vec![Content::text(format!(
-                "Operation {} not found",
-                op_id
-            ))]);
+            return common::text_result(format!("Operation {} not found", op_id));
         };
         let mut contents = vec![Content::text(format!(
             "Operation {} already completed",
@@ -337,9 +325,7 @@ fn spawn_progress_warnings(
 fn build_completion_result(contents: Vec<Content>, wait_start: Instant) -> CallToolResult {
     let elapsed = wait_start.elapsed();
     if contents.is_empty() {
-        return CallToolResult::success(vec![Content::text(
-            "No operations completed within timeout period".to_string(),
-        )]);
+        return common::text_result("No operations completed within timeout period");
     }
     let mut result_contents = vec![Content::text(format!(
         "Completed {} operations in {:.2}s",

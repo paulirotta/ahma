@@ -14,11 +14,11 @@
 
 mod common;
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::{spawn_test_server, spawn_test_server_with_timeout};
 use reqwest::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{Value, json};
-use std::time::Duration;
 
 const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
 
@@ -49,7 +49,7 @@ async fn test_tools_call_without_sse_returns_handshake_timeout() {
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json")
         .json(&init_req)
-        .timeout(Duration::from_secs(30))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("initialize POST failed");
@@ -66,7 +66,7 @@ async fn test_tools_call_without_sse_returns_handshake_timeout() {
     // Intentionally skip: SSE connection, initialized notification, roots/list response
 
     // Wait for handshake timeout (2s timeout + 1.5s margin for CI)
-    tokio::time::sleep(Duration::from_millis(3500)).await;
+    tokio::time::sleep(TestTimeouts::scale_millis(3500)).await;
 
     // Try to call a tool - should get handshake timeout error
     let tool_call = json!({
@@ -85,7 +85,7 @@ async fn test_tools_call_without_sse_returns_handshake_timeout() {
         .header(ACCEPT, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id)
         .json(&tool_call)
-        .timeout(Duration::from_secs(5))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("tools/call POST failed");
@@ -148,7 +148,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
         .post(format!("{}/mcp", server.base_url()))
         .header(CONTENT_TYPE, "application/json")
         .json(&init_req)
-        .timeout(Duration::from_secs(30))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("initialize POST failed");
@@ -172,7 +172,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
     // Intentionally skip: initialized notification, roots/list response
 
     // Wait for handshake timeout (2s timeout + 1.5s margin for CI)
-    tokio::time::sleep(Duration::from_millis(3500)).await;
+    tokio::time::sleep(TestTimeouts::scale_millis(3500)).await;
 
     // Try to call a tool
     let tool_call = json!({
@@ -190,7 +190,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
         .header(CONTENT_TYPE, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id)
         .json(&tool_call)
-        .timeout(Duration::from_secs(5))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("tools/call POST failed");
@@ -287,7 +287,7 @@ async fn test_tools_call_during_handshake_returns_conflict() {
         .post(format!("{}/mcp", server.base_url()))
         .header(CONTENT_TYPE, "application/json")
         .json(&init_req)
-        .timeout(Duration::from_secs(30))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("initialize POST failed");
@@ -315,7 +315,7 @@ async fn test_tools_call_during_handshake_returns_conflict() {
         .header(CONTENT_TYPE, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id)
         .json(&tool_call)
-        .timeout(Duration::from_secs(5))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("tools/call POST failed");
@@ -373,7 +373,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .post(format!("{}/mcp", server1.base_url()))
         .header(CONTENT_TYPE, "application/json")
         .json(&init_req("server1-client"))
-        .timeout(Duration::from_secs(30))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("Initialize server1 failed");
@@ -389,7 +389,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .post(format!("{}/mcp", server2.base_url()))
         .header(CONTENT_TYPE, "application/json")
         .json(&init_req("server2-client"))
-        .timeout(Duration::from_secs(30))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("Initialize server2 failed");
@@ -402,7 +402,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .to_string();
 
     // Wait for server1's timeout to expire (2s + margin)
-    tokio::time::sleep(Duration::from_millis(3500)).await;
+    tokio::time::sleep(TestTimeouts::scale_millis(3500)).await;
 
     // Server1 should return 504 (timeout)
     let tool_call = json!({
@@ -420,7 +420,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .header(CONTENT_TYPE, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id1)
         .json(&tool_call)
-        .timeout(Duration::from_secs(5))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("tools/call server1 failed");
@@ -437,7 +437,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .header(CONTENT_TYPE, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id2)
         .json(&tool_call)
-        .timeout(Duration::from_secs(5))
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("tools/call server2 failed");

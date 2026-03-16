@@ -14,7 +14,8 @@
 
 mod common;
 
-use common::server::{ServerGuard, resolve_binary_path};
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+use common::server::{ServerGuard, resolve_binary_path, spawn_server_guard_with_config};
 use common::uri::paths_equivalent;
 use futures::StreamExt;
 use reqwest::Client;
@@ -31,121 +32,9 @@ async fn start_http_bridge(
     tools_dir: &std::path::Path,
     sandbox_scope: &std::path::Path,
 ) -> ServerGuard {
-    let binary = resolve_binary_path();
-
-    let mut cmd = Command::new(&binary);
-    cmd.args([
-        "--mode",
-        "http",
-        "--http-port",
-        "0", // Use dynamic port
-        "--sync",
-        "--tools-dir",
-        &tools_dir.to_string_lossy(),
-        "--sandbox-scope",
-        &sandbox_scope.to_string_lossy(),
-        "--log-to-stderr",
-        // Use a generous handshake timeout so slow CI runners (coverage, Windows)
-        // complete the SSE roots exchange before the server-side timer fires.
-        "--handshake-timeout-secs",
-        "300",
-    ]);
-
-    // IMPORTANT:
-    // These integration tests are explicitly verifying real sandbox-scope behavior.
-    // ahma_mcp auto-enables a permissive "test mode" (sandbox bypass + best-effort scope "/")
-    // when certain env vars are present (e.g. NEXTEST, CARGO_TARGET_DIR, RUST_TEST_THREADS).
-    // That makes tests pass even when real-life behavior fails.
-    //
-    // So we *clear* those env vars for the spawned server process to ensure it behaves
-    // like a real user-launched server.
-    cmd.env_remove("NEXTEST")
-        .env_remove("NEXTEST_EXECUTION_MODE")
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("RUST_TEST_THREADS");
-
-    // Detect nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker) at runtime
-    // and set AHMA_NO_SANDBOX so the child starts; app-level path checks still apply.
-    #[cfg(target_os = "macos")]
-    if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
-    }
-    #[cfg(target_os = "linux")]
-    if ahma_mcp::sandbox::check_sandbox_prerequisites().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
-    }
-    #[cfg(windows)]
-    if ahma_mcp::sandbox::check_windows_sandbox_available().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
-    }
-
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("Failed to start HTTP bridge");
-
-    // Capture stderr to find the bound port
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    std::thread::spawn(move || {
-        use std::io::{BufRead, BufReader};
-        let reader = BufReader::new(stderr);
-        for line in reader.lines().map_while(Result::ok) {
-            eprintln!("{}", line); // Pass through to test output
-            if line.contains("AHMA_BOUND_PORT=") {
-                let _ = tx.send(line);
-            }
-        }
-    });
-
-    // Wait for port
-    let start = std::time::Instant::now();
-    let timeout = Duration::from_secs(30);
-    let mut port = 0;
-
-    while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100))
-            && let Some(idx) = line.find("AHMA_BOUND_PORT=")
-        {
-            let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
-            if let Ok(p) = port_str.trim().parse::<u16>() {
-                port = p;
-                break;
-            }
-        }
-
-        // check if child died
-        if let Ok(Some(status)) = child.try_wait() {
-            panic!("Child process exited unexpectedly with status: {}", status);
-        }
-    }
-
-    if port == 0 {
-        let _ = child.kill();
-        panic!("Timed out waiting for server to bind port");
-    }
-
-    // Wait for server to be ready
-    let client = Client::new();
-    let health_url = format!("http://127.0.0.1:{}/health", port);
-
-    for _ in 0..150 {
-        sleep(Duration::from_millis(200)).await;
-        if let Ok(resp) = client.get(&health_url).send().await
-            && resp.status().is_success()
-        {
-            return ServerGuard::new(child, port);
-        }
-    }
-
-    // Kill and wait for the child to prevent zombie process
-    let mut child = child;
-    let _ = child.kill();
-    let _ = child.wait();
-
-    panic!("HTTP bridge failed to start within timeout");
+    spawn_server_guard_with_config(tools_dir, sandbox_scope, Some(300))
+        .await
+        .expect("Failed to start HTTP bridge")
 }
 
 /// Send a JSON-RPC request to the MCP endpoint
@@ -161,7 +50,7 @@ async fn send_mcp_request(
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
-        .timeout(Duration::from_secs(120));
+        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
 
     if let Some(id) = session_id {
         req = req.header("Mcp-Session-Id", id);
@@ -241,11 +130,11 @@ fn capped_backoff(base_ms: u64, attempt: usize, max_ms: u64) -> Duration {
 }
 
 fn roots_handshake_timeout() -> Duration {
-    ahma_common::timeouts::TestTimeouts::get(ahma_common::timeouts::TimeoutCategory::Handshake)
+    TestTimeouts::get(TimeoutCategory::Handshake)
 }
 
 fn post_roots_configured_grace_timeout() -> Duration {
-    ahma_common::timeouts::TestTimeouts::scale_secs(5)
+    TestTimeouts::scale_secs(5)
 }
 
 fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
@@ -362,7 +251,7 @@ async fn process_sse_roots_handshake(
             );
         }
 
-        let chunk = tokio::time::timeout(Duration::from_millis(500), stream.next())
+        let chunk = tokio::time::timeout(TestTimeouts::poll_interval(), stream.next())
             .await
             .ok()
             .flatten();
@@ -1387,7 +1276,7 @@ async fn start_http_bridge_dynamic(
     });
 
     // Wait for port with timeout
-    let port = match rx.recv_timeout(Duration::from_secs(30)) {
+    let port = match rx.recv_timeout(TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
         Ok(p) => p,
         Err(_) => {
             let _ = child.kill();
@@ -1403,7 +1292,7 @@ async fn start_http_bridge_dynamic(
     let client = Client::new();
     let health_url = format!("http://127.0.0.1:{}/health", port);
 
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + TestTimeouts::get(TimeoutCategory::HealthCheck);
     loop {
         if Instant::now() > deadline {
             let _ = child.kill();
@@ -1418,7 +1307,7 @@ async fn start_http_bridge_dynamic(
         {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(TestTimeouts::poll_interval()).await;
     }
 
     (ServerGuard::new(child, port), stderr_buffer)

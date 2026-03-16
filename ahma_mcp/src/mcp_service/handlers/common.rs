@@ -1,5 +1,5 @@
 use crate::operation_monitor::Operation;
-use rmcp::model::Content;
+use rmcp::model::{CallToolResult, Content, ErrorData as McpError};
 use serde_json::{Map, Value};
 
 /// Parses a comma-separated string value from JSON args into a list of trimmed, non-empty strings.
@@ -49,6 +49,37 @@ pub fn parse_id(args: &Map<String, Value>) -> Option<String> {
     args.get("id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+/// Returns a successful MCP result with a single text content block.
+pub fn text_result(text: impl Into<String>) -> CallToolResult {
+    CallToolResult::success(vec![Content::text(text.into())])
+}
+
+/// Builds an internal MCP error with no extra data payload.
+pub fn mcp_internal(message: impl Into<String>) -> McpError {
+    McpError::internal_error(message.into(), None)
+}
+
+/// Builds an invalid-params MCP error with no extra data payload.
+pub fn mcp_invalid_params(message: impl Into<String>) -> McpError {
+    McpError::invalid_params(message.into(), None)
+}
+
+/// Reads an optional string argument from JSON args.
+pub fn opt_str(args: &Map<String, Value>, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
+}
+
+/// Reads a required string argument from JSON args.
+pub fn require_str(
+    args: &Map<String, Value>,
+    key: &str,
+    error_message: &str,
+) -> Result<String, McpError> {
+    opt_str(args, key).ok_or_else(|| mcp_invalid_params(error_message))
 }
 
 /// Attempts to wait for an async operation to complete within the automatic async
@@ -101,17 +132,16 @@ pub async fn try_automatic_async_completion(
 /// Formats a completed operation into a `CallToolResult`.
 fn format_completed_operation(op: &Operation) -> rmcp::model::CallToolResult {
     use crate::operation_monitor::OperationStatus;
-    use rmcp::model::{CallToolResult, Content};
 
     match op.state {
         OperationStatus::Completed => {
             let output = extract_output_from_result(&op.result);
-            CallToolResult::success(vec![Content::text(output)])
+            text_result(output)
         }
         OperationStatus::Failed => {
             let output = extract_output_from_result(&op.result);
             // Return as success with error content (same as sync path behavior)
-            CallToolResult::success(vec![Content::text(format!("Command failed: {}", output))])
+            text_result(format!("Command failed: {}", output))
         }
         OperationStatus::Cancelled | OperationStatus::TimedOut => {
             let reason = op
@@ -120,9 +150,9 @@ fn format_completed_operation(op: &Operation) -> rmcp::model::CallToolResult {
                 .and_then(|v| v.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("Operation was cancelled or timed out");
-            CallToolResult::success(vec![Content::text(reason.to_string())])
+            text_result(reason.to_string())
         }
-        _ => CallToolResult::success(vec![Content::text("Operation completed".to_string())]),
+        _ => text_result("Operation completed"),
     }
 }
 

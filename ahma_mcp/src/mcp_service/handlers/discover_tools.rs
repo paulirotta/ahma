@@ -1,6 +1,8 @@
+use super::common;
 use crate::AhmaMcpService;
 use crate::mcp_service::bundle_registry;
-use rmcp::model::{CallToolResult, Content, ErrorData as McpError};
+use crate::mcp_service::schema;
+use rmcp::model::{CallToolResult, ErrorData as McpError};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
@@ -10,25 +12,18 @@ impl AhmaMcpService {
         let mut properties = Map::new();
         properties.insert(
             "action".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "enum": ["list", "reveal"],
-                "description": "Action to perform: 'list' shows available bundles, 'reveal' activates a bundle's tools"
-            }),
+            schema::enum_string_property(
+                "Action to perform: 'list' shows available bundles, 'reveal' activates a bundle's tools",
+                &["list", "reveal"],
+            ),
         );
         properties.insert(
             "bundle".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Bundle name to reveal (required for 'reveal' action). Use comma-separated names to reveal multiple bundles at once."
-            }),
+            schema::string_property(
+                "Bundle name to reveal (required for 'reveal' action). Use comma-separated names to reveal multiple bundles at once.",
+            ),
         );
-
-        let mut schema = Map::new();
-        schema.insert("type".to_string(), Value::String("object".to_string()));
-        schema.insert("properties".to_string(), Value::Object(properties));
-        schema.insert("required".to_string(), serde_json::json!(["action"]));
-        Arc::new(schema)
+        schema::object_input_schema(properties, &["action"])
     }
 
     /// Handles the `activate_tools` tool call.
@@ -39,29 +34,22 @@ impl AhmaMcpService {
         &self,
         args: Map<String, Value>,
     ) -> Result<CallToolResult, McpError> {
-        let action = args
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("list");
+        let action = common::opt_str(&args, "action").unwrap_or_else(|| "list".to_string());
 
-        match action {
+        match action.as_str() {
             "list" => self.discover_tools_list().await,
             "reveal" => {
-                let bundle_arg = args.get("bundle").and_then(|v| v.as_str()).ok_or_else(|| {
-                    McpError::invalid_params(
-                        "The 'bundle' parameter is required for the 'reveal' action".to_string(),
-                        None,
-                    )
-                })?;
+                let bundle_arg = common::require_str(
+                    &args,
+                    "bundle",
+                    "The 'bundle' parameter is required for the 'reveal' action",
+                )?;
                 self.discover_tools_reveal(bundle_arg).await
             }
-            other => Err(McpError::invalid_params(
-                format!(
-                    "Unknown action '{}'. Valid actions: 'list', 'reveal'",
-                    other
-                ),
-                None,
-            )),
+            other => Err(common::mcp_invalid_params(format!(
+                "Unknown action '{}'. Valid actions: 'list', 'reveal'",
+                other
+            ))),
         }
     }
 
@@ -76,9 +64,9 @@ impl AhmaMcpService {
         let loaded = bundle_registry::loaded_bundle_names(&config_keys);
 
         if loaded.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(common::text_result(
                 "No tool bundles are loaded. Use CLI flags like --rust, --git, --python to enable bundles.",
-            )]));
+            ));
         }
 
         // Count subcommands per bundle to give a sense of scope
@@ -101,14 +89,14 @@ impl AhmaMcpService {
         }
 
         let summary = serde_json::to_string_pretty(&entries).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(common::text_result(format!(
             "Available tool bundles (use `activate_tools reveal <bundle>` to activate):\n{}",
             summary
-        ))]))
+        )))
     }
 
     /// Reveals one or more bundles, making their tools visible in `tools/list`.
-    async fn discover_tools_reveal(&self, bundle_arg: &str) -> Result<CallToolResult, McpError> {
+    async fn discover_tools_reveal(&self, bundle_arg: String) -> Result<CallToolResult, McpError> {
         let bundle_names: Vec<&str> = bundle_arg.split(',').map(|s| s.trim()).collect();
         let mut revealed = Vec::new();
         let mut already = Vec::new();
@@ -158,6 +146,6 @@ impl AhmaMcpService {
         }
 
         let message = parts.join("\n");
-        Ok(CallToolResult::success(vec![Content::text(message)]))
+        Ok(common::text_result(message))
     }
 }

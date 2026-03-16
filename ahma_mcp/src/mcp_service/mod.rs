@@ -50,9 +50,9 @@ pub use types::{GuidanceConfig, LegacyGuidanceConfig, META_PARAMS, SequenceKind}
 use rmcp::{
     handler::server::ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, CancelledNotificationParam, Content,
-        ErrorData as McpError, Implementation, ListToolsResult, PaginatedRequestParams,
-        ProtocolVersion, ServerCapabilities, ServerInfo, Tool, ToolsCapability,
+        CallToolRequestParams, CallToolResult, CancelledNotificationParam, ErrorData as McpError,
+        Implementation, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+        ServerCapabilities, ServerInfo, Tool, ToolsCapability,
     },
     service::{NotificationContext, Peer, RequestContext, RoleServer},
 };
@@ -563,11 +563,10 @@ impl ServerHandler for AhmaMcpService {
 
             // Delay tool execution until sandbox is initialized from roots/list.
             // This is critical in HTTP bridge mode with deferred sandbox initialization.
-            if self.adapter.sandbox().scopes().is_empty() && !self.adapter.sandbox().is_test_mode()
-            {
+            if !self.adapter.sandbox().is_ready_for_tool_calls() {
                 let error_message = "Sandbox initializing from client roots - retry tools/call after roots/list completes".to_string();
                 tracing::warn!("{}", error_message);
-                return Err(McpError::internal_error(error_message, None));
+                return Err(handlers::common::mcp_internal(error_message));
             }
 
             // Find tool configuration
@@ -802,11 +801,11 @@ impl ServerHandler for AhmaMcpService {
                     }
 
                     match result {
-                        Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
+                        Ok(output) => Ok(handlers::common::text_result(output)),
                         Err(e) => {
                             let error_message = format!("Synchronous execution failed: {}", e);
                             tracing::error!("{}", error_message);
-                            Err(McpError::internal_error(error_message, None))
+                            Err(handlers::common::mcp_internal(error_message))
                         }
                     }
                 }
@@ -875,13 +874,13 @@ impl ServerHandler for AhmaMcpService {
                             // Include tool hints to guide AI on handling async operations
                             let hint = crate::tool_hints::preview(&id, tool_name);
                             let message = format!("AHMA ID: {}{}", id, hint);
-                            Ok(CallToolResult::success(vec![Content::text(message)]))
+                            Ok(handlers::common::text_result(message))
                         }
                         Err(e) => {
                             let error_message =
                                 format!("Failed to start asynchronous operation: {}", e);
                             tracing::error!("{}", error_message);
-                            Err(McpError::internal_error(error_message, None))
+                            Err(handlers::common::mcp_internal(error_message))
                         }
                     }
                 }

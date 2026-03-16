@@ -6,7 +6,7 @@
 //!   - `_sse` variant:  `Accept: text/event-stream`
 
 mod common;
-use common::{TransportMode, setup_test_mcp};
+use common::{TransportMode, setup_test_mcp, setup_test_mcp_for_tools};
 use serde_json::json;
 
 // =============================================================================
@@ -119,13 +119,9 @@ async fn test_invalid_tool_returns_error_sse() {
 // =============================================================================
 
 async fn run_missing_required_arg_returns_error(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_cat"]).await else {
         return;
     };
-    if !mcp.is_tool_available("file-tools_cat").await {
-        eprintln!("WARNING  file-tools_cat not available, skipping");
-        return;
-    }
 
     // file-tools_cat requires `files` argument
     let result = mcp.call_tool("file-tools_cat", json!({})).await;

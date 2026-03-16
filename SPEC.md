@@ -884,6 +884,51 @@ The 4x multiplier for Windows is based on empirical CI data:
 
 The multipliers stack: Windows + Coverage = 8x base timeout.
 
+### 11.1 Canonical Reuse Patterns
+
+These rules codify the architecture simplification strategy: isolate repetitive protocol/setup
+details behind shared helpers so core execution algorithms remain easy to read.
+
+#### R19: Production Helper Patterns
+
+- **R19.1**: MCP handlers that return a single text response **should** use
+  `mcp_service::handlers::common::text_result(...)` instead of inlining
+  `CallToolResult::success(vec![Content::text(...)])`.
+- **R19.2**: Common MCP error constructors without extra data **should** use
+  `mcp_service::handlers::common::{mcp_internal, mcp_invalid_params}`.
+- **R19.3**: JSON argument extraction in MCP handlers **should** use
+  `mcp_service::handlers::common::{require_str, opt_str}` where applicable.
+- **R19.4**: Tool-call readiness checks **must** use
+  `sandbox::Sandbox::is_ready_for_tool_calls()` instead of duplicating
+  `scopes().is_empty() && !is_test_mode()` checks.
+- **R19.5**: Built-in tool input schemas (`await`, `status`, `sandboxed_shell`, `activate_tools`)
+  **must** be generated with `mcp_service::schema` helper builders
+  (`string_property`, `path_property`, enum helpers, `object_input_schema`).
+
+#### R20: Test Harness Reuse Patterns
+
+- **R20.1**: HTTP bridge tool tests **should** use `tests/common/setup_test_mcp_for_tools(...)`
+  for setup + required-tool gating, rather than open-coding availability checks.
+- **R20.2**: Reusable assertions in HTTP bridge tests **should** use
+  `tests/common/assert_tool_success_with_output(...)` where output is required.
+- **R20.3**: Tests that need tempdir + `.ahma` tools dir + MCP client **should** use
+  `ahma_mcp::test_utils::client::McpClientFixture`.
+- **R20.4**: Integration tests with custom bridge startup parameters **should** use
+  `tests/common/server::spawn_server_guard_with_config(...)` instead of duplicating
+  process startup/port/health polling code.
+- **R20.5**: Timeout values in integration tests **must** use `TestTimeouts` categories or
+  scaling helpers; numeric `Duration::from_secs(<literal>)` / `from_millis(<literal>)`
+  should only be used in narrowly justified micro-timing helpers.
+
+#### R21: Guardrail Enforcement
+
+- **R21.1**: Guardrail scripts **must** reject deprecated HTTP bridge test helper usage
+  (`ensure_server_available` outside `common/sse_test_helpers.rs`).
+- **R21.2**: Guardrail scripts **must** reject newly added literal `Duration::from_secs(...)`
+  / `Duration::from_millis(...)` patterns in timeout-sensitive handshake/bridge integration tests.
+- **R21.3**: Guardrail scripts **should** verify that custom HTTP bridge integration tests
+  use shared startup helpers from `tests/common/server.rs`.
+
 ### 11.2 Recurring Failure Mode Detection
 
 This repo has a recurring failure mode: tests can pass while real-world usage is broken.

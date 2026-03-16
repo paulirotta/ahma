@@ -4,7 +4,7 @@
 //! Each test runs against both JSON and SSE POST response modes.
 
 mod common;
-use common::{TransportMode, setup_test_mcp};
+use common::{TransportMode, setup_test_mcp_for_tools};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -12,13 +12,9 @@ use serde_json::json;
 // ---------------------------------------------------------------------------
 
 async fn run_git_status(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["git_status"]).await else {
         return;
     };
-    if !mcp.is_tool_available("git_status").await {
-        eprintln!("WARNING  git_status not available on server, skipping");
-        return;
-    }
 
     let result = mcp.call_tool("git_status", json!({})).await;
 
@@ -48,13 +44,9 @@ async fn test_git_status_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_git_log(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["git_log"]).await else {
         return;
     };
-    if !mcp.is_tool_available("git_log").await {
-        eprintln!("WARNING  git_log not available on server, skipping");
-        return;
-    }
 
     let result = mcp.call_tool("git_log", json!({"-n": 5})).await;
 
@@ -80,13 +72,9 @@ async fn test_git_log_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_gh_workflow_list(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["gh_workflow_list"]).await else {
         return;
     };
-    if !mcp.is_tool_available("gh_workflow_list").await {
-        eprintln!("WARNING  gh_workflow_list not available on server, skipping");
-        return;
-    }
 
     let result = mcp.call_tool("gh_workflow_list", json!({})).await;
 

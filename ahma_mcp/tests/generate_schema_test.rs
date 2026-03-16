@@ -1,3 +1,4 @@
+use ahma_mcp::test_utils::cli::build_binary_cached;
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
@@ -14,20 +15,14 @@ fn workspace_dir() -> PathBuf {
 /// Ensure the generate_tool_schema binary produces an MTDF schema file in the target output directory.
 #[test]
 fn test_generate_schema_binary_outputs_schema() -> Result<()> {
-    let workspace_dir = workspace_dir();
     let temp_dir = TempDir::new()?;
     let output_dir = temp_dir.path();
 
     let output_dir_arg = output_dir.to_string_lossy().to_string();
+    let binary = build_binary_cached("generate_tool_schema", "generate-tool-schema");
 
-    let command_output = Command::new("cargo")
-        .current_dir(&workspace_dir)
-        .arg("run")
-        .arg("--package")
-        .arg("generate_tool_schema")
-        .arg("--bin")
-        .arg("generate-tool-schema")
-        .arg("--")
+    let command_output = Command::new(binary)
+        .current_dir(workspace_dir())
         .arg(&output_dir_arg)
         .output()?;
 

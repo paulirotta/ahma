@@ -82,7 +82,7 @@ if [[ "$missing" -ne 0 ]]; then
 fi
 echo "OK Crate root preflight passed"
 
-echo "=== Guardrail: lint path checks ==="
+echo "=== Guardrail: lint recurring test patterns ==="
 ./scripts/lint_test_paths.sh
 
 echo "=== Guardrail: workspace cargo check ==="

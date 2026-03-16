@@ -20,17 +20,14 @@ async fn test_freeform_argument_passing_ls() -> Result<()> {
 
     println!("Direct ls output:\n{}", direct_ls_output);
 
-    // Now test through our CLI
-    let mut cmd = tokio::process::Command::new("cargo");
-    cmd.args([
-        "run",
-        "--package",
-        "ahma_mcp",
-        "--bin",
-        "ahma-mcp",
-        "--",
-        "ls_ls",
-    ]);
+    // Run prebuilt binary directly to avoid nested Cargo lock contention.
+    let binary = common::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    let mut cmd = tokio::process::Command::new(&binary);
+    cmd.arg("--tools-dir")
+        .arg(temp_dir.path().join(".ahma"))
+        .arg("--no-sandbox")
+        .arg("--skip-availability-probes")
+        .arg("ls_ls");
     cmd.env(
         "AHMA_MCP_ARGS",
         json!({
@@ -83,16 +80,14 @@ edition = "2021"
     // file system consistency.
     // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    let mut cmd = tokio::process::Command::new("cargo");
-    cmd.args([
-        "run",
-        "--package",
-        "ahma_mcp",
-        "--bin",
-        "ahma-mcp",
-        "--",
-        "cargo_clippy",
-    ]);
+    // Run prebuilt binary directly to avoid nested Cargo lock contention.
+    let binary = common::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
+    let mut cmd = tokio::process::Command::new(&binary);
+    cmd.arg("--tools-dir")
+        .arg(temp_dir.path().join(".ahma"))
+        .arg("--no-sandbox")
+        .arg("--skip-availability-probes")
+        .arg("cargo_clippy");
     cmd.env(
         "AHMA_MCP_ARGS",
         json!({

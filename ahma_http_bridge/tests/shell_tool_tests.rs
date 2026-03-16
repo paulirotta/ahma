@@ -4,7 +4,10 @@
 //! Each test runs against both JSON and SSE POST response modes.
 
 mod common;
-use common::{TransportMode, setup_test_mcp};
+use common::{
+    TransportMode, assert_tool_success_with_output, is_async_operation_output,
+    setup_test_mcp_for_tools,
+};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -12,13 +15,9 @@ use serde_json::json;
 // ---------------------------------------------------------------------------
 
 async fn run_sandboxed_shell_echo(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["sandboxed_shell"]).await else {
         return;
     };
-    if !mcp.is_tool_available("sandboxed_shell").await {
-        eprintln!("WARNING  sandboxed_shell not available on server, skipping");
-        return;
-    }
 
     let result = mcp
         .call_tool(
@@ -27,19 +26,9 @@ async fn run_sandboxed_shell_echo(mode: TransportMode) {
         )
         .await;
 
-    assert!(
-        result.success,
-        "sandboxed_shell echo failed: {:?}",
-        result.error
-    );
-    assert!(result.output.is_some());
-
-    let output = result.output.unwrap();
+    let output = assert_tool_success_with_output(&result, "sandboxed_shell echo");
     let has_expected_output = output.contains("Hello from sandboxed shell!");
-    let is_async_operation = output.contains("operation")
-        || output.contains("async")
-        || output.contains("started")
-        || output.contains("op_");
+    let is_async_operation = is_async_operation_output(output);
 
     if has_expected_output {
         println!("OK Got expected output: {}", output);
@@ -68,13 +57,9 @@ async fn test_sandboxed_shell_echo_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_sandboxed_shell_pipe(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["sandboxed_shell"]).await else {
         return;
     };
-    if !mcp.is_tool_available("sandboxed_shell").await {
-        eprintln!("WARNING  sandboxed_shell not available on server, skipping");
-        return;
-    }
 
     let result = mcp
         .call_tool(
@@ -83,19 +68,9 @@ async fn run_sandboxed_shell_pipe(mode: TransportMode) {
         )
         .await;
 
-    assert!(
-        result.success,
-        "sandboxed_shell pipe failed: {:?}",
-        result.error
-    );
-    assert!(result.output.is_some());
-
-    let output = result.output.unwrap();
+    let output = assert_tool_success_with_output(&result, "sandboxed_shell pipe");
     let has_expected_output = output.trim().contains("3");
-    let is_async_operation = output.contains("operation")
-        || output.contains("async")
-        || output.contains("started")
-        || output.contains("op_");
+    let is_async_operation = is_async_operation_output(output);
 
     if has_expected_output {
         println!("OK Got expected line count: {}", output.trim());
@@ -124,13 +99,9 @@ async fn test_sandboxed_shell_pipe_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_sandboxed_shell_variable_substitution(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["sandboxed_shell"]).await else {
         return;
     };
-    if !mcp.is_tool_available("sandboxed_shell").await {
-        eprintln!("WARNING  sandboxed_shell not available on server, skipping");
-        return;
-    }
 
     let result = mcp
         .call_tool(
@@ -139,19 +110,9 @@ async fn run_sandboxed_shell_variable_substitution(mode: TransportMode) {
         )
         .await;
 
-    assert!(
-        result.success,
-        "sandboxed_shell var substitution failed: {:?}",
-        result.error
-    );
-    assert!(result.output.is_some());
-
-    let output = result.output.unwrap();
+    let output = assert_tool_success_with_output(&result, "sandboxed_shell var substitution");
     let has_expected_output = output.contains("PWD is:");
-    let is_async_operation = output.contains("operation")
-        || output.contains("async")
-        || output.contains("started")
-        || output.contains("op_");
+    let is_async_operation = is_async_operation_output(output);
 
     if has_expected_output {
         println!("OK Got expected PWD output: {}", output);

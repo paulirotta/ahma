@@ -21,8 +21,12 @@
 
 #![cfg(target_os = "macos")]
 
+use ahma_mcp::test_utils::cli::build_binary_cached;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
+
+static AHMA_MCP_BINARY: OnceLock<PathBuf> = OnceLock::new();
 
 /// Check if sandbox-exec can be run at all.
 /// Returns false if we're inside another sandbox that prevents sandbox-exec.
@@ -47,24 +51,11 @@ fn get_workspace_dir() -> PathBuf {
         .to_path_buf()
 }
 
-/// Build the ahma_mcp binary and return its path
-fn build_ahma_mcp_binary() -> PathBuf {
-    let workspace_dir = get_workspace_dir();
-
-    let output = Command::new("cargo")
-        .current_dir(&workspace_dir)
-        .args(["build", "--package", "ahma_mcp", "--bin", "ahma-mcp"])
-        .output()
-        .expect("Failed to build ahma_mcp");
-
-    if !output.status.success() {
-        panic!(
-            "Failed to build ahma_mcp:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    workspace_dir.join("target").join("debug").join("ahma-mcp")
+/// Resolve ahma_mcp binary path once per test process.
+fn get_ahma_mcp_binary() -> PathBuf {
+    AHMA_MCP_BINARY
+        .get_or_init(|| build_binary_cached("ahma_mcp", "ahma-mcp"))
+        .clone()
 }
 
 /// Skip helper macro - prints message and returns early if sandbox-exec unavailable
@@ -93,7 +84,7 @@ macro_rules! skip_if_sandboxed {
 #[test]
 fn test_nested_sandbox_detection_exits_with_error() {
     skip_if_sandboxed!();
-    let binary = build_ahma_mcp_binary();
+    let binary = get_ahma_mcp_binary();
     let workspace_dir = get_workspace_dir();
 
     // Create a sandbox profile that:
@@ -173,7 +164,7 @@ fn test_nested_sandbox_detection_exits_with_error() {
 #[test]
 fn test_no_sandbox_flag_allows_nested_execution() {
     skip_if_sandboxed!();
-    let binary = build_ahma_mcp_binary();
+    let binary = get_ahma_mcp_binary();
     let workspace_dir = get_workspace_dir();
 
     let outer_sandbox_profile = "(version 1)(allow default)";
@@ -223,7 +214,7 @@ fn test_no_sandbox_flag_allows_nested_execution() {
 #[test]
 fn test_no_sandbox_env_var_allows_nested_execution() {
     skip_if_sandboxed!();
-    let binary = build_ahma_mcp_binary();
+    let binary = get_ahma_mcp_binary();
     let workspace_dir = get_workspace_dir();
 
     let outer_sandbox_profile = "(version 1)(allow default)";

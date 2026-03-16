@@ -4,29 +4,17 @@
 //! Each test runs against both JSON and SSE POST response modes.
 
 mod common;
-use common::{TransportMode, setup_test_mcp};
+use common::{TransportMode, setup_test_mcp_for_tools};
 use serde_json::json;
-
-macro_rules! require_tools {
-    ($mcp:expr, $($tool:expr),+ $(,)?) => {
-        $(
-            if !$mcp.is_tool_available($tool).await {
-                eprintln!("WARNING  {} not available, skipping", $tool);
-                return;
-            }
-        )+
-    };
-}
 
 // ---------------------------------------------------------------------------
 // file-tools_pwd
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_pwd(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_pwd"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_pwd");
 
     let result = mcp.call_tool("file-tools_pwd", json!({})).await;
 
@@ -53,10 +41,9 @@ async fn test_file_tools_pwd_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_ls(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_ls"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_ls");
 
     let result = mcp.call_tool("file-tools_ls", json!({"path": "."})).await;
 
@@ -86,10 +73,9 @@ async fn test_file_tools_ls_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_ls_with_options(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_ls"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_ls");
 
     let result = mcp
         .call_tool(
@@ -131,10 +117,9 @@ async fn test_file_tools_ls_with_options_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_cat(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_cat"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_cat");
 
     let result = mcp
         .call_tool("file-tools_cat", json!({"files": ["Cargo.toml"]}))
@@ -165,10 +150,9 @@ async fn test_file_tools_cat_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_head(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_head"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_head");
 
     let result = mcp
         .call_tool(
@@ -199,10 +183,9 @@ async fn test_file_tools_head_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_tail(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_tail"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_tail");
 
     let result = mcp
         .call_tool(
@@ -233,10 +216,9 @@ async fn test_file_tools_tail_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_grep(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_grep"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_grep");
 
     let result = mcp
         .call_tool(
@@ -267,10 +249,9 @@ async fn test_file_tools_grep_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_find(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_find"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_find");
 
     let result = mcp
         .call_tool(
@@ -308,10 +289,14 @@ async fn test_file_tools_find_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_touch_and_rm(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(
+        mode,
+        &["file-tools_touch", "file-tools_rm", "file-tools_ls"],
+    )
+    .await
+    else {
         return;
     };
-    require_tools!(mcp, "file-tools_touch", "file-tools_rm", "file-tools_ls");
 
     let temp_file = format!("test_integration_{}.tmp", std::process::id());
 
@@ -372,10 +357,11 @@ async fn test_file_tools_touch_and_rm_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_cp_and_mv(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) =
+        setup_test_mcp_for_tools(mode, &["file-tools_cp", "file-tools_mv"]).await
+    else {
         return;
     };
-    require_tools!(mcp, "file-tools_cp", "file-tools_mv");
 
     let pid = std::process::id();
     let src_file = format!("test_cp_src_{}.tmp", pid);
@@ -451,10 +437,9 @@ async fn test_file_tools_cp_and_mv_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_diff(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["file-tools_diff"]).await else {
         return;
     };
-    require_tools!(mcp, "file-tools_diff");
 
     let pid = std::process::id();
     let file1 = format!("test_diff1_{}.tmp", pid);
@@ -512,10 +497,9 @@ async fn test_file_tools_diff_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_file_tools_sed(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["sandboxed_shell"]).await else {
         return;
     };
-    require_tools!(mcp, "sandboxed_shell");
 
     let result = mcp
         .call_tool(

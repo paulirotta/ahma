@@ -6,20 +6,16 @@
 //! 3. Sandboxed Shell (validation, timeouts, execution modes)
 //! 4. Await tool (empty states)
 
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::client::McpClientFixture;
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
 use std::time::Duration;
-use tokio::fs;
 
-/// Setup test tools directory with basic tools
-async fn setup_test_env() -> Result<tempfile::TempDir> {
-    let temp_dir = tempfile::tempdir()?;
-    let tools_dir = temp_dir.path().join(".ahma");
-    fs::create_dir_all(&tools_dir).await?;
-    Ok(temp_dir)
+/// Setup isolated MCP test fixture (temp dir + .ahma tools dir + client).
+async fn setup_client_fixture() -> Result<McpClientFixture> {
+    McpClientFixture::with_tools_dir(".ahma").await
 }
 
 async fn call_test_tool(
@@ -48,12 +44,8 @@ fn assert_success_and_get_text(result: &rmcp::model::CallToolResult) -> String {
 #[tokio::test]
 async fn test_status_filter_nonexistent_tool() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let result =
         call_test_tool(&client, "status", json!({"tools": "nonexistent_tool_xyz"})).await?;
@@ -64,7 +56,7 @@ async fn test_status_filter_nonexistent_tool() -> Result<()> {
     assert!(text.contains("0 completed"));
     assert!(text.contains("total: 0"));
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -72,19 +64,15 @@ async fn test_status_filter_nonexistent_tool() -> Result<()> {
 #[tokio::test]
 async fn test_status_nonexistent_id() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let result = call_test_tool(&client, "status", json!({"id": "op_999999"})).await?;
     let text = assert_success_and_get_text(&result);
 
     assert!(text.contains("not found"));
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -96,17 +84,13 @@ async fn test_status_nonexistent_id() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_missing_id() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let result = call_test_tool(&client, "cancel", json!({})).await;
     assert_required_param_error(result, "required");
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -131,19 +115,15 @@ fn assert_required_param_error<E: std::fmt::Debug>(
 #[tokio::test]
 async fn test_cancel_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let result = call_test_tool(&client, "cancel", json!({"id": "op_999999"})).await?;
     let text = assert_success_and_get_text(&result);
 
     assert!(text.contains("not found") || text.contains("completed"));
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -151,12 +131,8 @@ async fn test_cancel_nonexistent_operation() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_with_reason() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     // First start a long running operation (must exceed AUTOMATIC_ASYNC_TIMEOUT_SECS)
     let start_result = call_test_tool(
@@ -194,7 +170,7 @@ async fn test_cancel_with_reason() -> Result<()> {
     assert!(cancel_text.contains("cancelled successfully"));
     assert!(cancel_text.contains("Test cancellation reason"));
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -206,17 +182,13 @@ async fn test_cancel_with_reason() -> Result<()> {
 #[tokio::test]
 async fn test_shell_missing_command() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let result = call_test_tool(&client, "sandboxed_shell", json!({})).await;
     assert_required_param_error(result, "required");
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -224,12 +196,8 @@ async fn test_shell_missing_command() -> Result<()> {
 #[tokio::test]
 async fn test_shell_explicit_execution_modes() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     // 1. Explicit Synchronous
     let sync_result = call_test_tool(
@@ -281,7 +249,7 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
         invalid_text
     );
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -289,12 +257,8 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
 #[tokio::test]
 async fn test_shell_timeout() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     // Run a command that sleeps for 2s with 1s timeout
     let result = call_test_tool(
@@ -310,7 +274,7 @@ async fn test_shell_timeout() -> Result<()> {
 
     assert_timeout_error(result);
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -345,12 +309,8 @@ fn assert_timeout_error<E: std::fmt::Debug>(result: Result<rmcp::model::CallTool
 #[tokio::test]
 async fn test_await_no_active_operations() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_test_env().await?;
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let fixture = setup_client_fixture().await?;
+    let client = &fixture.client;
 
     let start = std::time::Instant::now();
     let result = call_test_tool(&client, "await", json!({})).await?;
@@ -362,6 +322,6 @@ async fn test_await_no_active_operations() -> Result<()> {
     assert!(duration < Duration::from_secs(1));
     assert!(text.contains("No pending operations to await for."));
 
-    client.cancel().await?;
+    fixture.client.cancel().await?;
     Ok(())
 }

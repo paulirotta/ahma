@@ -119,6 +119,11 @@ cargo clippy --fix --allow-dirty   # Auto-fix lints
 
 ### Project-Specific Patterns
 
+#### Temporary Python Scripts
+- **Never add or commit Python scripts (`*.py`) to this repository.**
+- Temporary Python scripts may be created and run for one-off local tasks (debugging, data inspection, quick transformations).
+- After use, delete any temporary Python script before finishing work, and ensure no `.py` files are staged or committed.
+
 #### Error Handling
 - Use `anyhow::Result` for internal error propagation
 - Convert to `rmcp::error::McpError` at the MCP service boundary

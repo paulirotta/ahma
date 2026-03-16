@@ -8,16 +8,23 @@
 //!
 //! The goal is to document both working protections and known limitations.
 
+#[cfg(target_os = "linux")]
+use ahma_mcp::sandbox::check_sandbox_prerequisites;
 use ahma_mcp::sandbox::{Sandbox, SandboxMode};
 use ahma_mcp::test_utils as common;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
-use rmcp::model::{CallToolRequestParams, CallToolResult};
+use rmcp::model::CallToolRequestParams;
+#[cfg(target_os = "linux")]
+use rmcp::model::CallToolResult;
 use serde_json::json;
 use std::fs;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 use tempfile::TempDir;
 
+#[cfg(target_os = "linux")]
 fn result_text(result: &CallToolResult) -> String {
     result
         .content
@@ -27,6 +34,7 @@ fn result_text(result: &CallToolResult) -> String {
         .join("\n")
 }
 
+#[cfg(target_os = "linux")]
 fn blocked_shell_result_indicates_failure(result: &CallToolResult) -> bool {
     if result.is_error.unwrap_or(false) {
         return true;
@@ -63,6 +71,7 @@ fn blocked_shell_result_indicates_failure(result: &CallToolResult) -> bool {
         || lower.contains("high-security mode")
 }
 
+#[cfg(target_os = "linux")]
 fn assert_blocked_shell_result<E: std::fmt::Debug>(
     result: Result<CallToolResult, E>,
     leaked_content: &str,
@@ -84,6 +93,7 @@ fn assert_blocked_shell_result<E: std::fmt::Debug>(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn create_non_tmp_tempdir() -> TempDir {
     // Landlock adds broad /tmp access unless --no-temp-files is enabled.
     // For "outside scope" tests we need fixtures outside /tmp.
@@ -92,6 +102,24 @@ fn create_non_tmp_tempdir() -> TempDir {
         .prefix("ahma-redteam-outside-")
         .tempdir_in(base)
         .expect("failed to create non-/tmp temporary directory")
+}
+
+#[cfg(target_os = "linux")]
+fn landlock_enforcement_available() -> bool {
+    static LANDLOCK_AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *LANDLOCK_AVAILABLE.get_or_init(|| check_sandbox_prerequisites().is_ok())
+}
+
+#[cfg(target_os = "linux")]
+macro_rules! skip_if_landlock_unavailable {
+    () => {
+        if !landlock_enforcement_available() {
+            eprintln!(
+                "Skipping test: Landlock unavailable (requires Linux kernel 5.13+ with Landlock LSM)"
+            );
+            return;
+        }
+    };
 }
 
 // =============================================================================
@@ -359,29 +387,12 @@ fn red_team_no_temp_files_flag_setting() {
 // RED TEAM TEST 7: Global Read Access Prevention (Uniform Strictness)
 // =============================================================================
 
-/// Test that reading a file outside the sandbox is blocked where the platform supports it.
-///
-/// macOS seatbelt (sandbox-exec) cannot restrict `file-read*` to specific subpaths on
-/// macOS 26+ (Tahoe) / Apple Silicon: the APFS firmlink + Cryptex vnode structure means
-/// that bash startup accesses paths whose kernel vnodes fall outside any listed `subpath`,
-/// causing bash to SIGABRT with ANY specific path restriction.  We must therefore use a
-/// global `(allow file-read*)` on macOS, meaning reads to paths outside the sandbox scope
-/// are allowed.  Write access remains restricted.  Read restriction is enforced on Linux
-/// via Landlock.
+/// Linux-only: reading a file outside the sandbox is blocked when Landlock is enforced.
 #[tokio::test]
-#[ignore = "requires enforced Landlock; run with --ignored on kernels where Landlock is active"]
+#[cfg(target_os = "linux")]
 async fn red_team_global_read_access_blocked() {
     init_test_logging();
-
-    // macOS seatbelt cannot scope file reads — skip read-restriction assertion.
-    if cfg!(target_os = "macos") {
-        println!(
-            "Skipping read-restriction assertion on macOS: seatbelt subpath rules for \
-                  reads cannot coexist with bash startup on macOS 26+ (APFS/Cryptex issue). \
-                  Write restriction is still enforced."
-        );
-        return;
-    }
+    skip_if_landlock_unavailable!();
 
     let temp_dir = TempDir::new().unwrap();
     let tools_dir = get_workspace_tools_dir();
@@ -421,9 +432,10 @@ async fn red_team_global_read_access_blocked() {
 
 /// Test that --livelog grants precise read-only access to a target symlink, but blocks writes and blocks neighboring files.
 #[tokio::test]
-#[ignore = "requires enforced Landlock; run with --ignored on kernels where Landlock is active"]
+#[cfg(target_os = "linux")]
 async fn red_team_livelog_symlink_read_allowed() {
     init_test_logging();
+    skip_if_landlock_unavailable!();
 
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -490,10 +502,6 @@ async fn red_team_livelog_symlink_read_allowed() {
     assert!(read_succeeded, "Read command did not complete successfully");
 
     // 2. We MUST NOT be able to read neighboring files in the external directory.
-    //    NOTE: On macOS 26+, seatbelt cannot restrict file reads to specific subpaths
-    //    (using global `(allow file-read*)` is required for bash to start), so this
-    //    assertion is only enforced on platforms where read restriction is available
-    //    (Linux via Landlock).  Write restriction is enforced on all platforms.
     let params2 = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
             "command": format!("cat {}", outside_forbidden.display()),
@@ -501,21 +509,12 @@ async fn red_team_livelog_symlink_read_allowed() {
         }))
         .unwrap(),
     );
-    #[cfg(not(target_os = "macos"))]
-    {
-        let result2 = client.call_tool(params2).await;
-        assert_blocked_shell_result(
-            result2,
-            "forbidden content",
-            "SECURITY: Livelog should not grant access to neighboring files outside scope",
-        );
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS seatbelt requires global file-read*; neighboring-file reads are allowed.
-        // Write restriction (part 3 below) is still enforced.
-        let _ = client.call_tool(params2).await;
-    }
+    let result2 = client.call_tool(params2).await;
+    assert_blocked_shell_result(
+        result2,
+        "forbidden content",
+        "SECURITY: Livelog should not grant access to neighboring files outside scope",
+    );
 
     // 3. We MUST NOT be able to WRITE to the explicit target file.
     //    The core livelog invariant is Linux-focused: livelog must remain read-only and
@@ -527,22 +526,13 @@ async fn red_team_livelog_symlink_read_allowed() {
         }))
         .unwrap(),
     );
-    #[cfg(not(target_os = "macos"))]
-    {
-        let result3 = client.call_tool(params3).await;
-        // On Linux, Landlock scopes writes precisely: outside_target is NOT in scope
-        // → shell exits non-zero → Err here.
-        assert!(
-            result3.is_err(),
-            "SECURITY: Livelog target should be strictly read-only; write should be blocked"
-        );
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Keep write assertion skipped on macOS; seatbelt behavior in this area can vary
-        // depending on runner image and platform constraints.
-        let _ = client.call_tool(params3).await;
-    }
+    let result3 = client.call_tool(params3).await;
+    // On Linux, Landlock scopes writes precisely: outside_target is NOT in scope
+    // -> shell exits non-zero -> Err here.
+    assert!(
+        result3.is_err(),
+        "SECURITY: Livelog target should be strictly read-only; write should be blocked"
+    );
 
     client.cancel().await.unwrap();
 }

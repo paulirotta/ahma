@@ -1,11 +1,13 @@
 use super::super::NEXT_ID;
+use super::common;
 use crate::AhmaMcpService;
 use crate::callback_system::CallbackSender;
 use crate::client_type::McpClientType;
 use crate::mcp_callback::McpCallbackSender;
+use crate::mcp_service::schema;
 use crate::shell_pool::platform_shell_program;
 use rmcp::{
-    model::{CallToolRequestParams, CallToolResult, Content, ErrorData as McpError},
+    model::{CallToolRequestParams, CallToolResult, ErrorData as McpError},
     service::{RequestContext, RoleServer},
 };
 use serde_json::{Map, Value};
@@ -19,45 +21,30 @@ impl AhmaMcpService {
         let mut properties = Map::new();
         properties.insert(
             "command".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "The shell command to execute (supports pipes, redirects, variables, etc.)"
-            }),
+            schema::string_property(
+                "The shell command to execute (supports pipes, redirects, variables, etc.)",
+            ),
         );
         properties.insert(
             "working_directory".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Working directory for command execution",
-                "format": "path"
-            }),
+            schema::path_property("Working directory for command execution"),
         );
         properties.insert(
             "monitor_level".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Enable live log monitoring at this severity level. When set, stderr/stdout is streamed line-by-line and alerts are pushed when error/warning patterns are detected. Values: error, warn, info, debug, trace",
-                "enum": ["error", "warn", "info", "debug", "trace"]
-            }),
+            schema::enum_string_property(
+                "Enable live log monitoring at this severity level. When set, stderr/stdout is streamed line-by-line and alerts are pushed when error/warning patterns are detected. Values: error, warn, info, debug, trace",
+                &["error", "warn", "info", "debug", "trace"],
+            ),
         );
         properties.insert(
             "monitor_stream".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Which stream to monitor for log patterns (default: stderr). Use 'stdout' for tools like adb logcat that write logs to stdout.",
-                "enum": ["stderr", "stdout", "both"],
-                "default": "stderr"
-            }),
+            schema::enum_string_property_with_default(
+                "Which stream to monitor for log patterns (default: stderr). Use 'stdout' for tools like adb logcat that write logs to stdout.",
+                &["stderr", "stdout", "both"],
+                "stderr",
+            ),
         );
-
-        let mut schema = Map::new();
-        schema.insert("type".to_string(), Value::String("object".to_string()));
-        schema.insert("properties".to_string(), Value::Object(properties));
-        schema.insert(
-            "required".to_string(),
-            Value::Array(vec![Value::String("command".to_string())]),
-        );
-        Arc::new(schema)
+        schema::object_input_schema(properties, &["command"])
     }
 
     /// Handles the 'sandboxed_shell' built-in tool call.
@@ -70,26 +57,17 @@ impl AhmaMcpService {
 
         // Delay tool execution until sandbox is initialized from roots/list.
         // This is critical in HTTP bridge mode with deferred sandbox initialization.
-        if self.adapter.sandbox().scopes().is_empty() && !self.adapter.sandbox().is_test_mode() {
+        if !self.adapter.sandbox().is_ready_for_tool_calls() {
             let error_message = "Sandbox initializing from client roots - retry tools/call after roots/list completes".to_string();
             tracing::warn!("{}", error_message);
-            return Err(McpError::internal_error(error_message, None));
+            return Err(common::mcp_internal(error_message));
         }
 
         // Extract command (required)
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                McpError::invalid_params("command parameter is required".to_string(), None)
-            })?
-            .to_string();
+        let command = common::require_str(&args, "command", "command parameter is required")?;
 
         // Extract working_directory (optional)
-        let working_directory = args
-            .get("working_directory")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+        let working_directory = common::opt_str(&args, "working_directory")
             .or_else(|| {
                 if self.adapter.sandbox().is_test_mode() {
                     None
@@ -106,30 +84,26 @@ impl AhmaMcpService {
         let timeout = args.get("timeout_seconds").and_then(|v| v.as_u64());
 
         // Extract optional log monitoring parameters
-        let log_monitor_config =
-            args.get("monitor_level")
-                .and_then(|v| v.as_str())
-                .map(|level_str| {
-                    let monitor_level: crate::log_monitor::LogLevel = level_str
-                        .parse()
-                        .unwrap_or(crate::log_monitor::LogLevel::Error);
-                    let monitor_stream: crate::log_monitor::MonitorStream = args
-                        .get("monitor_stream")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or_default();
-                    crate::log_monitor::LogMonitorConfig {
-                        monitor_level,
-                        monitor_stream,
-                        rate_limit_seconds: self.monitor_rate_limit_seconds,
-                    }
-                });
+        let log_monitor_config = common::opt_str(&args, "monitor_level").map(|level_str| {
+            let monitor_level: crate::log_monitor::LogLevel = level_str
+                .parse()
+                .unwrap_or(crate::log_monitor::LogLevel::Error);
+            let monitor_stream: crate::log_monitor::MonitorStream =
+                common::opt_str(&args, "monitor_stream")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default();
+            crate::log_monitor::LogMonitorConfig {
+                monitor_level,
+                monitor_stream,
+                rate_limit_seconds: self.monitor_rate_limit_seconds,
+            }
+        });
 
         // Determine execution mode
         let execution_mode = if self.force_synchronous {
             crate::adapter::ExecutionMode::Synchronous
-        } else if let Some(mode_str) = args.get("execution_mode").and_then(|v| v.as_str()) {
-            match mode_str {
+        } else if let Some(mode_str) = common::opt_str(&args, "execution_mode") {
+            match mode_str.as_str() {
                 "Synchronous" => crate::adapter::ExecutionMode::Synchronous,
                 "AsyncResultPush" => crate::adapter::ExecutionMode::AsyncResultPush,
                 _ => crate::adapter::ExecutionMode::AsyncResultPush,
@@ -280,11 +254,11 @@ impl AhmaMcpService {
         }
 
         match result {
-            Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
+            Ok(output) => Ok(common::text_result(output)),
             Err(e) => {
                 let error_message = format!("Synchronous execution failed: {}", e);
                 tracing::error!("{}", error_message);
-                Err(McpError::internal_error(error_message, None))
+                Err(common::mcp_internal(error_message))
             }
         }
     }
@@ -331,20 +305,19 @@ impl AhmaMcpService {
             Ok(id) => {
                 // Automatic async: wait briefly for fast commands to complete
                 if let Some(result) =
-                    super::common::try_automatic_async_completion(&self.operation_monitor, &id)
-                        .await
+                    common::try_automatic_async_completion(&self.operation_monitor, &id).await
                 {
                     return Ok(result);
                 }
 
                 let hint = crate::tool_hints::preview(&id, "sandboxed_shell");
                 let message = format!("AHMA ID: {}{}", id, hint);
-                Ok(CallToolResult::success(vec![Content::text(message)]))
+                Ok(common::text_result(message))
             }
             Err(e) => {
                 let error_message = format!("Async execution failed: {}", e);
                 tracing::error!("{}", error_message);
-                Err(McpError::internal_error(error_message, None))
+                Err(common::mcp_internal(error_message))
             }
         }
     }

@@ -2,7 +2,7 @@
 //!
 //! Contains functions for generating JSON schemas from tool configurations.
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 use crate::config::{CommandOption, SubcommandConfig, ToolConfig};
@@ -19,6 +19,58 @@ pub fn normalize_option_type(option_type: &str) -> &'static str {
         "string" => "string",
         _ => "string",
     }
+}
+
+/// Builds a common string property schema with a description.
+pub fn string_property(description: &str) -> Value {
+    json!({
+        "type": "string",
+        "description": description
+    })
+}
+
+/// Builds a string property schema with `format: path`.
+pub fn path_property(description: &str) -> Value {
+    json!({
+        "type": "string",
+        "description": description,
+        "format": "path"
+    })
+}
+
+/// Builds a string enum property schema with a description.
+pub fn enum_string_property(description: &str, values: &[&str]) -> Value {
+    json!({
+        "type": "string",
+        "description": description,
+        "enum": values
+    })
+}
+
+/// Builds a string enum property schema with a default value.
+pub fn enum_string_property_with_default(
+    description: &str,
+    values: &[&str],
+    default_value: &str,
+) -> Value {
+    json!({
+        "type": "string",
+        "description": description,
+        "enum": values,
+        "default": default_value
+    })
+}
+
+/// Builds a JSON object input schema for built-in MCP tools.
+pub fn object_input_schema(
+    properties: Map<String, Value>,
+    required: &[&str],
+) -> Arc<Map<String, Value>> {
+    let required_values = required
+        .iter()
+        .map(|key| Value::String((*key).to_string()))
+        .collect::<Vec<_>>();
+    Arc::new(build_schema_object(properties, required_values))
 }
 
 fn items_schema_from_spec(spec: &crate::config::ItemsSpec) -> Map<String, Value> {

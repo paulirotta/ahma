@@ -19,6 +19,7 @@ use crate::constants::SEQUENCE_STEP_DELAY_MS;
 use crate::mcp_callback::McpCallbackSender;
 use crate::operation_monitor::OperationMonitor;
 
+use super::handlers::common;
 use super::subcommand::find_subcommand_config_from_args;
 use super::types::{META_PARAMS, SequenceKind};
 
@@ -70,13 +71,10 @@ fn get_tool_config(
 ) -> Result<ToolConfig, McpError> {
     let configs_lock = configs.read().unwrap();
     configs_lock.get(tool_name).cloned().ok_or_else(|| {
-        McpError::internal_error(
-            format!(
-                "Tool '{}' referenced in sequence step is not configured.",
-                tool_name
-            ),
-            None,
-        )
+        common::mcp_internal(format!(
+            "Tool '{}' referenced in sequence step is not configured.",
+            tool_name
+        ))
     })
 }
 
@@ -87,13 +85,10 @@ fn find_step_subcommand<'a>(
     tool_name: &str,
 ) -> Result<(&'a SubcommandConfig, Vec<String>), McpError> {
     find_subcommand_config_from_args(config, Some(subcommand.to_string())).ok_or_else(|| {
-        McpError::internal_error(
-            format!(
-                "Subcommand '{}' for tool '{}' not found in sequence step.",
-                subcommand, tool_name
-            ),
-            None,
-        )
+        common::mcp_internal(format!(
+            "Subcommand '{}' for tool '{}' not found in sequence step.",
+            subcommand, tool_name
+        ))
     })
 }
 
@@ -307,7 +302,7 @@ async fn handle_sequence_tool_async(
                     step.tool, e
                 );
                 tracing::error!("{}", error_message);
-                return Err(McpError::internal_error(error_message, None));
+                return Err(common::mcp_internal(error_message));
             }
         }
 
@@ -344,7 +339,7 @@ pub async fn handle_subcommand_sequence(
                         step.subcommand
                     );
                     tracing::error!("{}", msg);
-                    McpError::internal_error(msg, None)
+                    common::mcp_internal(msg)
                 },
             )?;
 
@@ -379,7 +374,7 @@ pub async fn handle_subcommand_sequence(
                     step.subcommand, e
                 );
                 tracing::error!("{}", msg);
-                return Err(McpError::internal_error(msg, None));
+                return Err(common::mcp_internal(msg));
             }
         }
 

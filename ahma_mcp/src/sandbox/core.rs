@@ -181,6 +181,14 @@ impl Sandbox {
         self.mode == SandboxMode::Test
     }
 
+    /// Returns true when tool calls can execute against sandboxed roots.
+    ///
+    /// In test mode, tool calls are always allowed. In normal modes, at least one
+    /// rooted scope must be configured (typically via roots/list).
+    pub fn is_ready_for_tool_calls(&self) -> bool {
+        self.is_test_mode() || !self.scopes().is_empty()
+    }
+
     /// Check if no-temp-files mode is enabled.
     pub fn is_no_temp_files(&self) -> bool {
         self.no_temp_files

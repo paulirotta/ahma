@@ -1,5 +1,6 @@
 use super::common;
 use crate::AhmaMcpService;
+use crate::mcp_service::schema;
 use crate::operation_monitor::Operation;
 use rmcp::model::{CallToolResult, Content, ErrorData as McpError};
 use serde_json::{Map, Value};
@@ -11,23 +12,17 @@ impl AhmaMcpService {
         let mut properties = Map::new();
         properties.insert(
             "tools".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Comma-separated tool name prefixes to filter by (optional; shows all if omitted)"
-            }),
+            schema::string_property(
+                "Comma-separated tool name prefixes to filter by (optional; shows all if omitted)",
+            ),
         );
         properties.insert(
             "id".to_string(),
-            serde_json::json!({
-                "type": "string",
-                "description": "Specific operation ID to query (optional; shows all if omitted)"
-            }),
+            schema::string_property(
+                "Specific operation ID to query (optional; shows all if omitted)",
+            ),
         );
-
-        let mut schema = Map::new();
-        schema.insert("type".to_string(), Value::String("object".to_string()));
-        schema.insert("properties".to_string(), Value::Object(properties));
-        Arc::new(schema)
+        schema::object_input_schema(properties, &[])
     }
 
     /// Handles the 'status' tool call.

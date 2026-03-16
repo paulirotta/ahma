@@ -1,6 +1,6 @@
 #!/bin/bash
-# Lint script to detect improper CARGO_TARGET_DIR usage in tests
-# This prevents bugs from duplicated path resolution logic
+# Guardrail lint script for recurring test anti-patterns.
+# Focus: duplicated path resolution, legacy helper drift, timeout regressions.
 
 set -euo pipefail
 
@@ -25,6 +25,46 @@ while IFS= read -r file; do
         VIOLATIONS=$((VIOLATIONS + 1))
     fi
 done < <(find . -path "*/tests/*.rs" -o -name "*_test.rs" -o -name "test_*.rs" | grep -v target)
+
+echo "🔍 Checking for deprecated SSE test helper usage..."
+while IFS= read -r file; do
+    # Defining the helper is allowed only in its canonical module.
+    if [[ "$file" == *"ahma_http_bridge/tests/common/sse_test_helpers.rs" ]]; then
+        continue
+    fi
+
+    if rg -q 'ensure_server_available\(' "$file"; then
+        echo "FAIL VIOLATION: $file"
+        echo "   Found deprecated ensure_server_available() usage"
+        echo "   Use tests/common/setup_test_mcp(...) or setup_test_mcp_for_tools(...)"
+        echo ""
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done < <(find . -path "*/tests/*.rs" -o -name "*_test.rs" -o -name "test_*.rs" | grep -v target)
+
+echo "🔍 Checking timeout literals in handshake-critical integration tests..."
+for file in \
+    "./ahma_http_bridge/tests/handshake_timeout_test.rs" \
+    "./ahma_http_bridge/tests/http_bridge_integration_test.rs"
+do
+    if [[ -f "$file" ]] && rg -q 'Duration::from_(secs|millis)\([0-9]+\)' "$file"; then
+        echo "FAIL VIOLATION: $file"
+        echo "   Found literal Duration timeout value"
+        echo "   Use TestTimeouts::get/scale_* categories instead"
+        echo ""
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done
+
+echo "🔍 Checking shared custom server spawn usage in HTTP bridge integration test..."
+HTTP_BRIDGE_TEST="./ahma_http_bridge/tests/http_bridge_integration_test.rs"
+if [[ -f "$HTTP_BRIDGE_TEST" ]] && ! rg -q 'spawn_server_guard_with_config' "$HTTP_BRIDGE_TEST"; then
+    echo "FAIL VIOLATION: $HTTP_BRIDGE_TEST"
+    echo "   Missing shared custom server startup helper usage"
+    echo "   Use tests/common/server::spawn_server_guard_with_config(...)"
+    echo ""
+    VIOLATIONS=$((VIOLATIONS + 1))
+fi
 
 if [ $VIOLATIONS -eq 0 ]; then
     echo "OK No violations found"

@@ -1,7 +1,7 @@
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use reqwest::Client;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -171,6 +171,36 @@ fn build_server_args(handshake_timeout_secs: Option<u64>) -> Vec<String> {
     args
 }
 
+fn build_custom_server_args(
+    tools_dir: &Path,
+    sandbox_scope: &Path,
+    handshake_timeout_secs: Option<u64>,
+) -> Vec<String> {
+    let mut args = vec![
+        "--mode".to_string(),
+        "http".to_string(),
+        "--http-port".to_string(),
+        "0".to_string(),
+        "--sync".to_string(),
+        "--tools-dir".to_string(),
+        tools_dir.to_string_lossy().to_string(),
+        "--sandbox-scope".to_string(),
+        sandbox_scope.to_string_lossy().to_string(),
+        "--log-to-stderr".to_string(),
+    ];
+
+    if let Some(timeout) = handshake_timeout_secs {
+        args.push("--handshake-timeout-secs".to_string());
+        args.push(timeout.to_string());
+    }
+
+    if should_force_no_sandbox_for_test_server() {
+        args.push("--no-sandbox".to_string());
+    }
+
+    args
+}
+
 #[cfg(target_os = "linux")]
 fn should_force_no_sandbox_for_test_server() -> bool {
     use ahma_mcp::sandbox::SandboxError;
@@ -322,4 +352,67 @@ pub async fn spawn_test_server_with_timeout(
     let _ = child.kill();
     let _ = child.wait();
     Err("Test server failed to respond to health check within 5 seconds".to_string())
+}
+
+/// Spawn a raw server guard using explicit tools + sandbox scope paths.
+///
+/// This is useful for integration tests that need custom roots but still want
+/// shared startup/health-check behavior from `tests/common/server.rs`.
+pub async fn spawn_server_guard_with_config(
+    tools_dir: &Path,
+    sandbox_scope: &Path,
+    handshake_timeout_secs: Option<u64>,
+) -> Result<ServerGuard, String> {
+    let binary = resolve_binary_path();
+    let workspace = workspace_dir();
+    let args = build_custom_server_args(tools_dir, sandbox_scope, handshake_timeout_secs);
+
+    eprintln!(
+        "[TestServer] Starting custom server with scope {}",
+        sandbox_scope.display()
+    );
+
+    let mut cmd = Command::new(&binary);
+    cmd.args(&args)
+        .current_dir(&workspace)
+        .env_remove("AHMA_HANDSHAKE_TIMEOUT_SECS")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if should_force_no_sandbox_for_test_server() {
+        eprintln!(
+            "[TestServer] Sandbox unavailable on this platform/kernel; forcing custom server no-sandbox"
+        );
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
+
+    SandboxTestEnv::configure(&mut cmd);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn custom test server: {}", e))?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+    let (line_tx, line_rx) = mpsc::channel::<String>();
+    wire_output_reader(stdout, line_tx.clone());
+    wire_output_reader(stderr, line_tx);
+
+    let bound_port =
+        match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
+            Some(port) => port,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Timeout waiting for custom server to start".to_string());
+            }
+        };
+
+    if wait_for_health(bound_port).await {
+        return Ok(ServerGuard::new(child, bound_port));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    Err("Custom test server failed to respond to health check within timeout".to_string())
 }

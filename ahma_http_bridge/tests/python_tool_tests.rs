@@ -4,7 +4,7 @@
 //! Each test runs against both JSON and SSE POST response modes.
 
 mod common;
-use common::{TransportMode, setup_test_mcp};
+use common::{TransportMode, setup_test_mcp_for_tools};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -12,13 +12,9 @@ use serde_json::json;
 // ---------------------------------------------------------------------------
 
 async fn run_python_version(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["python"]).await else {
         return;
     };
-    if !mcp.is_tool_available("python").await {
-        eprintln!("WARNING  python not available on server, skipping");
-        return;
-    }
 
     let result = mcp
         .call_tool("python", json!({"subcommand": "version"}))
@@ -51,13 +47,9 @@ async fn test_python_version_sse() {
 // ---------------------------------------------------------------------------
 
 async fn run_python_code(mode: TransportMode) {
-    let Some((_server, mcp)) = setup_test_mcp(mode).await else {
+    let Some((_server, mcp)) = setup_test_mcp_for_tools(mode, &["python"]).await else {
         return;
     };
-    if !mcp.is_tool_available("python").await {
-        eprintln!("WARNING  python not available on server, skipping");
-        return;
-    }
 
     let result = mcp
         .call_tool(

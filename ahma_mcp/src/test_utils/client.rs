@@ -6,6 +6,7 @@ use crate::client::Client;
 use crate::mcp_service::AhmaMcpService;
 use crate::operation_monitor::{MonitorConfig, OperationMonitor};
 use crate::shell_pool::{ShellPoolConfig, ShellPoolManager};
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use anyhow::{Context, Result};
 use rmcp::{
     ServiceExt,
@@ -180,9 +181,15 @@ impl ClientBuilder {
 
         // Safety-net timeout: fail fast with a clear message instead of being
         // killed by nextest after 60s with no context.
-        tokio::time::timeout(Duration::from_secs(30), fut)
+        let startup_timeout = TestTimeouts::get(TimeoutCategory::ProcessSpawn);
+        tokio::time::timeout(startup_timeout, fut)
             .await
-            .context("Server failed to start within 30s (child process startup timed out)")?
+            .with_context(|| {
+                format!(
+                    "Server failed to start within {:?} (child process startup timed out)",
+                    startup_timeout
+                )
+            })?
     }
 
     async fn run_command(
@@ -229,6 +236,43 @@ impl ClientBuilder {
         }))?)
         .await
         .context("Failed to start client service")
+    }
+}
+
+/// Convenience test fixture for MCP integration tests that need:
+/// 1) an isolated temporary working directory
+/// 2) a tools directory under that temp root
+/// 3) a connected MCP client service
+pub struct McpClientFixture {
+    pub temp_dir: TempDir,
+    pub client: RunningService<RoleClient, ()>,
+}
+
+impl McpClientFixture {
+    /// Create a fixture with a tools directory under the temp root.
+    pub async fn with_tools_dir(tools_dir_name: &str) -> Result<Self> {
+        let temp_dir = tempdir().context("Failed to create temp dir for MCP fixture")?;
+        let tools_dir = temp_dir.path().join(tools_dir_name);
+        tokio::fs::create_dir_all(&tools_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to create MCP fixture tools directory: {}",
+                    tools_dir.display()
+                )
+            })?;
+
+        let client = ClientBuilder::new()
+            .tools_dir(tools_dir_name)
+            .working_dir(temp_dir.path())
+            .build()
+            .await?;
+
+        Ok(Self { temp_dir, client })
+    }
+
+    pub fn working_dir(&self) -> &Path {
+        self.temp_dir.path()
     }
 }
 
@@ -281,7 +325,7 @@ pub async fn setup_mcp_service_with_client() -> Result<(TempDir, Client)> {
 
     let mut client = Client::new();
     client
-        .start_process(Some(tools_dir.to_str().unwrap()))
+        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &["--no-sandbox"])
         .await?;
 
     // Give the server a moment to start
