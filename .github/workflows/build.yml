@@ -339,9 +339,9 @@ jobs:
 
       - name: Check for cargo-ndk and install if missing
         run: |
-          if ! command -v cargo-ndk &> /dev/null; then
-            echo "cargo-ndk not found, installing..."
-            cargo binstall cargo-ndk --no-confirm || cargo install cargo-ndk --locked
+          if ! cargo ndk --version &> /dev/null; then
+            echo "cargo-ndk not found or broken, installing..."
+            cargo binstall cargo-ndk --no-confirm --force || cargo install cargo-ndk --locked
           else
             echo "cargo-ndk is already installed, skipping installation"
           fi
@@ -453,9 +453,9 @@ jobs:
 
       - name: Check for cargo-ndk and install if missing
         run: |
-          if ! command -v cargo-ndk &> /dev/null; then
-            echo "cargo-ndk not found, installing..."
-            cargo binstall cargo-ndk --no-confirm || cargo install cargo-ndk --locked
+          if ! cargo ndk --version &> /dev/null; then
+            echo "cargo-ndk not found or broken, installing..."
+            cargo binstall cargo-ndk --no-confirm --force || cargo install cargo-ndk --locked
           else
             echo "cargo-ndk is already installed, skipping installation"
           fi
