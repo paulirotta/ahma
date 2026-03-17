@@ -362,7 +362,7 @@ TARGET: {rel_str}
 SIMPLICITY: {score:.0}% | ISSUE: {culprit}
 METRICS: Cognitive={cog}, Cyclomatic={cyc}, SLOC={sloc}, MI={mi:.1}
 
-Create a team of agents or subagents to handle this refactoring:
+Create concurrent subagents to refactor, one per file:
 
 STEP 1 - READ the simplicity report above and the target file. The report
          identifies specific hotspot functions causing complexity.

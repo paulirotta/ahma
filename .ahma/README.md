@@ -30,7 +30,7 @@ Standard tool configurations are compiled into the `ahma-mcp` binary. They are o
 Example: `ahma-mcp --mode stdio --rust --git --fileutils`
 
 ### 3. Local `.ahma/` Overrides (automatic)
-If a `.ahma/` directory exists in the current working directory, all `*.json` files in it are loaded automatically — no CLI flag needed.
+If a `.ahma/` directory exists in the current working directory, all `*.json` files in it are loaded automatically at startup — no CLI flag needed.
 
 **Override rule:** If a local `.ahma/*.json` file defines a tool with the same `name` as a bundled tool, the local version **replaces** the bundled one entirely. This lets you customize tool descriptions, options, and subcommands for your project.
 
@@ -59,11 +59,14 @@ cargo nextest run --package ahma-mcp --test tool_examples_execution_test
 
 ### 4. Verify Your Configuration Works
 
-After copying and enabling a configuration in `.ahma/`, restart the ahma-mcp server to load the new tool:
+After copying and enabling a configuration in `.ahma/`, restart the ahma-mcp server to load the new tool. If you are actively iterating on tool definitions, you can instead opt into runtime watching with `--hot-reload-tools`:
 
 ```bash
-# The server will automatically discover and load enabled configurations from .ahma/
+# Safe default: load .ahma configs once at startup
 ahma-mcp --tools-dir .ahma
+
+# Tool development only: watch for runtime changes
+ahma-mcp --tools-dir .ahma --hot-reload-tools
 ```
 
 ## Configuration Format

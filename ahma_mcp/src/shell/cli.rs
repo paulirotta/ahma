@@ -356,6 +356,12 @@ pub struct Cli {
     #[arg(long)]
     pub tools_dir: Option<PathBuf>,
 
+    /// Watch `.ahma/` or `--tools-dir` for JSON changes and reload tools at runtime.
+    /// Security warning: future writes to that directory can add, replace, or retarget
+    /// tools mid-session. Enable this only while developing tool definitions.
+    #[arg(long)]
+    pub hot_reload_tools: bool,
+
     /// Whether --tools-dir was explicitly provided on the command line
     /// (as opposed to auto-detected via .ahma/ directory).
     /// Set automatically during CLI initialization; not a user-facing flag.

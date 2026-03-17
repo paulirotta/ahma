@@ -27,7 +27,7 @@
 | Batteries-Included Tools | tests-pass | Built-in MTDF setups activated via CLI flags (e.g. `--rust`, `--python`) |
 | MTDF Schema Validation | tests-pass | JSON schema validation at startup |
 | Sequence Tools | tests-pass | Chain multiple commands into workflows |
-| Tool Hot-Reload | tests-pass | Watch `tools/` directory, reload on changes |
+| Tool Hot-Reload | tests-pass | Opt-in `--hot-reload-tools` watches `tools/` directory and reloads on changes |
 | MCP Callback Notifications | tests-pass | Push async results via `notifications/progress` |
 | HTTP MCP Client | tests-pass | Connect to external HTTP MCP servers |
 | OAuth 2.0 + PKCE | tests-pass | Authentication for HTTP MCP servers |

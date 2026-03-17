@@ -58,6 +58,10 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
         server_args.push(tools_dir.to_string_lossy().to_string());
     }
 
+    if cli.hot_reload_tools {
+        server_args.push("--hot-reload-tools".to_string());
+    }
+
     server_args.push("--timeout".to_string());
     server_args.push(cli.timeout.to_string());
 

@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "ahma_common"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "ahma_coverage"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "serde",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_http_bridge"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "ahma_common",
  "ahma_mcp",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_http_mcp_client"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "ahma_common",
  "anyhow",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_mcp"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "ahma_common",
  "ahma_http_bridge",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_simplify"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "generate_tool_schema"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "ahma_mcp",
  "schemars",
@@ -1467,9 +1467,9 @@ dependencies = [
 
 [[package]]
 name = "jni"
-version = "0.22.3"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "295dc9997acda1562fdf8d299f56063c936443b60f078e63a5d8d3c34ef2642b"
+checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
 dependencies = [
  "cfg-if",
  "combine",
@@ -1484,9 +1484,9 @@ dependencies = [
 
 [[package]]
 name = "jni-macros"
-version = "0.22.2"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c3d1da60c95c98847b26b9d45f4360fee718b31de746df016d9cd6de916a7ef"
+checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3819,7 +3819,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe985f41e291eecef5e5c0770a18d28390addb03331c043964d9e916453d6f16"
 dependencies = [
  "core-foundation",
- "jni 0.22.3",
+ "jni 0.22.4",
  "log",
  "ndk-context",
  "objc2",

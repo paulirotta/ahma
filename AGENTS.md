@@ -326,7 +326,7 @@ cargo nextest run test_name --no-capture
 1. Create a JSON configuration in `.ahma/tools/yourtool.json`
 2. Follow the MTDF schema (see [SPEC.md Section 3](SPEC.md#3-tool-definition-mtdf-schema))
 3. Test the tool: `ahma-mcp yourtool_subcommand --help`
-4. The server hot-reloads automatically—no restart needed
+4. Restart the server to pick up tool changes by default; use `--hot-reload-tools` only while developing tool definitions
 
 ### Debugging
 ```bash

@@ -217,8 +217,10 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     let mut service_handler = service_handler;
     service_handler.monitor_rate_limit_seconds = cli.monitor_rate_limit;
 
-    // Start the config watcher to support hot-reloading of tools (if tools_dir exists)
-    if let Some(tools_dir) = cli.tools_dir.clone() {
+    // Hot-reload is opt-in because runtime writes can change tool behavior mid-session.
+    if cli.hot_reload_tools
+        && let Some(tools_dir) = cli.tools_dir.clone()
+    {
         service_handler.start_config_watcher(tools_dir, cli.clone());
     }
 

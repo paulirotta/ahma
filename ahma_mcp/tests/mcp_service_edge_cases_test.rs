@@ -48,7 +48,7 @@ async fn test_status_filter_nonexistent_tool() -> Result<()> {
     let client = &fixture.client;
 
     let result =
-        call_test_tool(&client, "status", json!({"tools": "nonexistent_tool_xyz"})).await?;
+        call_test_tool(client, "status", json!({"tools": "nonexistent_tool_xyz"})).await?;
     let text = assert_success_and_get_text(&result);
 
     // Should indicate 0 active/completed for that filter
@@ -67,7 +67,7 @@ async fn test_status_nonexistent_id() -> Result<()> {
     let fixture = setup_client_fixture().await?;
     let client = &fixture.client;
 
-    let result = call_test_tool(&client, "status", json!({"id": "op_999999"})).await?;
+    let result = call_test_tool(client, "status", json!({"id": "op_999999"})).await?;
     let text = assert_success_and_get_text(&result);
 
     assert!(text.contains("not found"));
@@ -87,7 +87,7 @@ async fn test_cancel_missing_id() -> Result<()> {
     let fixture = setup_client_fixture().await?;
     let client = &fixture.client;
 
-    let result = call_test_tool(&client, "cancel", json!({})).await;
+    let result = call_test_tool(client, "cancel", json!({})).await;
     assert_required_param_error(result, "required");
 
     fixture.client.cancel().await?;
@@ -118,7 +118,7 @@ async fn test_cancel_nonexistent_operation() -> Result<()> {
     let fixture = setup_client_fixture().await?;
     let client = &fixture.client;
 
-    let result = call_test_tool(&client, "cancel", json!({"id": "op_999999"})).await?;
+    let result = call_test_tool(client, "cancel", json!({"id": "op_999999"})).await?;
     let text = assert_success_and_get_text(&result);
 
     assert!(text.contains("not found") || text.contains("completed"));
@@ -136,7 +136,7 @@ async fn test_cancel_with_reason() -> Result<()> {
 
     // First start a long running operation (must exceed AUTOMATIC_ASYNC_TIMEOUT_SECS)
     let start_result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "sleep 30",
@@ -156,7 +156,7 @@ async fn test_cancel_with_reason() -> Result<()> {
 
     // Cancel it with a reason
     let cancel_result = call_test_tool(
-        &client,
+        client,
         "cancel",
         json!({
             "id": op_id,
@@ -185,7 +185,7 @@ async fn test_shell_missing_command() -> Result<()> {
     let fixture = setup_client_fixture().await?;
     let client = &fixture.client;
 
-    let result = call_test_tool(&client, "sandboxed_shell", json!({})).await;
+    let result = call_test_tool(client, "sandboxed_shell", json!({})).await;
     assert_required_param_error(result, "required");
 
     fixture.client.cancel().await?;
@@ -201,7 +201,7 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
 
     // 1. Explicit Synchronous
     let sync_result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "echo sync",
@@ -215,7 +215,7 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
 
     // 2. Explicit AsyncResultPush
     let async_result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "echo async",
@@ -233,7 +233,7 @@ async fn test_shell_explicit_execution_modes() -> Result<()> {
 
     // 3. Invalid mode (should fallback to Async)
     let invalid_result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "echo fallback",
@@ -262,7 +262,7 @@ async fn test_shell_timeout() -> Result<()> {
 
     // Run a command that sleeps for 2s with 1s timeout
     let result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "sleep 2",
@@ -313,7 +313,7 @@ async fn test_await_no_active_operations() -> Result<()> {
     let client = &fixture.client;
 
     let start = std::time::Instant::now();
-    let result = call_test_tool(&client, "await", json!({})).await?;
+    let result = call_test_tool(client, "await", json!({})).await?;
     let duration = start.elapsed();
 
     let text = assert_success_and_get_text(&result);

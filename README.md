@@ -6,7 +6,7 @@ _Create MCP tools agents from your command line tools with one JSON file, then w
 
 - **Unsafe AI terminal access**: Most AI terminal workflows rely on trust prompts, not real containment. Ahma enforces kernel-level sandbox boundaries so AI can operate inside your project scope without unrestricted filesystem access.
 - **Agents and LLMs blocked by long-running synchronous commands**: Build, test, and deploy tasks can stall an agent for minutes. Ahma runs tool calls async-first, so agents can keep planning and executing while work completes in the background.
-- **Slow tool onboarding for AI workflows**: Ahma makes your custom tools AI-friendly. It gives you no code definition of CLI tools in JSON with hot-reload when you edit the tool definition.
+- **Slow tool onboarding for AI workflows**: Ahma makes your custom tools AI-friendly. It gives you no-code JSON definitions for CLI tools, with optional hot reload during tool development when you explicitly enable `--hot-reload-tools`.
 - **Too much privilege by default**: Generic shell access is often broader than needed. Ahma supports least-privilege tool definitions so you can constrain arguments and reduce blast radius.
 - **Do more work in less time**: Light up the full capabilities of your command line tools by telling AI to split your deterministic work into multiple background operations and fire them all at once. Ahma provides operation IDs, progress notifications, and built-in controls (`status`, `await`, `cancel`) for deterministic orchestration. Max concurrency is equal to the number of cores on your CPU.
 

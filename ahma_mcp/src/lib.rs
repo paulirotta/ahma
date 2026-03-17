@@ -9,7 +9,7 @@
 //!
 //! Ahma is designed to bridge the gap between AI agents and the vast ecosystem of
 //! command-line utilities. It treats CLI tools as first-class capabilities, wrapping them
-//! in a secure, non-blocking, and highly optimized execution environment.
+//! in a secure, non-blocking concurrent execution environment.
 //!
 //! ## Core Architectural Pillars
 //!
