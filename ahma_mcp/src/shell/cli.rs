@@ -928,7 +928,11 @@ mod tests {
     #[test]
     fn test_check_stdio_not_interactive() {
         init_test();
-        // When run from cargo test, stdin is typically not a TTY
+        // When tests are launched from an interactive terminal, this helper
+        // intentionally exits the process. Only call it in the non-TTY case.
+        if std::io::stdin().is_terminal() {
+            return;
+        }
         let result = check_stdio_not_interactive();
         assert!(result.is_ok());
     }
