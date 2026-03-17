@@ -107,6 +107,8 @@ mod tests {
             install_instructions: None,
             monitor_level: None,
             monitor_stream: None,
+            tool_type: None,
+            livelog: None,
         }
     }
 

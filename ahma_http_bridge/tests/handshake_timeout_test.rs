@@ -147,6 +147,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
     let init_resp = client
         .post(format!("{}/mcp", server.base_url()))
         .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json")
         .json(&init_req)
         .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
@@ -188,6 +189,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
     let resp = client
         .post(format!("{}/mcp", server.base_url()))
         .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json")
         .header(MCP_SESSION_ID_HEADER, &session_id)
         .json(&tool_call)
         .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))

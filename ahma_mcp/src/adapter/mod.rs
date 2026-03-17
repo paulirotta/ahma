@@ -284,6 +284,11 @@ impl Adapter {
         &self.sandbox
     }
 
+    /// Get a cloned `Arc` to the sandbox (for passing into spawned tasks).
+    pub fn sandbox_arc(&self) -> std::sync::Arc<crate::sandbox::Sandbox> {
+        self.sandbox.clone()
+    }
+
     /// Synchronously executes a command and returns the result directly.
     ///
     /// This method bypasses the async operation queue and runs the command directly, waiting for it to complete.
@@ -940,6 +945,8 @@ async fn execute_with_streaming(
                                     id: op_id.to_string(),
                                     trigger_level: snapshot.trigger_level.to_string(),
                                     context_snapshot: snapshot.format_for_notification(),
+                                    llm_summary: None,
+                                    trigger_lines: None,
                                 };
                                 let _ = callback.send_progress(alert).await;
                             }
@@ -966,6 +973,8 @@ async fn execute_with_streaming(
                                     id: op_id.to_string(),
                                     trigger_level: snapshot.trigger_level.to_string(),
                                     context_snapshot: snapshot.format_for_notification(),
+                                    llm_summary: None,
+                                    trigger_lines: None,
                                 };
                                 let _ = callback.send_progress(alert).await;
                             }
@@ -996,6 +1005,8 @@ async fn execute_with_streaming(
                             id: op_id.to_string(),
                             trigger_level: snapshot.trigger_level.to_string(),
                             context_snapshot: snapshot.format_for_notification(),
+                            llm_summary: None,
+                            trigger_lines: None,
                         };
                         let _ = callback.send_progress(alert).await;
                     }
@@ -1010,6 +1021,8 @@ async fn execute_with_streaming(
                             id: op_id.to_string(),
                             trigger_level: snapshot.trigger_level.to_string(),
                             context_snapshot: snapshot.format_for_notification(),
+                            llm_summary: None,
+                            trigger_lines: None,
                         };
                         let _ = callback.send_progress(alert).await;
                     }

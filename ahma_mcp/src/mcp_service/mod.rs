@@ -608,6 +608,42 @@ impl ServerHandler for AhmaMcpService {
                 .await;
             }
 
+            // Check if this is a livelog tool (long-running LLM-monitored log source)
+            if config.tool_type == Some(crate::config::ToolType::Livelog) {
+                let params_map = params.arguments.clone().unwrap_or_default();
+                let op_id = format!("livelog_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+                let progress_token = context.meta.get_progress_token();
+                let client_type = McpClientType::from_peer(&context.peer);
+                let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
+                    Box::new(McpCallbackSender::new(
+                        context.peer.clone(),
+                        op_id.clone(),
+                        Some(token),
+                        client_type,
+                    )) as Box<dyn CallbackSender>
+                });
+                return match handlers::livelog_tool::handle_livelog_start(
+                    op_id.clone(),
+                    &config,
+                    &params_map,
+                    self.operation_monitor.clone(),
+                    self.adapter.sandbox_arc(),
+                    callback,
+                )
+                .await
+                {
+                    Ok(started_id) => Ok(handlers::common::text_result(format!(
+                        "Live log monitoring started. Operation ID: {started_id}\n\
+                         Use `status` or `await` to check progress, `cancel` to stop."
+                    ))),
+                    Err(e) => {
+                        let msg = format!("Failed to start livelog '{}': {}", config.name, e);
+                        tracing::error!("{}", msg);
+                        Err(handlers::common::mcp_internal(msg))
+                    }
+                };
+            }
+
             let mut arguments = params.arguments.clone().unwrap_or_default();
             let subcommand_name = arguments
                 .remove("subcommand")
@@ -1469,6 +1505,8 @@ mod tests {
             install_instructions: None,
             monitor_level: None,
             monitor_stream: None,
+            tool_type: None,
+            livelog: None,
         };
 
         let tool = service.create_tool_from_config(&tool_config);

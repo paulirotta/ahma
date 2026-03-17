@@ -36,6 +36,7 @@
 | Graceful Shutdown | tests-pass | 10-second grace period for operation completion |
 | Unified Shell Output | tests-pass | stderr redirected to stdout (`2>&1`) |
 | Logging (File + Stderr) | tests-pass | Daily rolling logs, `--log-to-stderr` for debug |
+| Live Log Monitoring (LLM) | tests-pass | `tool_type: livelog` routes to LLM analysis pipeline; `ahma_llm_monitor` crate; OpenAI-compatible providers |
 
 ---
 
@@ -274,7 +275,7 @@ The planned implementation uses two mechanisms in order of preference:
 
 ---
 
-## 5. File System Contracts and Features
+## 4.5 File System Contracts and Features
 
 ### R8: Project Logging (`/log` directory)
 
@@ -287,6 +288,7 @@ The planned implementation uses two mechanisms in order of preference:
 - **R9.2**: **Mechanisms**: During initialization (and ONLY at initialization), the system scans the `log/` directories of all configured sandbox roots for symbolic links. The targets of these symlinks are evaluated.
 - **R9.3**: **Enforcement**: The resolved physical paths of those symlinks are dynamically added to the sandbox profile (across Linux, macOS, and Windows) as **read-only scopes**.
 - **R9.4**: **Abuse Prevention**: Since symlinks are only resolved and granted access at startup, hostile entities or rogue AI cannot abuse this later by creating new symlinks to sensitive files (e.g. `/etc/passwd`). Existing files placed in read-only scopes are tightly controlled by the system operator running `ahma-mcp --livelog`.
+- **R9.5**: **LLM-Based Detection** (`tool_type: livelog`): Tools with `tool_type: livelog` spawn their `source_command` inside the kernel-enforced sandbox scope. The LLM endpoint is an outbound connection from the ahma-mcp process and is not subject to the inbound sandbox policy. See Section 5.5 for the full pipeline specification.
 
 ---
 
@@ -358,6 +360,78 @@ Sequence tools chain multiple commands into a single workflow:
   "install_instructions": "Install with: cargo install cargo-nextest"
 }
 ```
+
+### 5.5 Livelog Tool Type
+
+Set `"tool_type": "livelog"` to turn any long-running log-streaming command into an LLM-powered monitoring tool.
+
+#### Fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `tool_type` | No | `"command"` | Set to `"livelog"` to activate the LLM pipeline |
+| `livelog` | Yes (when `tool_type=livelog`) | — | `LivelogConfig` block (see below) |
+
+**`LivelogConfig` fields:**
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `source_command` | Yes | — | Executable to run as the log source (e.g. `"adb"`, `"tail"`, `"ssh"`) |
+| `source_args` | No | `[]` | Arguments for the source command |
+| `detection_prompt` | Yes | — | Plain-English description of what to look for (passed verbatim to the LLM) |
+| `llm_provider` | Yes | — | `LlmProviderConfig` block |
+| `chunk_max_lines` | No | `50` | Flush chunk to LLM after this many lines |
+| `chunk_max_seconds` | No | `30` | Flush chunk to LLM after this many seconds even if not full |
+| `cooldown_seconds` | No | `60` | Minimum seconds between consecutive alerts (prevents alert storms) |
+| `llm_timeout_seconds` | No | `30` | Maximum seconds to wait for the LLM to respond |
+
+**`LlmProviderConfig` fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `base_url` | Yes | OpenAI-compatible API base URL (e.g. `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1`) |
+| `model` | Yes | Model identifier (e.g. `llama3.2`, `gpt-4o-mini`) |
+| `api_key` | No | Bearer token. Omit for local models |
+
+#### Pipeline
+
+1. `tools/call` on a livelog tool creates an operation and returns an `operation_id` immediately.
+2. A background task spawns `source_command source_args` inside the sandbox (same kernel-enforced scope as normal tools — see R9).
+3. Lines from stdout and stderr are accumulated into a chunk.
+4. When the chunk reaches `chunk_max_lines` lines **or** `chunk_max_seconds` seconds elapse, the chunk is sent to the LLM with the `detection_prompt`.
+5. The LLM responds with `"CLEAN"` (case-insensitive) if no issue is found, or a brief human-readable summary if an issue is detected.
+6. On an issue: a `ProgressUpdate::LogAlert` notification is pushed to the MCP client **if** the cooldown window has elapsed since the last alert.
+7. The pipeline continues until the source process exits or the client calls `cancel <operation_id>`.
+
+#### Example (Android logcat via Ollama)
+
+```json
+{
+    "name": "android_logcat",
+    "description": "Monitor Android logs with LLM-powered crash detection.",
+    "command": "adb",
+    "tool_type": "livelog",
+    "enabled": true,
+    "livelog": {
+        "source_command": "adb",
+        "source_args": ["-d", "logcat", "-v", "threadtime"],
+        "detection_prompt": "Look for crashes (FATAL EXCEPTION, NullPointerException), ANR errors, or any ERROR/FATAL log line indicating a real problem.",
+        "llm_provider": {
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2"
+        },
+        "chunk_max_lines": 50,
+        "chunk_max_seconds": 30,
+        "cooldown_seconds": 60
+    }
+}
+```
+
+A ready-to-use copy is in [`.ahma/tools/android_logcat.json`](.ahma/tools/android_logcat.json).  Usage guide: [docs/live-log-monitoring.md](docs/live-log-monitoring.md).
+
+#### Security note
+
+The `source_command` executes inside the same sandbox scope as all other tools (R9). The LLM endpoint (`llm_provider.base_url`) is an outbound HTTP call originating from the ahma-mcp process — use a localhost endpoint (e.g. Ollama) to avoid sending log data to external services, unless that is explicitly intended.
 
 ---
 
@@ -442,13 +516,13 @@ ahma-mcp --list-tools --http http://localhost:3000
   - **R8.7.2**: Transparent fallback to HTTP/2 or HTTP/1.1 when the server does not support HTTP/3.
   - **R8.7.3**: Both SSE and HTTP streaming endpoints work correctly with HTTP/3-capable clients.
 
-### R9: Session Isolation
+### R10: Session Isolation
 
-- **R9.1**: `--session-isolation` flag enables per-session subprocess with own sandbox scope.
-- **R9.2**: Session ID (UUID) generated on `initialize`, returned via `Mcp-Session-Id` header.
-- **R9.3**: Sandbox scope determined from first `roots/list` response.
-- **R9.4**: Once set, sandbox scope **cannot** be changed (security invariant).
-- **R9.5**: `roots/list_changed` after sandbox lock → session terminated, HTTP 403.
+- **R10.1**: `--session-isolation` flag enables per-session subprocess with own sandbox scope.
+- **R10.2**: Session ID (UUID) generated on `initialize`, returned via `Mcp-Session-Id` header.
+- **R10.3**: Sandbox scope determined from first `roots/list` response.
+- **R10.4**: Once set, sandbox scope **cannot** be changed (security invariant).
+- **R10.5**: `roots/list_changed` after sandbox lock → session terminated, HTTP 403.
 
 ---
 

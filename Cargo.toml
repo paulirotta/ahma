@@ -5,6 +5,7 @@ default-members = [
     "ahma_http_bridge",
     "ahma_http_mcp_client",
     "ahma_common",
+    "ahma_llm_monitor",
 ]
 
 members = [
@@ -13,7 +14,9 @@ members = [
     "ahma_http_bridge",
     "ahma_http_mcp_client",
     "ahma_common",
-    "ahma_simplify", "ahma_coverage",
+    "ahma_simplify",
+    "ahma_coverage",
+    "ahma_llm_monitor",
 ]
 
 resolver = "3"

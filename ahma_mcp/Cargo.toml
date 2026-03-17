@@ -19,6 +19,7 @@ path = "src/shell/bin.rs"
 ahma_common = { path = "../ahma_common" }
 ahma_http_bridge = { path = "../ahma_http_bridge" }
 ahma_http_mcp_client = { path = "../ahma_http_mcp_client" }
+ahma_llm_monitor = { path = "../ahma_llm_monitor" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
@@ -59,6 +60,7 @@ windows-sys.workspace = true
 [dev-dependencies]
 futures.workspace = true
 tempfile.workspace = true
+wiremock = "0.6"
 
 [features]
 android = []

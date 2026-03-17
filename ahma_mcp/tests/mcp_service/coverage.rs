@@ -123,6 +123,8 @@ fn test_tool_config_creation() {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     };
 
     assert_eq!(tool_config.name, "cargo");
@@ -290,6 +292,8 @@ async fn test_service_with_configs() {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     };
     configs.insert("test_tool".to_string(), tool_config);
 
@@ -398,6 +402,8 @@ fn test_tool_config_with_nested_subcommands() {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     };
 
     assert_eq!(tool_config.name, "cargo");
@@ -457,6 +463,8 @@ async fn test_service_with_tool_configs() {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     };
     configs.insert("cargo".to_string(), tool_config);
 

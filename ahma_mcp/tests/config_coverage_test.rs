@@ -149,6 +149,8 @@ fn test_tool_config_serialization_roundtrip() {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     };
 
     let serialized = serde_json::to_string(&config).unwrap();

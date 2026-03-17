@@ -80,12 +80,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ahma_llm_monitor"
+version = "0.5.5"
+dependencies = [
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
 name = "ahma_mcp"
 version = "0.5.5"
 dependencies = [
  "ahma_common",
  "ahma_http_bridge",
  "ahma_http_mcp_client",
+ "ahma_llm_monitor",
  "anyhow",
  "async-trait",
  "chrono",
@@ -118,6 +132,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "windows-sys 0.61.2",
+ "wiremock",
 ]
 
 [[package]]

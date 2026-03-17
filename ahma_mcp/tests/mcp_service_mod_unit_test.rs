@@ -375,6 +375,8 @@ async fn test_update_tools_replaces_configs() {
                 install_instructions: None,
                 monitor_level: None,
                 monitor_stream: None,
+                tool_type: None,
+                livelog: None,
             },
         );
     }
@@ -402,6 +404,8 @@ async fn test_update_tools_replaces_configs() {
             install_instructions: None,
             monitor_level: None,
             monitor_stream: None,
+            tool_type: None,
+            livelog: None,
         },
     );
     new_configs.insert(
@@ -423,6 +427,8 @@ async fn test_update_tools_replaces_configs() {
             install_instructions: None,
             monitor_level: None,
             monitor_stream: None,
+            tool_type: None,
+            livelog: None,
         },
     );
 

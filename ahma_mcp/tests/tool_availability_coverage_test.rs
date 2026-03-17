@@ -89,6 +89,8 @@ fn base_tool(command: &str) -> ToolConfig {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     }
 }
 

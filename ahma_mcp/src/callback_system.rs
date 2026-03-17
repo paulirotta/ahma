@@ -154,6 +154,10 @@ pub enum ProgressUpdate {
         trigger_level: String,
         /// Pre-formatted context snapshot (trigger + recent stdout + stderr).
         context_snapshot: String,
+        /// Plain-English summary from the LLM when AI-powered detection flags an issue.
+        llm_summary: Option<String>,
+        /// The raw log lines that were sent to the LLM (or that triggered the regex pattern).
+        trigger_lines: Option<Vec<String>>,
     },
 }
 
@@ -222,8 +226,17 @@ impl fmt::Display for ProgressUpdate {
                 id,
                 trigger_level,
                 context_snapshot,
+                llm_summary,
+                trigger_lines: _,
             } => {
-                write!(f, "[{id}] LOG_ALERT ({trigger_level}):\n{context_snapshot}")
+                if let Some(summary) = llm_summary {
+                    write!(
+                        f,
+                        "[{id}] LOG_ALERT ({trigger_level}):\n{summary}\n---\n{context_snapshot}"
+                    )
+                } else {
+                    write!(f, "[{id}] LOG_ALERT ({trigger_level}):\n{context_snapshot}")
+                }
             }
         }
     }

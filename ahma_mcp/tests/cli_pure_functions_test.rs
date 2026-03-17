@@ -29,6 +29,8 @@ fn create_test_tool_config(name: &str, command: &str) -> ToolConfig {
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     }
 }
 
@@ -54,6 +56,8 @@ fn create_tool_config_with_subcommands(
         install_instructions: None,
         monitor_level: None,
         monitor_stream: None,
+        tool_type: None,
+        livelog: None,
     }
 }
 

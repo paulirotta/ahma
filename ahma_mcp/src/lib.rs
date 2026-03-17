@@ -92,6 +92,8 @@ pub mod client_type;
 pub mod config;
 /// Constants used for guidance and tool hints.
 pub mod constants;
+/// Live log monitoring pipeline (LLM-powered issue detection).
+pub mod livelog;
 /// Live log monitoring for streaming processes.
 pub mod log_monitor;
 /// Logging helpers for the core crate.

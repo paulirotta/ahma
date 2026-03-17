@@ -46,6 +46,17 @@
         "null"
       ]
     },
+    "livelog": {
+      "description": "Live log monitoring configuration. Required when `tool_type` is `Livelog`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LivelogConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "monitor_level": {
       "description": "Default log monitor level for this tool. When set, all invocations of this tool\nwill have live log monitoring enabled at this severity.\nValues: \"error\", \"warn\", \"info\", \"debug\", \"trace\"",
       "type": [
@@ -106,6 +117,17 @@
       ],
       "format": "uint64",
       "minimum": 0
+    },
+    "tool_type": {
+      "description": "Tool type classifier. Defaults to `Command` for normal CLI tools.\nSet to `Livelog` for long-running log-streaming tools that pipe output through an LLM.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolType"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -244,6 +266,90 @@
       "additionalProperties": false,
       "required": [
         "type"
+      ]
+    },
+    "LivelogConfig": {
+      "description": "Configuration for a `tool_type: livelog` tool.\n\nA livelog tool spawns a long-running source command (e.g. `adb logcat`),\naccumulates output into chunks, and periodically asks an LLM whether the chunk\ncontains issues matching the `detection_prompt`.  When an issue is found, a\n`ProgressUpdate::LogAlert` notification is pushed to the MCP client.",
+      "type": "object",
+      "properties": {
+        "chunk_max_lines": {
+          "description": "Maximum number of lines to accumulate before sending a chunk to the LLM.\nDefaults to 50.",
+          "type": "integer",
+          "format": "uint",
+          "default": 50,
+          "minimum": 0
+        },
+        "chunk_max_seconds": {
+          "description": "Maximum time in seconds to wait before sending a partial chunk to the LLM.\nDefaults to 30.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 30,
+          "minimum": 0
+        },
+        "cooldown_seconds": {
+          "description": "Minimum time in seconds between consecutive LLM alerts for this tool.\nPrevents alert storms when many lines match in quick succession.  Defaults to 60.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 60,
+          "minimum": 0
+        },
+        "detection_prompt": {
+          "description": "Plain-English description of what to look for, passed to the LLM as the\ndetection criteria (e.g. \"Look for crashes, exceptions, or ANR errors\").",
+          "type": "string"
+        },
+        "llm_provider": {
+          "description": "LLM provider connection details.",
+          "$ref": "#/$defs/LlmProviderConfig"
+        },
+        "llm_timeout_seconds": {
+          "description": "Maximum time in seconds to wait for the LLM to respond to a single request.\nDefaults to 30.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 30,
+          "minimum": 0
+        },
+        "source_args": {
+          "description": "Arguments for the source command (e.g. `[\"logcat\", \"-v\", \"threadtime\"]`).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_command": {
+          "description": "The executable to run as the log source (e.g. `\"adb\"`, `\"ssh\"`, `\"tail\"`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_command",
+        "detection_prompt",
+        "llm_provider"
+      ]
+    },
+    "LlmProviderConfig": {
+      "description": "Connection details for an OpenAI-compatible LLM provider.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "Optional bearer token. Omit for local models that don't require authentication.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_url": {
+          "description": "Base URL of the API endpoint, e.g. `http://localhost:11434/v1` (Ollama)\nor `https://api.openai.com/v1`.",
+          "type": "string"
+        },
+        "model": {
+          "description": "Model identifier, e.g. `llama3.2`, `gpt-4o-mini`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base_url",
+        "model"
       ]
     },
     "SequenceStep": {
@@ -453,6 +559,21 @@
         }
       },
       "additionalProperties": false
+    },
+    "ToolType": {
+      "description": "Classifier that determines how the MCP service routes a tool invocation.",
+      "oneOf": [
+        {
+          "description": "Normal command-line tool (default).",
+          "type": "string",
+          "const": "command"
+        },
+        {
+          "description": "Long-running log source piped through an LLM for issue detection.",
+          "type": "string",
+          "const": "livelog"
+        }
+      ]
     }
   }
 }

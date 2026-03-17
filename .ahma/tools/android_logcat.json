@@ -1,0 +1,34 @@
+{
+    "name": "android_logcat",
+    "description": "Monitor Android application logs via ADB logcat, using an LLM to detect crashes, exceptions, and ANR errors in real-time. Returns immediately with an operation ID; push alerts are delivered as MCP progress notifications whenever the LLM detects an issue. Use `cancel` with the operation ID to stop monitoring.",
+    "command": "adb",
+    "tool_type": "livelog",
+    "enabled": true,
+    "livelog": {
+        "source_command": "adb",
+        "source_args": [
+            "-d",
+            "logcat",
+            "-v",
+            "threadtime"
+        ],
+        "detection_prompt": "Look for crashes (FATAL EXCEPTION, NullPointerException, IllegalStateException), Application Not Responding (ANR) errors, native crashes (SIGSEGV, SIGABRT), or any log line at level E (ERROR) or F (FATAL) that indicates a real problem rather than a known-harmless library warning.",
+        "llm_provider": {
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2"
+        },
+        "chunk_max_lines": 50,
+        "chunk_max_seconds": 30,
+        "cooldown_seconds": 60,
+        "llm_timeout_seconds": 30
+    },
+    "hints": {
+        "build": null,
+        "test": null,
+        "custom": {
+            "usage": "Call this tool to start live monitoring of Android logs. Pass `working_directory` to specify a project root. The tool returns an operation ID immediately; check `status` to confirm it is running. MCP progress notifications will appear automatically whenever the LLM detects an issue. Call `cancel` with the operation ID when finished.",
+            "prerequisites": "ADB must be installed and on PATH. A device or emulator must be connected (`adb devices` should list it). Ollama (or another OpenAI-compatible server) must be running locally on port 11434 with the `llama3.2` model available (`ollama pull llama3.2`).",
+            "stopping": "Use `cancel <operation_id>` to stop monitoring gracefully."
+        }
+    }
+}

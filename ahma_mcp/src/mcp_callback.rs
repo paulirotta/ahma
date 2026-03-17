@@ -215,6 +215,8 @@ impl CallbackSender for McpCallbackSender {
                 id,
                 trigger_level,
                 context_snapshot,
+                llm_summary,
+                trigger_lines: _,
             } => {
                 tracing::info!(
                     "Log alert ({}) for operation {}: sending context snapshot",
@@ -222,12 +224,20 @@ impl CallbackSender for McpCallbackSender {
                     id
                 );
 
+                // When an LLM summary is available, prepend it before the raw context
+                // so the MCP client receives the human-readable diagnosis first.
+                let message = if let Some(summary) = llm_summary {
+                    format!("**Issue detected**: {summary}\n\n---\n\n{context_snapshot}")
+                } else {
+                    context_snapshot
+                };
+
                 ProgressNotificationParam {
                     progress_token: progress_token.clone(),
                     // Use a distinctive progress value to signal this is an alert, not a completion
                     progress: 50.0,
                     total: Some(100.0),
-                    message: Some(context_snapshot),
+                    message: Some(message),
                 }
             }
         };

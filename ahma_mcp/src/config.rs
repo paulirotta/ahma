@@ -97,6 +97,89 @@ pub struct ToolConfig {
     /// Values: "stderr", "stdout", "both"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor_stream: Option<String>,
+    /// Tool type classifier. Defaults to `Command` for normal CLI tools.
+    /// Set to `Livelog` for long-running log-streaming tools that pipe output through an LLM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_type: Option<ToolType>,
+    /// Live log monitoring configuration. Required when `tool_type` is `Livelog`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub livelog: Option<LivelogConfig>,
+}
+
+/// Classifier that determines how the MCP service routes a tool invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolType {
+    /// Normal command-line tool (default).
+    #[default]
+    Command,
+    /// Long-running log source piped through an LLM for issue detection.
+    Livelog,
+}
+
+/// Connection details for an OpenAI-compatible LLM provider.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LlmProviderConfig {
+    /// Base URL of the API endpoint, e.g. `http://localhost:11434/v1` (Ollama)
+    /// or `https://api.openai.com/v1`.
+    pub base_url: String,
+    /// Model identifier, e.g. `llama3.2`, `gpt-4o-mini`.
+    pub model: String,
+    /// Optional bearer token. Omit for local models that don't require authentication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
+/// Configuration for a `tool_type: livelog` tool.
+///
+/// A livelog tool spawns a long-running source command (e.g. `adb logcat`),
+/// accumulates output into chunks, and periodically asks an LLM whether the chunk
+/// contains issues matching the `detection_prompt`.  When an issue is found, a
+/// `ProgressUpdate::LogAlert` notification is pushed to the MCP client.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LivelogConfig {
+    /// The executable to run as the log source (e.g. `"adb"`, `"ssh"`, `"tail"`).
+    pub source_command: String,
+    /// Arguments for the source command (e.g. `["logcat", "-v", "threadtime"]`).
+    #[serde(default)]
+    pub source_args: Vec<String>,
+    /// Plain-English description of what to look for, passed to the LLM as the
+    /// detection criteria (e.g. "Look for crashes, exceptions, or ANR errors").
+    pub detection_prompt: String,
+    /// LLM provider connection details.
+    pub llm_provider: LlmProviderConfig,
+    /// Maximum number of lines to accumulate before sending a chunk to the LLM.
+    /// Defaults to 50.
+    #[serde(default = "default_chunk_max_lines")]
+    pub chunk_max_lines: usize,
+    /// Maximum time in seconds to wait before sending a partial chunk to the LLM.
+    /// Defaults to 30.
+    #[serde(default = "default_chunk_max_seconds")]
+    pub chunk_max_seconds: u64,
+    /// Minimum time in seconds between consecutive LLM alerts for this tool.
+    /// Prevents alert storms when many lines match in quick succession.  Defaults to 60.
+    #[serde(default = "default_cooldown_seconds")]
+    pub cooldown_seconds: u64,
+    /// Maximum time in seconds to wait for the LLM to respond to a single request.
+    /// Defaults to 30.
+    #[serde(default = "default_llm_timeout_seconds")]
+    pub llm_timeout_seconds: u64,
+}
+
+fn default_chunk_max_lines() -> usize {
+    50
+}
+
+fn default_chunk_max_seconds() -> u64 {
+    30
+}
+
+fn default_cooldown_seconds() -> u64 {
+    60
+}
+
+fn default_llm_timeout_seconds() -> u64 {
+    30
 }
 
 /// Configuration for a subcommand, allowing for nested commands.
