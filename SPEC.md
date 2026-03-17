@@ -427,7 +427,7 @@ Set `"tool_type": "livelog"` to turn any long-running log-streaming command into
 }
 ```
 
-A ready-to-use copy is in [`.ahma/tools/android_logcat.json`](.ahma/tools/android_logcat.json).  Usage guide: [docs/live-log-monitoring.md](docs/live-log-monitoring.md).
+A ready-to-use copy is in [`.ahma/android_logcat.json`](.ahma/android_logcat.json).  Usage guide: [docs/live-log-monitoring.md](docs/live-log-monitoring.md).
 
 #### Security note
 
@@ -442,7 +442,7 @@ The `source_command` executes inside the same sandbox scope as all other tools (
 Direct MCP server over stdio for IDE integration:
 
 ```bash
-ahma-mcp --mode stdio --tools-dir .ahma/tools
+ahma-mcp --mode stdio
 ```
 
 Alternatively, standard tool configurations are bundled directly inside the binary. Enable them using CLI flags to activate built-in fallback definitions:
@@ -1103,7 +1103,7 @@ cargo build --release
       "type": "stdio",
       "cwd": "${workspaceFolder}",
       "command": "/path/to/ahma-mcp/target/release/ahma-mcp",
-      "args": ["--tools-dir", ".ahma/tools"]
+      "args": []
     }
   }
 }

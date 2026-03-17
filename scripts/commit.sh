@@ -5,7 +5,7 @@ set -euo pipefail
 # Resolve script directory and project root (assumes script lives in <project>/scripts/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOLS_DIR="$PROJECT_ROOT/.ahma/tools"
+TOOLS_DIR="$PROJECT_ROOT/.ahma"
 
 # Change to project root regardless of current working directory
 cd "$PROJECT_ROOT"

@@ -11,7 +11,7 @@ The IDE spawns `ahma-mcp` as a subprocess and communicates via standard I/O. Thi
 - No network exposure.
 
 ```bash
-ahma-mcp --mode stdio --tools-dir .ahma/tools
+ahma-mcp --mode stdio
 ```
 
 ### mcp.json examples

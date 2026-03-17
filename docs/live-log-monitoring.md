@@ -28,14 +28,14 @@ source_command  →  chunk accumulator  →  LLM  →  ProgressUpdate::LogAlert
 
 ### Setup
 
-1. Copy the example tool definition into your project's `.ahma/tools/` directory:
+1. Copy the example tool definition into your project's `.ahma/` directory:
 
 ```bash
-mkdir -p .ahma/tools
-cp /path/to/ahma/.ahma/tools/android_logcat.json .ahma/tools/
+mkdir -p .ahma
+cp /path/to/ahma/.ahma/android_logcat.json .ahma/
 ```
 
-Or create `.ahma/tools/android_logcat.json` with the content below.
+Or create `.ahma/android_logcat.json` with the content below.
 
 2. Add `--livelog` to your `mcp.json` (VS Code example):
 

@@ -91,7 +91,7 @@ TEMP_PORT_FILE=$(mktemp)
 
 # Step 3: Start the HTTP server
 echo -e "${CYAN}Starting HTTP server...${NC}"
-TOOLS_DIR="$PROJECT_ROOT/.ahma/tools"
+TOOLS_DIR="$PROJECT_ROOT/.ahma"
 SANDBOX_SCOPE="$PROJECT_ROOT"
 
 # Start server in background, capturing output

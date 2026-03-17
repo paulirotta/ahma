@@ -26,7 +26,7 @@ async fn run_list_tools_returns_all_expected_tools(mode: TransportMode) {
         }
     };
 
-    // Expected tools from the default .ahma/tools/*.json configuration.
+    // Expected tools from the default .ahma/*.json configuration.
     let expected = [
         "cargo_build",
         "cargo_check",

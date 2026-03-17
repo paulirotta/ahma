@@ -85,8 +85,12 @@ pub async fn run_livelog_pipeline(
 
     let chunk_max_lines = config.chunk_max_lines;
     let chunk_max_duration = Duration::from_secs(config.chunk_max_seconds);
-    let llm_timeout = Duration::from_secs(config.llm_timeout_seconds);
-    let cooldown = Duration::from_secs(config.cooldown_seconds);
+    let ctx = AnalysisCtx {
+        llm: &llm,
+        detection_prompt: &config.detection_prompt,
+        llm_timeout: Duration::from_secs(config.llm_timeout_seconds),
+        cooldown: Duration::from_secs(config.cooldown_seconds),
+    };
 
     let mut chunk: Vec<String> = Vec::new();
     let mut chunk_start = Instant::now();
@@ -98,17 +102,7 @@ pub async fn run_livelog_pipeline(
         if stdout_closed && stderr_closed {
             info!("livelog[{}]: both streams closed, draining final chunk", op_id);
             if !chunk.is_empty() {
-                maybe_analyze(
-                    op_id,
-                    &llm,
-                    &config.detection_prompt,
-                    &mut chunk,
-                    llm_timeout,
-                    cooldown,
-                    &mut last_alert,
-                    callback,
-                )
-                .await;
+                maybe_analyze(op_id, &ctx, &mut chunk, &mut last_alert, callback).await;
             }
             break;
         }
@@ -172,17 +166,7 @@ pub async fn run_livelog_pipeline(
         let chunk_timed_out = chunk_start.elapsed() >= chunk_max_duration;
 
         if (chunk_full || chunk_timed_out) && !chunk.is_empty() {
-            maybe_analyze(
-                op_id,
-                &llm,
-                &config.detection_prompt,
-                &mut chunk,
-                llm_timeout,
-                cooldown,
-                &mut last_alert,
-                callback,
-            )
-            .await;
+            maybe_analyze(op_id, &ctx, &mut chunk, &mut last_alert, callback).await;
             chunk_start = Instant::now();
         }
     }
@@ -191,23 +175,30 @@ pub async fn run_livelog_pipeline(
     info!("livelog[{}]: pipeline finished", op_id);
 }
 
+/// Immutable per-pipeline configuration threaded into [`maybe_analyze`].
+struct AnalysisCtx<'a> {
+    llm: &'a LlmClient,
+    detection_prompt: &'a str,
+    llm_timeout: Duration,
+    cooldown: Duration,
+}
+
 /// Send `chunk` to the LLM for analysis; fire a `LogAlert` if issues are found.
 ///
 /// Respects the cooldown window — if an alert was sent recently the chunk is
 /// discarded without calling the LLM.
 async fn maybe_analyze(
     op_id: &str,
-    llm: &LlmClient,
-    detection_prompt: &str,
+    ctx: &AnalysisCtx<'_>,
     chunk: &mut Vec<String>,
-    llm_timeout: Duration,
-    cooldown: Duration,
     last_alert: &mut Option<Instant>,
     callback: Option<&(dyn CallbackSender + Send + Sync)>,
 ) {
+    let (llm, detection_prompt, llm_timeout, cooldown) =
+        (ctx.llm, ctx.detection_prompt, ctx.llm_timeout, ctx.cooldown);
     // Enforce cooldown before hitting the LLM.
-    if let Some(last) = last_alert {
-        if last.elapsed() < cooldown {
+    if let Some(last) = last_alert
+        && last.elapsed() < cooldown {
             debug!(
                 "livelog[{}]: cooldown active ({:.1}s remaining), skipping LLM check",
                 op_id,
@@ -216,7 +207,6 @@ async fn maybe_analyze(
             chunk.clear();
             return;
         }
-    }
 
     let chunk_text = chunk.join("\n");
     let trigger_lines: Vec<String> = std::mem::take(chunk); // ownership + clears in one step

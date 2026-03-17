@@ -51,7 +51,7 @@ else
 fi
 
 # Default tools directory
-TOOLS_DIR="${AHMA_TOOLS_DIR:-$PROJECT_ROOT/.ahma/tools}"
+TOOLS_DIR="${AHMA_TOOLS_DIR:-$PROJECT_ROOT/.ahma}"
 
 echo
 echo "Starting ahma-mcp HTTP server..."
