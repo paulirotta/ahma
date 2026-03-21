@@ -461,18 +461,9 @@ jobs:
           fi
           cargo ndk --version
 
-      - name: Install cargo-llvm-cov
-        run: |
-          if ! command -v cargo-llvm-cov &> /dev/null; then
-            echo "cargo-llvm-cov not found, installing..."
-            cargo binstall cargo-llvm-cov --no-confirm || cargo install cargo-llvm-cov --locked
-          else
-            echo "cargo-llvm-cov is already installed"
-          fi
-
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: llvm-cov,nextest
 
       - name: Generate coverage report
         run: |
