@@ -7,9 +7,25 @@ use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 
+type ValidationResult<T> = Result<T, Vec<SchemaValidationError>>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation helper functions
 // ─────────────────────────────────────────────────────────────────────────────
+
+fn validation_error(
+    error_type: ValidationErrorType,
+    field_path: String,
+    message: String,
+    suggestion: Option<String>,
+) -> SchemaValidationError {
+    SchemaValidationError {
+        error_type,
+        field_path,
+        message,
+        suggestion,
+    }
+}
 
 fn push_error(
     errors: &mut Vec<SchemaValidationError>,
@@ -17,12 +33,19 @@ fn push_error(
     field_path: String,
     message: String,
 ) {
-    errors.push(SchemaValidationError {
-        error_type,
-        field_path,
-        message,
-        suggestion: None,
-    });
+    errors.push(validation_error(error_type, field_path, message, None));
+}
+
+fn push_error_with_suggestion(
+    errors: &mut Vec<SchemaValidationError>,
+    error_type: ValidationErrorType,
+    field_path: String,
+    message: String,
+    suggestion: Option<String>,
+) {
+    errors.push(validation_error(
+        error_type, field_path, message, suggestion,
+    ));
 }
 
 fn validate_non_empty_field(
@@ -41,12 +64,50 @@ fn validate_non_empty_field(
     }
 }
 
+fn push_empty_field_error(
+    errors: &mut Vec<SchemaValidationError>,
+    value: &str,
+    error_type: ValidationErrorType,
+    field_path: &str,
+    message: &str,
+) {
+    if value.is_empty() {
+        push_error(
+            errors,
+            error_type,
+            field_path.to_string(),
+            message.to_string(),
+        );
+    }
+}
+
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().chain(chars).collect(),
     }
+}
+
+fn format_error_entry(index: usize, error: &SchemaValidationError) -> String {
+    let mut entry = format!(
+        "{}. {} at '{}': {}\n",
+        index, error.error_type, error.field_path, error.message
+    );
+
+    if let Some(ref suggestion) = error.suggestion {
+        entry.push_str(&format!("   Suggestion: {}\n", suggestion));
+    }
+    entry.push('\n');
+    entry
+}
+
+fn single_validation_error(
+    error_type: ValidationErrorType,
+    field_path: String,
+    message: String,
+) -> Vec<SchemaValidationError> {
+    vec![validation_error(error_type, field_path, message, None)]
 }
 
 const ASYNC_KEYWORDS: &[&str] = &[
@@ -79,16 +140,25 @@ fn validate_option_type(option_type: &str, path: &str, errors: &mut Vec<SchemaVa
         ValidationErrorType::InvalidType
     };
 
-    errors.push(SchemaValidationError {
+    push_error_with_suggestion(
+        errors,
         error_type,
-        field_path: format!("{}.type", path),
-        message: format!(
-            "Invalid option type '{}'. Must be one of: {}",
-            option_type,
-            VALID_OPTION_TYPES.join(", ")
-        ),
+        option_type_field(path),
+        invalid_option_type_message(option_type),
         suggestion,
-    });
+    );
+}
+
+fn option_type_field(path: &str) -> String {
+    format!("{}.type", path)
+}
+
+fn invalid_option_type_message(option_type: &str) -> String {
+    format!(
+        "Invalid option type '{}'. Must be one of: {}",
+        option_type,
+        VALID_OPTION_TYPES.join(", ")
+    )
 }
 
 fn check_async_keywords_in_sync_command(description: &str) -> bool {
@@ -210,40 +280,11 @@ impl MtdfValidator {
         &self,
         file_path: &Path,
         content: &str,
-    ) -> Result<crate::config::ToolConfig, Vec<SchemaValidationError>> {
-        use crate::config::ToolConfig;
-
+    ) -> ValidationResult<crate::config::ToolConfig> {
         let mut errors = Vec::new();
 
-        // Parse as JSON first
-        let json_value: Value = match serde_json::from_str(content) {
-            Ok(v) => v,
-            Err(e) => {
-                errors.push(SchemaValidationError {
-                    error_type: ValidationErrorType::InvalidFormat,
-                    field_path: file_path.to_string_lossy().to_string(),
-                    message: format!("Invalid JSON: {}", e),
-                    suggestion: None,
-                });
-                return Err(errors);
-            }
-        };
+        let config = self.parse_tool_config(file_path, content)?;
 
-        // Try to deserialize into ToolConfig
-        let config = match serde_json::from_value::<ToolConfig>(json_value.clone()) {
-            Ok(config) => config,
-            Err(e) => {
-                errors.push(SchemaValidationError {
-                    error_type: ValidationErrorType::SchemaViolation,
-                    field_path: file_path.to_string_lossy().to_string(),
-                    message: format!("Failed to deserialize: {}", e),
-                    suggestion: None,
-                });
-                return Err(errors);
-            }
-        };
-
-        // Perform additional validation on the config
         self.validate_tool_config_struct(&config, &mut errors);
 
         if errors.is_empty() {
@@ -251,6 +292,15 @@ impl MtdfValidator {
         } else {
             Err(errors)
         }
+    }
+
+    fn parse_tool_config(
+        &self,
+        file_path: &Path,
+        content: &str,
+    ) -> ValidationResult<crate::config::ToolConfig> {
+        let json_value = parse_config_json(file_path, content)?;
+        deserialize_tool_config(file_path, json_value)
     }
 
     /// Validate a ToolConfig struct
@@ -269,30 +319,27 @@ impl MtdfValidator {
         config: &crate::config::ToolConfig,
         errors: &mut Vec<SchemaValidationError>,
     ) {
-        if config.name.is_empty() {
-            push_error(
-                errors,
-                ValidationErrorType::MissingRequiredField,
-                "name".to_string(),
-                "Tool name cannot be empty".to_string(),
-            );
-        }
-        if config.command.is_empty() {
-            push_error(
-                errors,
-                ValidationErrorType::ConstraintViolation,
-                "command".to_string(),
-                "Command cannot be empty".to_string(),
-            );
-        }
-        if config.description.is_empty() {
-            push_error(
-                errors,
-                ValidationErrorType::MissingRequiredField,
-                "description".to_string(),
-                "Description cannot be empty".to_string(),
-            );
-        }
+        push_empty_field_error(
+            errors,
+            &config.name,
+            ValidationErrorType::MissingRequiredField,
+            "name",
+            "Tool name cannot be empty",
+        );
+        push_empty_field_error(
+            errors,
+            &config.command,
+            ValidationErrorType::ConstraintViolation,
+            "command",
+            "Command cannot be empty",
+        );
+        push_empty_field_error(
+            errors,
+            &config.description,
+            ValidationErrorType::MissingRequiredField,
+            "description",
+            "Description cannot be empty",
+        );
     }
 
     fn validate_timeout_constraints(
@@ -303,28 +350,8 @@ impl MtdfValidator {
         let Some(timeout) = config.timeout_seconds else {
             return;
         };
-        if timeout > 3600 {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::ConstraintViolation,
-                field_path: "timeout_seconds".to_string(),
-                message: "Timeout should not exceed 3600 seconds (1 hour)".to_string(),
-                suggestion: Some(
-                    "Consider using a shorter timeout or breaking the operation into smaller steps"
-                        .to_string(),
-                ),
-            });
-        }
-        if timeout == 0 {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::ConstraintViolation,
-                field_path: "timeout_seconds".to_string(),
-                message: "Timeout should be at least 1 second".to_string(),
-                suggestion: Some(
-                    "Set a minimum timeout of 1 second for reliable operation detection"
-                        .to_string(),
-                ),
-            });
-        }
+        validate_timeout_upper_bound(timeout, errors);
+        validate_timeout_lower_bound(timeout, errors);
     }
 
     fn validate_subcommand_list(
@@ -335,11 +362,21 @@ impl MtdfValidator {
         let Some(ref subcommands) = config.subcommand else {
             return;
         };
-        for (i, subcommand) in subcommands.iter().enumerate() {
+        self.validate_subcommands(subcommands, "subcommand", config.synchronous, errors);
+    }
+
+    fn validate_subcommands(
+        &self,
+        subcommands: &[crate::config::SubcommandConfig],
+        path_prefix: &str,
+        inherited_sync: Option<bool>,
+        errors: &mut Vec<SchemaValidationError>,
+    ) {
+        for (index, subcommand) in subcommands.iter().enumerate() {
             self.validate_subcommand(
                 subcommand,
-                &format!("subcommand[{}]", i),
-                config.synchronous,
+                &indexed_path(path_prefix, index),
+                inherited_sync,
                 errors,
             );
         }
@@ -360,18 +397,7 @@ impl MtdfValidator {
         report.push_str(&format!("Found {} error(s):\n\n", error_count));
 
         for (i, error) in errors.iter().enumerate() {
-            report.push_str(&format!(
-                "{}. {} at '{}': {}\n",
-                i + 1,
-                error.error_type,
-                error.field_path,
-                error.message
-            ));
-
-            if let Some(ref suggestion) = error.suggestion {
-                report.push_str(&format!("   Suggestion: {}\n", suggestion));
-            }
-            report.push('\n');
+            report.push_str(&format_error_entry(i + 1, error));
         }
 
         // Add general help
@@ -413,15 +439,14 @@ impl MtdfValidator {
         }
 
         if check_async_keywords_in_sync_command(&subcommand.description) {
-            errors.push(SchemaValidationError {
-                error_type: ValidationErrorType::LogicalInconsistency,
-                field_path: format!("{}.description", path),
-                message: "Description mentions async behavior but subcommand is forced synchronous"
+            push_error_with_suggestion(
+                errors,
+                ValidationErrorType::LogicalInconsistency,
+                format!("{}.description", path),
+                "Description mentions async behavior but subcommand is forced synchronous"
                     .to_string(),
-                suggestion: Some(
-                    "Either set synchronous to false or update description".to_string(),
-                ),
-            });
+                Some("Either set synchronous to false or update description".to_string()),
+            );
         }
     }
 
@@ -436,14 +461,12 @@ impl MtdfValidator {
             return;
         };
 
-        for (i, nested_sub) in nested.iter().enumerate() {
-            self.validate_subcommand(
-                nested_sub,
-                &format!("{}.subcommand[{}]", path, i),
-                effective_sync,
-                errors,
-            );
-        }
+        self.validate_subcommands(
+            nested,
+            &format!("{}.subcommand", path),
+            effective_sync,
+            errors,
+        );
     }
 
     fn validate_subcommand_options(
@@ -456,8 +479,12 @@ impl MtdfValidator {
             return;
         };
 
-        for (i, option) in options.iter().enumerate() {
-            self.validate_option(option, &format!("{}.options[{}]", path, i), errors);
+        for (index, option) in options.iter().enumerate() {
+            self.validate_option(
+                option,
+                &indexed_path(&format!("{}.options", path), index),
+                errors,
+            );
         }
     }
 
@@ -471,6 +498,64 @@ impl MtdfValidator {
         validate_non_empty_field(&option.name, "name", path, errors);
         validate_option_type(&option.option_type, path, errors);
     }
+}
+
+fn parse_config_json(file_path: &Path, content: &str) -> ValidationResult<Value> {
+    serde_json::from_str(content).map_err(|error| {
+        single_validation_error(
+            ValidationErrorType::InvalidFormat,
+            file_path.to_string_lossy().to_string(),
+            format!("Invalid JSON: {}", error),
+        )
+    })
+}
+
+fn deserialize_tool_config(
+    file_path: &Path,
+    json_value: Value,
+) -> ValidationResult<crate::config::ToolConfig> {
+    serde_json::from_value(json_value).map_err(|error| {
+        single_validation_error(
+            ValidationErrorType::SchemaViolation,
+            file_path.to_string_lossy().to_string(),
+            format!("Failed to deserialize: {}", error),
+        )
+    })
+}
+
+fn validate_timeout_upper_bound(timeout: u64, errors: &mut Vec<SchemaValidationError>) {
+    if timeout <= 3600 {
+        return;
+    }
+
+    push_error_with_suggestion(
+        errors,
+        ValidationErrorType::ConstraintViolation,
+        "timeout_seconds".to_string(),
+        "Timeout should not exceed 3600 seconds (1 hour)".to_string(),
+        Some(
+            "Consider using a shorter timeout or breaking the operation into smaller steps"
+                .to_string(),
+        ),
+    );
+}
+
+fn validate_timeout_lower_bound(timeout: u64, errors: &mut Vec<SchemaValidationError>) {
+    if timeout != 0 {
+        return;
+    }
+
+    push_error_with_suggestion(
+        errors,
+        ValidationErrorType::ConstraintViolation,
+        "timeout_seconds".to_string(),
+        "Timeout should be at least 1 second".to_string(),
+        Some("Set a minimum timeout of 1 second for reliable operation detection".to_string()),
+    );
+}
+
+fn indexed_path(prefix: &str, index: usize) -> String {
+    format!("{}[{}]", prefix, index)
 }
 
 #[cfg(test)]

@@ -13,12 +13,15 @@ use super::types::{SandboxMode, ScopesGuard};
 fn resolve_livelog_scopes(canonicalized: &[PathBuf]) -> Vec<PathBuf> {
     let mut read_scopes = Vec::new();
     for scope in canonicalized {
-        let log_dir = scope.join("log");
-        if let Some(scope_entries) = resolve_log_dir_symlinks(&log_dir) {
+        if let Some(scope_entries) = resolve_log_dir_symlinks(&log_dir_for_scope(scope)) {
             read_scopes.extend(scope_entries);
         }
     }
     read_scopes
+}
+
+fn log_dir_for_scope(scope: &Path) -> PathBuf {
+    scope.join("log")
 }
 
 fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
@@ -39,24 +42,24 @@ fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
 }
 
 fn resolve_log_symlink(path: &Path, log_dir: &Path) -> Option<PathBuf> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    if !meta.is_symlink() {
+    if !is_log_symlink(path) {
         return None;
     }
 
-    let ext = path.extension()?;
-    if ext != "log" {
-        return None;
-    }
+    resolve_log_symlink_target(path, log_dir)
+}
 
+fn is_log_symlink(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    meta.is_symlink() && path.extension().is_some_and(|ext| ext == "log")
+}
+
+fn resolve_log_symlink_target(path: &Path, log_dir: &Path) -> Option<PathBuf> {
     let target = std::fs::read_link(path).ok()?;
     let canonical_target = dunce::canonicalize(log_dir.join(&target)).ok()?;
-
-    if canonical_target.is_file() {
-        Some(canonical_target)
-    } else {
-        None
-    }
+    canonical_target.is_file().then_some(canonical_target)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,10 +181,7 @@ impl Sandbox {
             "Client must provide valid workspace roots.",
         )?;
 
-        if self.tmp_access
-            && let Ok(canonical_temp) = dunce::canonicalize(std::env::temp_dir())
-            && !canonicalized.contains(&canonical_temp)
-        {
+        if let Some(canonical_temp) = self.preserved_temp_dir(&canonicalized) {
             tracing::info!(
                 "Preserving temp directory in sandbox scopes via --tmp: {:?}",
                 canonical_temp
@@ -245,8 +245,7 @@ impl Sandbox {
     }
 
     fn should_bypass_validation(&self, scopes_guard: &[PathBuf]) -> bool {
-        self.mode == SandboxMode::Test
-            && (scopes_guard.is_empty() || scopes_guard.iter().any(|s| s == Path::new("/")))
+        self.mode == SandboxMode::Test && is_test_root_scope(scopes_guard)
     }
 
     fn resolve_test_path(&self, path: &Path) -> Result<PathBuf> {
@@ -294,6 +293,19 @@ impl Sandbox {
 
         Ok(())
     }
+
+    fn preserved_temp_dir(&self, canonicalized: &[PathBuf]) -> Option<PathBuf> {
+        if !self.tmp_access {
+            return None;
+        }
+
+        let canonical_temp = dunce::canonicalize(std::env::temp_dir()).ok()?;
+        (!canonicalized.contains(&canonical_temp)).then_some(canonical_temp)
+    }
+}
+
+fn is_test_root_scope(scopes_guard: &[PathBuf]) -> bool {
+    scopes_guard.is_empty() || scopes_guard.iter().any(|scope| scope == Path::new("/"))
 }
 
 /// Strip the Windows extended-length path prefix (`\\?\`) if present.

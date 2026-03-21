@@ -268,6 +268,82 @@ struct ServerStartupInfo {
     quic_cert_der: Option<Vec<u8>>,
 }
 
+enum StartupMarker {
+    BoundPort(u16),
+    QuicPort(u16),
+    QuicCert(Vec<u8>),
+}
+
+fn parse_port_marker(line: &str, marker: &str) -> Option<u16> {
+    let index = line.find(marker)?;
+    line[index + marker.len()..].trim().parse::<u16>().ok()
+}
+
+fn parse_quic_cert_marker(line: &str) -> Option<Vec<u8>> {
+    let index = line.find("AHMA_QUIC_CERT=")?;
+    let encoded = line[index + "AHMA_QUIC_CERT=".len()..].trim();
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    (!decoded.is_empty()).then_some(decoded)
+}
+
+fn parse_startup_marker(line: &str) -> Option<StartupMarker> {
+    parse_port_marker(line, "AHMA_BOUND_PORT=")
+        .map(StartupMarker::BoundPort)
+        .or_else(|| parse_port_marker(line, "AHMA_QUIC_PORT=").map(StartupMarker::QuicPort))
+        .or_else(|| parse_quic_cert_marker(line).map(StartupMarker::QuicCert))
+}
+
+fn stop_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn configure_server_command(
+    cmd: &mut Command,
+    workspace: &Path,
+    args: &[String],
+    no_sandbox_message: &str,
+) {
+    cmd.args(args)
+        .current_dir(workspace)
+        .env_remove("AHMA_HANDSHAKE_TIMEOUT_SECS")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if should_force_no_sandbox_for_test_server() {
+        eprintln!("{no_sandbox_message}");
+        cmd.env("AHMA_NO_SANDBOX", "1");
+    }
+
+    SandboxTestEnv::configure(cmd);
+}
+
+fn attach_output_readers(child: &mut Child) -> mpsc::Receiver<String> {
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+    let (line_tx, line_rx) = mpsc::channel::<String>();
+    wire_output_reader(stdout, line_tx.clone());
+    wire_output_reader(stderr, line_tx);
+    line_rx
+}
+
+fn spawn_server_child(
+    binary: &Path,
+    workspace: &Path,
+    args: &[String],
+    spawn_error: &str,
+    no_sandbox_message: &str,
+) -> Result<(Child, mpsc::Receiver<String>), String> {
+    let mut cmd = Command::new(binary);
+    configure_server_command(&mut cmd, workspace, args, no_sandbox_message);
+
+    let mut child = cmd.spawn().map_err(|e| format!("{spawn_error}: {e}"))?;
+    let line_rx = attach_output_readers(&mut child);
+    Ok((child, line_rx))
+}
+
 fn wait_for_startup_info(
     receiver: &mpsc::Receiver<String>,
     timeout: Duration,
@@ -280,26 +356,17 @@ fn wait_for_startup_info(
         match receiver.recv_timeout(Duration::from_millis(200)) {
             Ok(line) => {
                 eprintln!("{}", line);
-                if let Some(idx) = line.find("AHMA_QUIC_PORT=") {
-                    let val = &line[idx + "AHMA_QUIC_PORT=".len()..];
-                    quic_port = val.trim().parse::<u16>().ok();
-                } else if let Some(idx) = line.find("AHMA_QUIC_CERT=") {
-                    let b64 = line[idx + "AHMA_QUIC_CERT=".len()..].trim();
-                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64)
-                        && !bytes.is_empty()
-                    {
-                        quic_cert_der = Some(bytes);
-                    }
-                } else if let Some(idx) = line.find("AHMA_BOUND_PORT=") {
-                    let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
-                    if let Ok(port) = port_str.trim().parse::<u16>() {
-                        // AHMA_BOUND_PORT is always the last startup marker.
+                match parse_startup_marker(&line) {
+                    Some(StartupMarker::QuicPort(port)) => quic_port = Some(port),
+                    Some(StartupMarker::QuicCert(cert)) => quic_cert_der = Some(cert),
+                    Some(StartupMarker::BoundPort(port)) => {
                         return Some(ServerStartupInfo {
                             bound_port: port,
                             quic_port,
                             quic_cert_der,
                         });
                     }
+                    None => {}
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -351,39 +418,19 @@ pub async fn spawn_test_server_with_timeout(
     }
 
     eprintln!("[TestServer] Starting test server with dynamic port");
-
-    let mut cmd = Command::new(&binary);
-    cmd.args(&args)
-        .current_dir(&workspace)
-        .env_remove("AHMA_HANDSHAKE_TIMEOUT_SECS")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if should_force_no_sandbox_for_test_server() {
-        eprintln!(
-            "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --no-sandbox"
-        );
-        cmd.env("AHMA_NO_SANDBOX", "1");
-    }
-
-    SandboxTestEnv::configure(&mut cmd);
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn test server: {}", e))?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-    let (line_tx, line_rx) = mpsc::channel::<String>();
-    wire_output_reader(stdout, line_tx.clone());
-    wire_output_reader(stderr, line_tx);
+    let (mut child, line_rx) = spawn_server_child(
+        &binary,
+        &workspace,
+        &args,
+        "Failed to spawn test server",
+        "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --no-sandbox",
+    )?;
 
     let startup_info =
         match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
             Some(info) => info,
             None => {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop_child(&mut child);
                 return Err("Timeout waiting for server to start".to_string());
             }
         };
@@ -401,8 +448,7 @@ pub async fn spawn_test_server_with_timeout(
         });
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    stop_child(&mut child);
     Err("Test server failed to respond to health check within 5 seconds".to_string())
 }
 
@@ -423,39 +469,19 @@ pub async fn spawn_server_guard_with_config(
         "[TestServer] Starting custom server with scope {}",
         sandbox_scope.display()
     );
-
-    let mut cmd = Command::new(&binary);
-    cmd.args(&args)
-        .current_dir(&workspace)
-        .env_remove("AHMA_HANDSHAKE_TIMEOUT_SECS")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if should_force_no_sandbox_for_test_server() {
-        eprintln!(
-            "[TestServer] Sandbox unavailable on this platform/kernel; forcing custom server no-sandbox"
-        );
-        cmd.env("AHMA_NO_SANDBOX", "1");
-    }
-
-    SandboxTestEnv::configure(&mut cmd);
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn custom test server: {}", e))?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-    let (line_tx, line_rx) = mpsc::channel::<String>();
-    wire_output_reader(stdout, line_tx.clone());
-    wire_output_reader(stderr, line_tx);
+    let (mut child, line_rx) = spawn_server_child(
+        &binary,
+        &workspace,
+        &args,
+        "Failed to spawn custom test server",
+        "[TestServer] Sandbox unavailable on this platform/kernel; forcing custom server no-sandbox",
+    )?;
 
     let bound_port =
         match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
             Some(info) => info.bound_port,
             None => {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop_child(&mut child);
                 return Err("Timeout waiting for custom server to start".to_string());
             }
         };
@@ -464,7 +490,6 @@ pub async fn spawn_server_guard_with_config(
         return Ok(ServerGuard::new(child, bound_port));
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    stop_child(&mut child);
     Err("Custom test server failed to respond to health check within timeout".to_string())
 }

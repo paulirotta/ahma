@@ -4,8 +4,9 @@ use crate::mcp_service::schema;
 use crate::operation_monitor::Operation;
 use rmcp::model::{CallToolRequestParams, CallToolResult, Content, ErrorData as McpError};
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::time::Instant;
+use tokio::time::{Instant, error::Elapsed};
 use tracing;
 
 impl AhmaMcpService {
@@ -45,16 +46,7 @@ impl AhmaMcpService {
         let timeout_seconds = self.calculate_intelligent_timeout(&tool_filters).await;
         let timeout_duration = std::time::Duration::from_secs(timeout_seconds as u64);
 
-        let pending_ops: Vec<Operation> = self
-            .operation_monitor
-            .get_all_active_operations()
-            .await
-            .into_iter()
-            .filter(|op| {
-                !op.state.is_terminal()
-                    && common::operation_matches_filters(op, &tool_filters, None)
-            })
-            .collect();
+        let pending_ops = self.pending_operations_for_filters(&tool_filters).await;
 
         if pending_ops.is_empty() {
             return self.handle_await_no_pending_ops(&tool_filters).await;
@@ -70,19 +62,9 @@ impl AhmaMcpService {
         let wait_start = Instant::now();
         let (warning_task, mut warning_rx) = spawn_progress_warnings(timeout_seconds);
 
-        let wait_result = tokio::time::timeout(timeout_duration, async {
-            let futures: Vec<_> = pending_ops
-                .iter()
-                .map(|op| self.operation_monitor.wait_for_operation(&op.id))
-                .collect();
-            let completed: Vec<Operation> = futures::future::join_all(futures)
-                .await
-                .into_iter()
-                .flatten()
-                .collect();
-            common::serialize_operations_to_content(&completed)
-        })
-        .await;
+        let wait_result = self
+            .wait_for_pending_operations(timeout_duration, &pending_ops)
+            .await;
 
         warning_task.abort();
         while let Ok(warning) = warning_rx.try_recv() {
@@ -115,26 +97,14 @@ impl AhmaMcpService {
         let completed_during_wait = pending_ops.len() - still_running.len();
         let remediation_steps = self.generate_remediation_suggestions(&still_running).await;
 
-        let mut error_message = format!(
-            "Wait operation timed out after {:.2}s (configured timeout: {:.0}s).\n\n\
-            Progress: {}/{} operations completed during await.\n\
-            Still running: {} operations.\n\nSuggestions:",
-            elapsed.as_secs_f64(),
+        Ok(common::text_result(format_timeout_error_message(
+            elapsed,
             timeout_seconds,
             completed_during_wait,
             pending_ops.len(),
-            still_running.len()
-        );
-        for step in &remediation_steps {
-            error_message.push_str(&format!("\n{}", step));
-        }
-        if !still_running.is_empty() {
-            error_message.push_str("\n\nStill running operations:");
-            for op in &still_running {
-                error_message.push_str(&format!("\n• {} ({})", op.id, op.tool_name));
-            }
-        }
-        Ok(common::text_result(error_message))
+            &still_running,
+            &remediation_steps,
+        )))
     }
 
     /// Calculate intelligent timeout based on operation timeouts and default await timeout
@@ -159,21 +129,7 @@ impl AhmaMcpService {
         &self,
         tool_filters: &[String],
     ) -> Result<CallToolResult, McpError> {
-        let completed_ops = self.operation_monitor.get_completed_operations().await;
-        let relevant_completed: Vec<Operation> = completed_ops
-            .into_iter()
-            .filter(|op| {
-                !tool_filters.is_empty()
-                    && tool_filters.iter().any(|tn| op.tool_name.starts_with(tn))
-            })
-            .collect();
-
-        if !relevant_completed.is_empty() {
-            let mut contents = vec![Content::text(format!(
-                "No pending operations for tools: {}. However, these operations recently completed:",
-                tool_filters.join(", ")
-            ))];
-            contents.extend(common::serialize_operations_to_content(&relevant_completed));
+        if let Some(contents) = self.recently_completed_contents(tool_filters).await {
             return Ok(CallToolResult::success(contents));
         }
 
@@ -237,23 +193,69 @@ impl AhmaMcpService {
         CallToolResult::success(contents)
     }
 
+    async fn pending_operations_for_filters(&self, tool_filters: &[String]) -> Vec<Operation> {
+        self.operation_monitor
+            .get_all_active_operations()
+            .await
+            .into_iter()
+            .filter(|op| {
+                !op.state.is_terminal() && common::operation_matches_filters(op, tool_filters, None)
+            })
+            .collect()
+    }
+
+    async fn wait_for_pending_operations(
+        &self,
+        timeout_duration: std::time::Duration,
+        pending_ops: &[Operation],
+    ) -> Result<Vec<Content>, Elapsed> {
+        tokio::time::timeout(timeout_duration, async {
+            let futures: Vec<_> = pending_ops
+                .iter()
+                .map(|op| self.operation_monitor.wait_for_operation(&op.id))
+                .collect();
+            let completed: Vec<Operation> = futures::future::join_all(futures)
+                .await
+                .into_iter()
+                .flatten()
+                .collect();
+            common::serialize_operations_to_content(&completed)
+        })
+        .await
+    }
+
+    async fn recently_completed_contents(&self, tool_filters: &[String]) -> Option<Vec<Content>> {
+        if tool_filters.is_empty() {
+            return None;
+        }
+
+        let relevant_completed: Vec<Operation> = self
+            .operation_monitor
+            .get_completed_operations()
+            .await
+            .into_iter()
+            .filter(|op| tool_filters.iter().any(|tn| op.tool_name.starts_with(tn)))
+            .collect();
+
+        if relevant_completed.is_empty() {
+            return None;
+        }
+
+        let mut contents = vec![Content::text(format!(
+            "No pending operations for tools: {}. However, these operations recently completed:",
+            tool_filters.join(", ")
+        ))];
+        contents.extend(common::serialize_operations_to_content(&relevant_completed));
+        Some(contents)
+    }
+
     async fn generate_remediation_suggestions(&self, still_running: &[Operation]) -> Vec<String> {
         let mut steps = Vec::new();
         self.collect_lock_file_suggestions(&mut steps).await;
         collect_process_suggestions(still_running, &mut steps);
         collect_network_suggestions(still_running, &mut steps);
         collect_build_suggestions(still_running, &mut steps);
-        if steps.is_empty() {
-            steps.push("• Use the 'status' tool to check remaining operations".to_string());
-            steps.push(
-                "• Operations continue running in background - they may complete shortly"
-                    .to_string(),
-            );
-            steps.push(
-                "• Consider increasing timeout_seconds if operations legitimately need more time"
-                    .to_string(),
-            );
-        }
+        append_default_remediation_steps(&mut steps);
         steps
     }
 
@@ -283,20 +285,28 @@ fn is_lock_file(name: &str) -> bool {
 }
 
 async fn scan_dir_for_lock_files(dir: &str, steps: &mut Vec<String>) {
+    for name in list_lock_files(dir).await {
+        steps.push(format!(
+            "• Remove potential stale lock file: rm {}/{}",
+            dir, name
+        ));
+    }
+}
+
+async fn list_lock_files(dir: &str) -> Vec<String> {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
-        return;
+        return Vec::new();
     };
+    let mut lock_files = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let Some(name) = entry.file_name().to_str().map(String::from) else {
             continue;
         };
         if is_lock_file(&name) {
-            steps.push(format!(
-                "• Remove potential stale lock file: rm {}/{}",
-                dir, name
-            ));
+            lock_files.push(name);
         }
     }
+    lock_files
 }
 
 fn spawn_progress_warnings(
@@ -337,16 +347,7 @@ fn build_completion_result(contents: Vec<Content>, wait_start: Instant) -> CallT
 }
 
 fn collect_process_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
-    let running_commands: std::collections::HashSet<String> = still_running
-        .iter()
-        .map(|op| {
-            op.tool_name
-                .split('_')
-                .next()
-                .unwrap_or(&op.tool_name)
-                .to_string()
-        })
-        .collect();
+    let running_commands: HashSet<String> = still_running.iter().map(command_prefix).collect();
     for cmd in &running_commands {
         steps.push(format!(
             "• Check for competing {} processes: ps aux | grep {}",
@@ -361,15 +362,15 @@ fn collect_network_suggestions(still_running: &[Operation], steps: &mut Vec<Stri
         "graphql", "rpc", "ssh", "ftp", "scp", "rsync", "net", "audit", "update", "search", "add",
         "install", "fetch", "clone", "pull", "push", "download", "upload", "sync",
     ];
-    let has_network_ops = still_running
-        .iter()
-        .any(|op| NETWORK_KEYWORDS.iter().any(|kw| op.tool_name.contains(kw)));
-    if has_network_ops {
-        steps.push(
-            "• Network operations detected - check internet connection: ping 8.8.8.8".to_string(),
-        );
-        steps.push("• Try running with offline flags if tool supports them".to_string());
-    }
+    push_keyword_suggestions(
+        still_running,
+        NETWORK_KEYWORDS,
+        &[
+            "• Network operations detected - check internet connection: ping 8.8.8.8",
+            "• Try running with offline flags if tool supports them",
+        ],
+        steps,
+    );
 }
 
 fn collect_build_suggestions(still_running: &[Operation], steps: &mut Vec<String>) {
@@ -377,17 +378,90 @@ fn collect_build_suggestions(still_running: &[Operation], steps: &mut Vec<String
         "build", "compile", "test", "lint", "clippy", "format", "check", "verify", "validate",
         "analyze",
     ];
-    let has_build_ops = still_running
-        .iter()
-        .any(|op| BUILD_KEYWORDS.iter().any(|kw| op.tool_name.contains(kw)));
-    if has_build_ops {
-        steps.push(
-            "• Build/compile operations can take time - consider increasing timeout_seconds"
-                .to_string(),
+    push_keyword_suggestions(
+        still_running,
+        BUILD_KEYWORDS,
+        &[
+            "• Build/compile operations can take time - consider increasing timeout_seconds",
+            "• Check system resources: top or htop",
+            "• Consider running operations with verbose flags to see progress",
+        ],
+        steps,
+    );
+}
+
+fn command_prefix(op: &Operation) -> String {
+    op.tool_name
+        .split('_')
+        .next()
+        .unwrap_or(&op.tool_name)
+        .to_string()
+}
+
+fn push_keyword_suggestions(
+    still_running: &[Operation],
+    keywords: &[&str],
+    suggestions: &[&str],
+    steps: &mut Vec<String>,
+) {
+    if has_keyword_match(still_running, keywords) {
+        steps.extend(
+            suggestions
+                .iter()
+                .map(|suggestion| (*suggestion).to_string()),
         );
-        steps.push("• Check system resources: top or htop".to_string());
-        steps.push("• Consider running operations with verbose flags to see progress".to_string());
     }
+}
+
+fn has_keyword_match(still_running: &[Operation], keywords: &[&str]) -> bool {
+    still_running
+        .iter()
+        .any(|op| keywords.iter().any(|kw| op.tool_name.contains(kw)))
+}
+
+fn append_default_remediation_steps(steps: &mut Vec<String>) {
+    if !steps.is_empty() {
+        return;
+    }
+
+    steps.push("• Use the 'status' tool to check remaining operations".to_string());
+    steps.push(
+        "• Operations continue running in background - they may complete shortly".to_string(),
+    );
+    steps.push(
+        "• Consider increasing timeout_seconds if operations legitimately need more time"
+            .to_string(),
+    );
+}
+
+fn format_timeout_error_message(
+    elapsed: std::time::Duration,
+    timeout_seconds: f64,
+    completed_during_wait: usize,
+    pending_count: usize,
+    still_running: &[Operation],
+    remediation_steps: &[String],
+) -> String {
+    let mut error_message = format!(
+        "Wait operation timed out after {:.2}s (configured timeout: {:.0}s).\n\n\
+        Progress: {}/{} operations completed during await.\n\
+        Still running: {} operations.\n\nSuggestions:",
+        elapsed.as_secs_f64(),
+        timeout_seconds,
+        completed_during_wait,
+        pending_count,
+        still_running.len()
+    );
+    for step in remediation_steps {
+        error_message.push_str(&format!("\n{}", step));
+    }
+    if !still_running.is_empty() {
+        error_message.push_str("\n\nStill running operations:");
+        for op in still_running {
+            error_message.push_str(&format!("\n• {} ({})", op.id, op.tool_name));
+        }
+    }
+    error_message
 }
 
 #[cfg(test)]

@@ -95,6 +95,19 @@ fn format_cancellation_context(tool_name: Option<&str>, id: Option<&str>) -> Vec
     .collect()
 }
 
+fn cancellation_parts(
+    kind: CancellationKind,
+    raw_message: &str,
+    tool_name: Option<&str>,
+    id: Option<&str>,
+) -> Vec<String> {
+    let mut parts = vec![kind.as_message().to_string()];
+    parts.extend(format_cancellation_context(tool_name, id));
+    parts.push(format!("Raw: {raw_message}"));
+    parts.push(CANCELLATION_SUGGESTIONS.to_string());
+    parts
+}
+
 /// Represents different types of progress updates during cargo operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -161,6 +174,49 @@ pub enum ProgressUpdate {
     },
 }
 
+impl ProgressUpdate {
+    fn format_progress(
+        message: &str,
+        percentage: Option<f64>,
+        current_step: Option<&str>,
+    ) -> String {
+        let progress_str = percentage.map_or(String::new(), |p| format!(" ({p:.1}%)"));
+        let step_str = current_step.map_or(String::new(), |step| format!(" [{step}]"));
+        format!("Progress{progress_str}: {message}{step_str}")
+    }
+
+    fn format_output(line: &str, is_stderr: bool) -> String {
+        let stream = if is_stderr { "stderr" } else { "stdout" };
+        format!("{stream}: {line}")
+    }
+
+    fn format_terminal(status: &str, duration_ms: u64, message: &str) -> String {
+        format!("{status} after {duration_ms}ms: {message}")
+    }
+
+    fn format_completion(duration_ms: u64, message: &str) -> String {
+        format!("Completed in {duration_ms}ms: {message}")
+    }
+
+    fn format_final_result(command: &str, success: bool, full_output: &str) -> String {
+        let status = if success { "COMPLETED" } else { "FAILED" };
+        format!("{status}: {command}\n{full_output}")
+    }
+
+    fn format_log_alert(
+        trigger_level: &str,
+        context_snapshot: &str,
+        llm_summary: Option<&str>,
+    ) -> String {
+        match llm_summary {
+            Some(summary) => {
+                format!("LOG_ALERT ({trigger_level}):\n{summary}\n---\n{context_snapshot}")
+            }
+            None => format!("LOG_ALERT ({trigger_level}):\n{context_snapshot}"),
+        }
+    }
+}
+
 impl fmt::Display for ProgressUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -176,68 +232,65 @@ impl fmt::Display for ProgressUpdate {
                 message,
                 percentage,
                 current_step,
-            } => {
-                let progress_str = percentage.map_or(String::new(), |p| format!(" ({p:.1}%)"));
-                let step_str = current_step
-                    .as_deref()
-                    .map_or(String::new(), |s| format!(" [{s}]"));
-                write!(f, "[{id}] Progress{progress_str}: {message}{step_str}")
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_progress(message, *percentage, current_step.as_deref())
+            ),
             ProgressUpdate::Output {
                 id,
                 line,
                 is_stderr,
-            } => {
-                let stream = if *is_stderr { "stderr" } else { "stdout" };
-                write!(f, "[{id}] {stream}: {line}")
-            }
+            } => write!(f, "[{id}] {}", Self::format_output(line, *is_stderr)),
             ProgressUpdate::Completed {
                 id,
                 message,
                 duration_ms,
-            } => {
-                write!(f, "[{id}] Completed in {duration_ms}ms: {message}")
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_completion(*duration_ms, message)
+            ),
             ProgressUpdate::Failed {
                 id,
                 error,
                 duration_ms,
-            } => {
-                write!(f, "[{id}] Failed after {duration_ms}ms: {error}")
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_terminal("Failed", *duration_ms, error)
+            ),
             ProgressUpdate::Cancelled {
                 id,
                 message,
                 duration_ms,
-            } => {
-                write!(f, "[{id}] CANCELLED after {duration_ms}ms: {message}")
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_terminal("CANCELLED", *duration_ms, message)
+            ),
             ProgressUpdate::FinalResult {
                 id,
                 command,
                 success,
                 full_output,
                 ..
-            } => {
-                let status = if *success { "COMPLETED" } else { "FAILED" };
-                write!(f, "[{id}] {status}: {command}\n{full_output}")
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_final_result(command, *success, full_output)
+            ),
             ProgressUpdate::LogAlert {
                 id,
                 trigger_level,
                 context_snapshot,
                 llm_summary,
                 trigger_lines: _,
-            } => {
-                if let Some(summary) = llm_summary {
-                    write!(
-                        f,
-                        "[{id}] LOG_ALERT ({trigger_level}):\n{summary}\n---\n{context_snapshot}"
-                    )
-                } else {
-                    write!(f, "[{id}] LOG_ALERT ({trigger_level}):\n{context_snapshot}")
-                }
-            }
+            } => write!(
+                f,
+                "[{id}] {}",
+                Self::format_log_alert(trigger_level, context_snapshot, llm_summary.as_deref())
+            ),
         }
     }
 }
@@ -295,12 +348,7 @@ pub fn format_cancellation_message(
         return raw_message.to_string();
     };
 
-    let mut parts = vec![kind.as_message().to_string()];
-    parts.extend(format_cancellation_context(tool_name, id));
-    parts.push(format!("Raw: {raw_message}"));
-    parts.push(CANCELLATION_SUGGESTIONS.to_string());
-
-    parts.join(". ")
+    cancellation_parts(kind, raw_message, tool_name, id).join(". ")
 }
 
 /// Channel-based callback sender for async communication

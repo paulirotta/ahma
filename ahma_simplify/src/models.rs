@@ -64,6 +64,16 @@ fn is_named_function(entry: &SpaceEntry) -> bool {
     entry.kind == "function" && entry.name != "<anonymous>"
 }
 
+fn walk_spaces<F>(spaces: &[SpaceEntry], visitor: &mut F)
+where
+    F: FnMut(&SpaceEntry),
+{
+    for entry in spaces {
+        walk_spaces(&entry.spaces, visitor);
+        visitor(entry);
+    }
+}
+
 impl FunctionHotspot {
     const MAX_HOTSPOTS: usize = 5;
 
@@ -71,7 +81,11 @@ impl FunctionHotspot {
     /// sorted by cognitive complexity descending, limited to MAX_HOTSPOTS.
     pub fn extract_from_spaces(spaces: &[SpaceEntry]) -> Vec<FunctionHotspot> {
         let mut hotspots = Vec::new();
-        Self::collect_functions(spaces, &mut hotspots);
+        walk_spaces(spaces, &mut |entry| {
+            if Self::is_nontrivial_function(entry) {
+                hotspots.push(Self::from_space_entry(entry));
+            }
+        });
         hotspots.sort_by(|a, b| {
             b.cognitive
                 .partial_cmp(&a.cognitive)
@@ -79,16 +93,6 @@ impl FunctionHotspot {
         });
         hotspots.truncate(Self::MAX_HOTSPOTS);
         hotspots
-    }
-
-    fn collect_functions(spaces: &[SpaceEntry], hotspots: &mut Vec<FunctionHotspot>) {
-        for entry in spaces {
-            Self::collect_functions(&entry.spaces, hotspots);
-            if !Self::is_nontrivial_function(entry) {
-                continue;
-            }
-            hotspots.push(Self::from_space_entry(entry));
-        }
     }
 
     fn from_space_entry(entry: &SpaceEntry) -> FunctionHotspot {
@@ -272,27 +276,17 @@ impl FileSimplicity {
     fn weighted_function_mi(spaces: &[SpaceEntry]) -> Option<f64> {
         let mut total_weight = 0.0_f64;
         let mut weighted_sum = 0.0_f64;
-        Self::accumulate_function_mi(spaces, &mut weighted_sum, &mut total_weight);
+        walk_spaces(spaces, &mut |entry| {
+            if is_named_function(entry) && entry.metrics.loc.sloc > 0.0 {
+                let sloc = entry.metrics.loc.sloc;
+                weighted_sum += entry.metrics.mi.mi_visual_studio * sloc;
+                total_weight += sloc;
+            }
+        });
         if total_weight > 0.0 {
             Some((weighted_sum / total_weight).clamp(0.0, 100.0))
         } else {
             None
-        }
-    }
-
-    fn accumulate_function_mi(
-        spaces: &[SpaceEntry],
-        weighted_sum: &mut f64,
-        total_weight: &mut f64,
-    ) {
-        for entry in spaces {
-            Self::accumulate_function_mi(&entry.spaces, weighted_sum, total_weight);
-            if !is_named_function(entry) || entry.metrics.loc.sloc <= 0.0 {
-                continue;
-            }
-            let sloc = entry.metrics.loc.sloc;
-            *weighted_sum += entry.metrics.mi.mi_visual_studio * sloc;
-            *total_weight += sloc;
         }
     }
 }

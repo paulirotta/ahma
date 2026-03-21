@@ -26,9 +26,9 @@ permissions:
 # to your branch to give priority to your changes. Then rebase from your branch back
 # to 'main', test, then push.
 
-#concurrency:
-#  group: build # Only one build at a time, otherwise cache is not used effectively
-#  cancel-in-progress: false
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
   push:
@@ -169,6 +169,7 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -491,7 +492,7 @@ jobs:
           path: ./coverage
 
       - name: Upload code simplicity report artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: code-simplicity-report
           path: ./coverage/CODE_SIMPLICITY.md
@@ -513,6 +514,7 @@ jobs:
       run:
         shell: bash
     strategy:
+      max-parallel: 2
       matrix:
         include:
           # Native builds (no cross-compilation needed)
@@ -677,7 +679,7 @@ jobs:
           echo "platform=$platform" >> $GITHUB_OUTPUT
 
       - name: Upload release binaries artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-binaries-${{ matrix.platform }}
           path: ${{ steps.package.outputs.archive_name }}
@@ -690,7 +692,14 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [job-cargo-clippy, job-cargo-nextest, job-android, job-release-binaries, job-coverage]
+    needs:
+      [
+        job-cargo-clippy,
+        job-cargo-nextest,
+        job-android,
+        job-release-binaries,
+        job-coverage,
+      ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -699,7 +708,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: release-binaries-*
           merge-multiple: true
@@ -725,7 +734,6 @@ jobs:
             ahma-release-*.tar.gz
             ahma-release-*.zip
             SHA256SUMS
-
 
   # --------------------------------------------------------------------------
   # Publish to Windows Package Manager (winget-pkgs)

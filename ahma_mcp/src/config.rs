@@ -43,6 +43,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::HashMap, path::Path};
 
+const RESERVED_TOOL_NAMES: &[&str] = &["await", "status", "sandboxed_shell", "cancel"];
+const TOOL_CONFIG_READ_MAX_ATTEMPTS: usize = 8;
+const TOOL_CONFIG_READ_BACKOFF_MS: u64 = 40;
+
 /// Represents the complete configuration for a command-line tool.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
@@ -377,6 +381,206 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_reserved_tool_name(name: &str) -> bool {
+    RESERVED_TOOL_NAMES.contains(&name)
+}
+
+fn builtin_tool_configs(cli: &crate::shell::cli::Cli) -> Vec<(&'static str, &'static str)> {
+    flagged_bundle_pairs(cli)
+        .into_iter()
+        .filter(|(_, enabled)| *enabled)
+        .filter_map(|(bundle_name, _)| {
+            builtin_tool_definition(bundle_name).map(|json| (bundle_name, json))
+        })
+        .collect()
+}
+
+fn builtin_tool_definition(bundle_name: &str) -> Option<&'static str> {
+    match bundle_name {
+        "rust" => Some(include_str!("../../.ahma/rust.json")),
+        "fileutils" => Some(include_str!("../../.ahma/file-tools.json")),
+        "github" => Some(include_str!("../../.ahma/gh.json")),
+        "git" => Some(include_str!("../../.ahma/git.json")),
+        "kotlin" => Some(include_str!("../../.ahma/kotlin.json")),
+        "python" => Some(include_str!("../../.ahma/python.json")),
+        "simplify" => Some(include_str!("../../.ahma/simplify.json")),
+        _ => None,
+    }
+}
+
+fn parse_builtin_tool_config(json_str: &str) -> anyhow::Result<ToolConfig> {
+    Ok(serde_json::from_str::<ToolConfig>(json_str)?)
+}
+
+enum ToolConfigLoadError {
+    Read(std::io::Error),
+    Parse(serde_json::Error),
+}
+
+async fn read_tool_config_once(path: &Path) -> Result<ToolConfig, ToolConfigLoadError> {
+    let contents = tokio::fs::read_to_string(path)
+        .await
+        .map_err(ToolConfigLoadError::Read)?;
+    serde_json::from_str::<ToolConfig>(&contents).map_err(ToolConfigLoadError::Parse)
+}
+
+fn log_tool_config_load_failure(path: &Path, error: &ToolConfigLoadError) {
+    match error {
+        ToolConfigLoadError::Read(error) => {
+            tracing::warn!("Failed to read {}: {}", path.display(), error);
+        }
+        ToolConfigLoadError::Parse(error) => {
+            tracing::warn!("Failed to parse {}: {}", path.display(), error);
+        }
+    }
+}
+
+async fn read_tool_config_with_retry(path: &Path) -> Option<ToolConfig> {
+    use std::time::Duration;
+
+    for attempt in 1..=TOOL_CONFIG_READ_MAX_ATTEMPTS {
+        match read_tool_config_once(path).await {
+            Ok(config) => return Some(config),
+            Err(error) if attempt == TOOL_CONFIG_READ_MAX_ATTEMPTS => {
+                log_tool_config_load_failure(path, &error);
+                return None;
+            }
+            Err(_) => {}
+        }
+
+        tokio::time::sleep(Duration::from_millis(TOOL_CONFIG_READ_BACKOFF_MS)).await;
+    }
+
+    None
+}
+
+fn validate_tool_name(name: &str, source: &str) -> anyhow::Result<()> {
+    if is_reserved_tool_name(name) {
+        anyhow::bail!(
+            "Tool name '{}' conflicts with a hardcoded system tool. Reserved tool names: {:?}. Please rename your tool in {}",
+            name,
+            RESERVED_TOOL_NAMES,
+            source
+        );
+    }
+    Ok(())
+}
+
+async fn load_configs_from_dir(
+    dir: &Path,
+    configs: &mut HashMap<String, ToolConfig>,
+) -> anyhow::Result<()> {
+    use tokio::fs;
+
+    if !fs::try_exists(dir).await.unwrap_or(false) {
+        return Ok(());
+    }
+
+    let mut entries = match fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::warn!(
+                "Skipping inaccessible tools directory '{}': {}",
+                dir.display(),
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !is_json_config_path(&path) {
+            continue;
+        }
+
+        load_single_config_path(&path, configs).await?;
+    }
+
+    Ok(())
+}
+
+fn is_json_config_path(path: &Path) -> bool {
+    path.extension().and_then(|s| s.to_str()) == Some("json")
+}
+
+async fn load_single_config_path(
+    path: &Path,
+    configs: &mut HashMap<String, ToolConfig>,
+) -> anyhow::Result<()> {
+    let Some(config) = read_tool_config_with_retry(path).await else {
+        return Ok(());
+    };
+
+    validate_tool_name(&config.name, &path.display().to_string())?;
+    configs.insert(config.name.clone(), config);
+    Ok(())
+}
+
+fn insert_built_in_config(configs: &mut HashMap<String, ToolConfig>, config: ToolConfig) {
+    if configs.contains_key(&config.name) {
+        tracing::info!(
+            "Bundled tool '{}' overridden by local .ahma/ definition",
+            config.name
+        );
+        return;
+    }
+
+    let tool_name = config.name.clone();
+    configs.insert(tool_name, config);
+}
+
+fn log_builtin_config_parse_error(bundle_name: &str, error: &anyhow::Error) {
+    tracing::error!(
+        "Failed to parse built-in tool configuration for {}: {}",
+        bundle_name,
+        error
+    );
+}
+
+fn synthetic_sandboxed_shell_config() -> ToolConfig {
+    ToolConfig {
+        name: "sandboxed_shell".to_string(),
+        description: "Execute shell commands within a secure sandbox".to_string(),
+        command: if cfg!(target_os = "windows") {
+            "powershell -Command".to_string()
+        } else {
+            "bash -c".to_string()
+        },
+        enabled: true,
+        subcommand: Some(vec![SubcommandConfig {
+            name: "default".to_string(),
+            description: "Run a shell command".to_string(),
+            enabled: true,
+            positional_args: Some(vec![CommandOption {
+                name: "command".to_string(),
+                option_type: "string".to_string(),
+                description: Some("The shell command to execute".to_string()),
+                required: Some(true),
+                format: None,
+                items: None,
+                file_arg: None,
+                file_flag: None,
+                alias: None,
+            }]),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }
+}
+
+fn flagged_bundle_pairs(cli: &crate::shell::cli::Cli) -> [(&'static str, bool); 7] {
+    [
+        ("rust", cli.rust),
+        ("fileutils", cli.fileutils),
+        ("github", cli.github),
+        ("git", cli.git),
+        ("kotlin", cli.kotlin),
+        ("python", cli.python),
+        ("simplify", cli.simplify),
+    ]
+}
+
 pub async fn load_mcp_config(config_path: &Path) -> anyhow::Result<McpConfig> {
     if !tokio::fs::try_exists(config_path).await.unwrap_or(false) {
         return Ok(McpConfig {
@@ -407,49 +611,10 @@ pub async fn load_tool_configs(
     cli: &crate::shell::cli::Cli,
     tools_dir: Option<&Path>,
 ) -> anyhow::Result<HashMap<String, ToolConfig>> {
-    use std::time::Duration;
-    use tokio::fs;
-    use tokio::time;
-
-    // Core tool names implemented directly in Rust code (mcp_service handlers).
-    // These must not be overridden by user or bundled JSON configurations.
-    const RESERVED_TOOL_NAMES: &[&str] = &["await", "status", "sandboxed_shell", "cancel"];
-
     let all_dirs: Vec<std::path::PathBuf> =
         tools_dir.map(|p| vec![p.to_path_buf()]).unwrap_or_default();
 
     let mut configs = HashMap::new();
-
-    async fn read_tool_config_with_retry(path: &Path) -> Option<ToolConfig> {
-        // Filesystem watchers can fire before a newly-written JSON file is fully durable.
-        // A short bounded retry makes dynamic reload reliable without slowing normal startup.
-        const MAX_ATTEMPTS: usize = 8;
-        const BACKOFF_MS: u64 = 40;
-
-        for attempt in 1..=MAX_ATTEMPTS {
-            match fs::read_to_string(path).await {
-                Ok(contents) => match serde_json::from_str::<ToolConfig>(&contents) {
-                    Ok(config) => return Some(config),
-                    Err(e) => {
-                        if attempt == MAX_ATTEMPTS {
-                            tracing::warn!("Failed to parse {}: {}", path.display(), e);
-                            return None;
-                        }
-                    }
-                },
-                Err(e) => {
-                    if attempt == MAX_ATTEMPTS {
-                        tracing::warn!("Failed to read {}: {}", path.display(), e);
-                        return None;
-                    }
-                }
-            }
-
-            time::sleep(Duration::from_millis(BACKOFF_MS)).await;
-        }
-
-        None
-    }
 
     // When --tools-dir is explicitly provided, load all tools from it regardless
     // of bundle flags. When .ahma/ is auto-detected, also load ALL local tools
@@ -458,106 +623,18 @@ pub async fn load_tool_configs(
     // always take precedence and are always fully loaded.
 
     for dir in all_dirs {
-        if !fs::try_exists(&dir).await.unwrap_or(false) {
-            continue;
-        }
-
-        // Read directory entries
-        let mut entries = match fs::read_dir(&dir).await {
-            Ok(entries) => entries,
-            Err(e) => {
-                tracing::warn!(
-                    "Skipping inaccessible tools directory '{}': {}",
-                    dir.display(),
-                    e
-                );
-                continue;
-            }
-        };
-
-        loop {
-            match entries.next_entry().await {
-                Ok(Some(entry)) => {
-                    let path = entry.path();
-
-                    // Only process .json files
-                    if path.extension().and_then(|s| s.to_str()) == Some("json")
-                        && let Some(config) = read_tool_config_with_retry(&path).await
-                    {
-                        // Guard rail: Check for conflicts with hardcoded tool names
-                        if RESERVED_TOOL_NAMES.contains(&config.name.as_str()) {
-                            anyhow::bail!(
-                                "Tool name '{}' conflicts with a hardcoded system tool. Reserved tool names: {:?}. Please rename your tool in {}",
-                                config.name,
-                                RESERVED_TOOL_NAMES,
-                                path.display()
-                            );
-                        }
-
-                        // Include all tools (enabled or disabled)
-                        // Disabled tools will be rejected at execution time with a helpful message
-                        configs.insert(config.name.clone(), config);
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    tracing::warn!("Error reading entry in '{}': {}", dir.display(), e);
-                    break;
-                }
-            }
-        }
+        load_configs_from_dir(&dir, &mut configs).await?;
     }
 
     // Load built-in tools based on CLI flags
-    let mut builtin_tools: Vec<(&str, &str)> = Vec::new();
-
-    if cli.rust {
-        builtin_tools.push(("rust", include_str!("../../.ahma/rust.json")));
-    }
-    if cli.fileutils {
-        builtin_tools.push(("file-tools", include_str!("../../.ahma/file-tools.json")));
-    }
-    if cli.github {
-        builtin_tools.push(("gh", include_str!("../../.ahma/gh.json")));
-    }
-    if cli.git {
-        builtin_tools.push(("git", include_str!("../../.ahma/git.json")));
-    }
-    if cli.kotlin {
-        builtin_tools.push(("kotlin", include_str!("../../.ahma/kotlin.json")));
-    }
-    if cli.python {
-        builtin_tools.push(("python", include_str!("../../.ahma/python.json")));
-    }
-    if cli.simplify {
-        builtin_tools.push(("simplify", include_str!("../../.ahma/simplify.json")));
-    }
-
-    for (bundle_name, json_str) in builtin_tools {
-        match serde_json::from_str::<ToolConfig>(json_str) {
+    for (bundle_name, json_str) in builtin_tool_configs(cli) {
+        match parse_builtin_tool_config(json_str) {
             Ok(config) => {
-                if RESERVED_TOOL_NAMES.contains(&config.name.as_str()) {
-                    anyhow::bail!(
-                        "Built-in tool '{}' conflicts with a hardcoded system tool.",
-                        config.name
-                    );
-                }
-                // Do not override if already loaded from tools_dir / .ahma
-                if configs.contains_key(&config.name) {
-                    tracing::info!(
-                        "Bundled tool '{}' overridden by local .ahma/ definition",
-                        config.name
-                    );
-                } else {
-                    configs.insert(config.name.clone(), config);
-                }
+                validate_tool_name(&config.name, bundle_name)?;
+                insert_built_in_config(&mut configs, config);
             }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to parse built-in tool configuration for {}: {}",
-                    bundle_name,
-                    e
-                );
+            Err(error) => {
+                log_builtin_config_parse_error(bundle_name, &error);
             }
         }
     }
@@ -568,34 +645,7 @@ pub async fn load_tool_configs(
     // but sequences need a ToolConfig to resolve the command and subcommand.
     configs.insert(
         "sandboxed_shell".to_string(),
-        ToolConfig {
-            name: "sandboxed_shell".to_string(),
-            description: "Execute shell commands within a secure sandbox".to_string(),
-            command: if cfg!(target_os = "windows") {
-                "powershell -Command".to_string()
-            } else {
-                "bash -c".to_string()
-            },
-            enabled: true,
-            subcommand: Some(vec![SubcommandConfig {
-                name: "default".to_string(),
-                description: "Run a shell command".to_string(),
-                enabled: true,
-                positional_args: Some(vec![CommandOption {
-                    name: "command".to_string(),
-                    option_type: "string".to_string(),
-                    description: Some("The shell command to execute".to_string()),
-                    required: Some(true),
-                    format: None,
-                    items: None,
-                    file_arg: None,
-                    file_flag: None,
-                    alias: None,
-                }]),
-                ..Default::default()
-            }]),
-            ..Default::default()
-        },
+        synthetic_sandboxed_shell_config(),
     );
 
     Ok(configs)
@@ -609,22 +659,9 @@ pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collection
     use crate::mcp_service::bundle_registry::BUNDLES;
     let mut names = std::collections::HashSet::new();
 
-    let flags: &[(&str, bool)] = &[
-        ("rust", cli.rust),
-        ("fileutils", cli.fileutils),
-        ("github", cli.github),
-        ("git", cli.git),
-        ("kotlin", cli.kotlin),
-        ("python", cli.python),
-        ("simplify", cli.simplify),
-    ];
-
-    for &(name, enabled) in flags {
-        if enabled {
-            // Verify the name is a known bundle (compile-time safety via BUNDLES constant)
-            if BUNDLES.iter().any(|b| b.name == name) {
-                names.insert(name.to_string());
-            }
+    for (name, enabled) in flagged_bundle_pairs(cli) {
+        if enabled && BUNDLES.iter().any(|b| b.name == name) {
+            names.insert(name.to_string());
         }
     }
 
