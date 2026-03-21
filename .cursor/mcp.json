@@ -6,7 +6,8 @@
             "args": [
                 "--tmp",
                 "--livelog",
-                "--simplify"
+                "--simplify",
+                "--rust"
             ]
         }
     }

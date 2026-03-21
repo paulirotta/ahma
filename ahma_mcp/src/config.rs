@@ -601,6 +601,36 @@ pub async fn load_tool_configs(
     Ok(configs)
 }
 
+/// Returns the set of bundle names that were explicitly passed as CLI flags.
+///
+/// These bundles should be auto-revealed (pre-disclosed) when progressive
+/// disclosure is enabled, since the user explicitly requested them.
+pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collections::HashSet<String> {
+    use crate::mcp_service::bundle_registry::BUNDLES;
+    let mut names = std::collections::HashSet::new();
+
+    let flags: &[(&str, bool)] = &[
+        ("rust", cli.rust),
+        ("fileutils", cli.fileutils),
+        ("github", cli.github),
+        ("git", cli.git),
+        ("gradle", cli.gradle),
+        ("python", cli.python),
+        ("simplify", cli.simplify),
+    ];
+
+    for &(name, enabled) in flags {
+        if enabled {
+            // Verify the name is a known bundle (compile-time safety via BUNDLES constant)
+            if BUNDLES.iter().any(|b| b.name == name) {
+                names.insert(name.to_string());
+            }
+        }
+    }
+
+    names
+}
+
 /// Synchronous wrapper around `load_tool_configs` for test use only.
 ///
 /// Creates a one-shot Tokio runtime and delegates to the async version.

@@ -47,8 +47,7 @@ async fn test_status_filter_nonexistent_tool() -> Result<()> {
     let fixture = setup_client_fixture().await?;
     let client = &fixture.client;
 
-    let result =
-        call_test_tool(client, "status", json!({"tools": "nonexistent_tool_xyz"})).await?;
+    let result = call_test_tool(client, "status", json!({"tools": "nonexistent_tool_xyz"})).await?;
     let text = assert_success_and_get_text(&result);
 
     // Should indicate 0 active/completed for that filter

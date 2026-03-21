@@ -383,3 +383,147 @@ async fn test_bundle_registry_loaded_bundle_names() {
     assert!(names.contains(&"git")); // git -> git bundle
     assert!(!names.contains(&"python")); // python not loaded
 }
+
+// ==================== Auto-reveal CLI-flagged bundles ====================
+
+/// Creates a service with PD ON and CLI-flagged bundles pre-disclosed.
+async fn create_pd_service_with_auto_reveal() -> AhmaMcpService {
+    let monitor_config =
+        ahma_mcp::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(300));
+    let operation_monitor = Arc::new(ahma_mcp::operation_monitor::OperationMonitor::new(
+        monitor_config,
+    ));
+    let shell_config = ahma_mcp::shell_pool::ShellPoolConfig::default();
+    let shell_pool = Arc::new(ahma_mcp::shell_pool::ShellPoolManager::new(shell_config));
+    let sandbox = Arc::new(ahma_mcp::sandbox::Sandbox::new_test());
+    let adapter =
+        Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
+
+    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
+    let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
+    let configs = Arc::new(tool_configs);
+    let guidance = Arc::new(None::<GuidanceConfig>);
+
+    let service = AhmaMcpService::new(
+        adapter,
+        operation_monitor,
+        configs,
+        guidance,
+        false,
+        false,
+        true, // progressive_disclosure = true
+    )
+    .await
+    .unwrap();
+
+    // Simulate what server.rs does: auto-reveal CLI-flagged bundles
+    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+    service.pre_disclose(&cli_bundles);
+
+    service
+}
+
+#[tokio::test]
+async fn test_cli_flagged_bundles_auto_revealed() {
+    init_test_logging();
+    let service = create_pd_service_with_auto_reveal().await;
+
+    let tool_names = service.list_tool_names();
+
+    // CLI-flagged bundles (--rust, --git) should be visible immediately
+    assert!(
+        tool_names.contains(&"cargo".to_string()),
+        "cargo should be visible when --rust was passed, got: {:?}",
+        tool_names
+    );
+    assert!(
+        tool_names.contains(&"git".to_string()),
+        "git should be visible when --git was passed, got: {:?}",
+        tool_names
+    );
+
+    // Built-in tools should still be present
+    assert!(tool_names.contains(&"await".to_string()));
+    assert!(tool_names.contains(&"status".to_string()));
+    assert!(tool_names.contains(&"sandboxed_shell".to_string()));
+
+    // activate_tools should still be present (there may be other non-flagged bundles)
+    assert!(tool_names.contains(&"activate_tools".to_string()));
+}
+
+#[tokio::test]
+async fn test_cli_flagged_bundle_names_reflects_flags() {
+    // Verify the helper function correctly maps CLI flags to bundle names
+    let cli =
+        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--simplify"]).unwrap();
+    let names = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+
+    assert!(names.contains("rust"), "Should contain rust");
+    assert!(names.contains("simplify"), "Should contain simplify");
+    assert!(
+        !names.contains("git"),
+        "Should not contain git (not flagged)"
+    );
+    assert_eq!(names.len(), 2, "Should have exactly 2 flagged bundles");
+}
+
+#[tokio::test]
+async fn test_cli_flagged_bundle_names_empty_without_flags() {
+    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap();
+    let names = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+    assert!(names.is_empty(), "No flags should produce empty set");
+}
+
+#[tokio::test]
+async fn test_non_flagged_bundles_remain_hidden_with_auto_reveal() {
+    init_test_logging();
+
+    // Create service with only --rust flagged (not --git)
+    let monitor_config =
+        ahma_mcp::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(300));
+    let operation_monitor = Arc::new(ahma_mcp::operation_monitor::OperationMonitor::new(
+        monitor_config,
+    ));
+    let shell_config = ahma_mcp::shell_pool::ShellPoolConfig::default();
+    let shell_pool = Arc::new(ahma_mcp::shell_pool::ShellPoolManager::new(shell_config));
+    let sandbox = Arc::new(ahma_mcp::sandbox::Sandbox::new_test());
+    let adapter =
+        Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
+
+    // Load with --rust AND --git but only flag --rust for auto-reveal
+    let cli_load =
+        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
+    let tool_configs = load_tool_configs(&cli_load, None).await.unwrap_or_default();
+    let configs = Arc::new(tool_configs);
+    let guidance = Arc::new(None::<GuidanceConfig>);
+
+    let service = AhmaMcpService::new(
+        adapter,
+        operation_monitor,
+        configs,
+        guidance,
+        false,
+        false,
+        true,
+    )
+    .await
+    .unwrap();
+
+    // Only pre-disclose "rust" (simulating --rust flag only)
+    let cli_reveal = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust"]).unwrap();
+    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&cli_reveal);
+    service.pre_disclose(&cli_bundles);
+
+    let tool_names = service.list_tool_names();
+
+    // rust should be visible (auto-revealed)
+    assert!(
+        tool_names.contains(&"cargo".to_string()),
+        "cargo should be visible (auto-revealed)"
+    );
+    // git should be hidden (not flagged, requires activate_tools reveal)
+    assert!(
+        !tool_names.contains(&"git".to_string()),
+        "git should be hidden (not CLI-flagged)"
+    );
+}

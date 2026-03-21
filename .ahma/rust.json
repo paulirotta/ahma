@@ -1,13 +1,13 @@
 {
     "name": "cargo",
-    "description": "Rust's build tool and package manager",
+    "description": "Rust's build tool and package manager. For iterative TIR fix cycles use: diagnose (concise errors) → clippy (lint) → nextest (tests). Use qualitycheck for pre-commit validation.",
     "command": "cargo",
     "enabled": true,
     "timeout_seconds": 600,
     "subcommand": [
         {
             "name": "build",
-            "description": "Compile the current package.",
+            "description": "Compile the current package. Use when you need a binary or want to verify linkage; prefer 'diagnose' for iterative type-checking during TIR cycles.",
             "options": [
                 {
                     "name": "release",
@@ -169,7 +169,7 @@
         },
         {
             "name": "check",
-            "description": "Type-check the current package without producing binaries.",
+            "description": "Type-check without producing binaries. Use for iterative compile verification in fix cycles. Prefer 'diagnose' for concise output when reasoning about errors.",
             "options": [
                 {
                     "name": "workspace",
@@ -180,29 +180,34 @@
                     "name": "package",
                     "type": "string",
                     "description": "Package to check"
-                }
-            ],
-            "synchronous": true
-        },
-        {
-            "name": "test",
-            "description": "Run the test suite.",
-            "options": [
-                {
-                    "name": "package",
-                    "type": "string",
-                    "description": "Package to test"
                 },
                 {
-                    "name": "workspace",
-                    "type": "boolean",
-                    "description": "Test all packages in the workspace"
+                    "name": "message-format",
+                    "type": "string",
+                    "description": "Error output format: human (default, verbose), short (one line per error, ideal for iterative reasoning), or json (machine-readable)"
+                }
+            ]
+        },
+        {
+            "name": "diagnose",
+            "description": "Concise compile check across the workspace using --message-format=short. Returns one line per error to minimise output and preserve context in iterative reasoning loops (TIR). Use this instead of 'check' when analysing compile errors. Runs asynchronously so cargo checks while you reason.",
+            "synchronous": false,
+            "timeout_seconds": 120,
+            "sequence": [
+                {
+                    "tool": "cargo",
+                    "subcommand": "check",
+                    "description": "Type-check all packages with concise one-line-per-error output.",
+                    "args": {
+                        "message-format": "short",
+                        "workspace": true
+                    }
                 }
             ]
         },
         {
             "name": "fmt",
-            "description": "Format code using rustfmt.",
+            "description": "Format all source code using rustfmt. Runs synchronously (sub-second). Always run before committing or as the first qualitycheck step.",
             "options": [
                 {
                     "name": "all",
@@ -226,7 +231,7 @@
         },
         {
             "name": "clippy",
-            "description": "Enhanced linting and code quality checks.",
+            "description": "Lint for code quality, style, and correctness. Use after 'diagnose' passes to catch patterns the borrow checker misses. Runs asynchronously.",
             "options": [
                 {
                     "name": "fix",
@@ -241,12 +246,17 @@
                 {
                     "name": "tests",
                     "type": "boolean",
-                    "description": "Run clippy on tests as well"
+                    "description": "Run clippy on test code as well"
                 },
                 {
                     "name": "workspace",
                     "type": "boolean",
                     "description": "Run on all packages in the workspace"
+                },
+                {
+                    "name": "message-format",
+                    "type": "string",
+                    "description": "Output format: human (default), short (one line per lint, better for iterative reasoning), or json"
                 }
             ],
             "availability_check": {
@@ -256,12 +266,11 @@
                 ],
                 "skip_subcommand_args": true
             },
-            "install_instructions": "Install with `rustup component add clippy`.",
-            "synchronous": true
+            "install_instructions": "Install with `rustup component add clippy`."
         },
         {
             "name": "qualitycheck",
-            "description": "Comprehensive Rust code quality pipeline: format, lint with auto-fix, test, and build. Runs each step sequentially with proper delays to avoid Cargo.lock contention. This tool runs SYNCHRONOUSLY and provides complete results in a single response, making it ideal for pre-commit validation and CI preparation.",
+            "description": "Pre-commit quality pipeline: format, lint with auto-fix (including tests), then run the full test suite. Runs synchronously. Prefer individual tools (diagnose, clippy, nextest) for targeted TIR iterations; use this for final pre-commit validation.",
             "enabled": true,
             "synchronous": true,
             "timeout_seconds": 1800,
@@ -269,7 +278,7 @@
                 {
                     "tool": "cargo",
                     "subcommand": "fmt",
-                    "description": "Format code using rustfmt.",
+                    "description": "Format all code using rustfmt.",
                     "args": {
                         "all": true
                     }
@@ -277,17 +286,7 @@
                 {
                     "tool": "cargo",
                     "subcommand": "clippy",
-                    "description": "Lint code and automatically fix issues.",
-                    "args": {
-                        "fix": true,
-                        "allow-dirty": true,
-                        "workspace": true
-                    }
-                },
-                {
-                    "tool": "cargo",
-                    "subcommand": "clippy",
-                    "description": "Lint tests and automatically fix issues.",
+                    "description": "Lint all code including tests and automatically fix issues.",
                     "args": {
                         "fix": true,
                         "tests": true,
@@ -298,21 +297,13 @@
                 {
                     "tool": "cargo",
                     "subcommand": "nextest_run",
-                    "description": "Run the test suite using nextest.",
-                    "args": {
-                        "workspace": true
-                    }
-                },
-                {
-                    "tool": "cargo",
-                    "subcommand": "build",
-                    "description": "Compile the entire workspace.",
+                    "description": "Run the full test suite using nextest.",
                     "args": {
                         "workspace": true
                     }
                 }
             ],
-            "step_delay_ms": 500
+            "step_delay_ms": 100
         },
         {
             "name": "audit",
@@ -370,13 +361,8 @@
             "install_instructions": "Install with `cargo install cargo-audit`."
         },
         {
-            "name": "locate-project",
-            "description": "Print a JSON object with the path to the Cargo.toml manifest. Useful for verifying working directory context.",
-            "synchronous": true
-        },
-        {
             "name": "nextest",
-            "description": "Run tests using cargo nextest.",
+            "description": "Run tests using cargo nextest. Prefer over legacy 'test' for better output and parallelism. Use after 'diagnose' and 'clippy' pass in a TIR cycle.",
             "install_instructions": "Install with `cargo install cargo-nextest`.",
             "subcommand": [
                 {

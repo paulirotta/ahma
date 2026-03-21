@@ -138,6 +138,24 @@ impl AhmaMcpService {
         })
     }
 
+    /// Pre-discloses the given bundle names so their tools appear in the first
+    /// `tools/list` response without requiring an `activate_tools reveal` call.
+    ///
+    /// Used for bundles explicitly requested via CLI flags (e.g. `--rust`).
+    pub fn pre_disclose(&self, bundles: &std::collections::HashSet<String>) {
+        if bundles.is_empty() {
+            return;
+        }
+        let mut disclosed = self.disclosed_bundles.write().unwrap();
+        for name in bundles {
+            disclosed.insert(name.clone());
+        }
+        tracing::info!(
+            "Auto-revealed CLI-flagged bundles: {}",
+            bundles.iter().cloned().collect::<Vec<_>>().join(", ")
+        );
+    }
+
     /// Creates an MCP Tool from a ToolConfig.
     fn create_tool_from_config(&self, tool_config: &ToolConfig) -> Tool {
         let tool_name = tool_config.name.clone();

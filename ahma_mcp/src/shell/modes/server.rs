@@ -213,6 +213,12 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     )
     .await?;
 
+    // Auto-reveal bundles that were explicitly requested via CLI flags.
+    // This avoids forcing the LLM to call `activate_tools reveal` for tools
+    // the user already declared they want.
+    let cli_bundles = crate::config::cli_flagged_bundle_names(&cli);
+    service_handler.pre_disclose(&cli_bundles);
+
     // Apply log monitor rate limit from CLI
     let mut service_handler = service_handler;
     service_handler.monitor_rate_limit_seconds = cli.monitor_rate_limit;

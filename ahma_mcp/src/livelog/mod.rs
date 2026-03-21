@@ -52,7 +52,8 @@ pub async fn run_livelog_pipeline(
         config.llm_provider.api_key.clone(),
     );
 
-    let cmd_result = sandbox.create_command(&config.source_command, &config.source_args, working_dir);
+    let cmd_result =
+        sandbox.create_command(&config.source_command, &config.source_args, working_dir);
 
     let mut child = match cmd_result {
         Ok(mut cmd) => {
@@ -100,7 +101,10 @@ pub async fn run_livelog_pipeline(
 
     loop {
         if stdout_closed && stderr_closed {
-            info!("livelog[{}]: both streams closed, draining final chunk", op_id);
+            info!(
+                "livelog[{}]: both streams closed, draining final chunk",
+                op_id
+            );
             if !chunk.is_empty() {
                 maybe_analyze(op_id, &ctx, &mut chunk, &mut last_alert, callback).await;
             }
@@ -198,15 +202,16 @@ async fn maybe_analyze(
         (ctx.llm, ctx.detection_prompt, ctx.llm_timeout, ctx.cooldown);
     // Enforce cooldown before hitting the LLM.
     if let Some(last) = last_alert
-        && last.elapsed() < cooldown {
-            debug!(
-                "livelog[{}]: cooldown active ({:.1}s remaining), skipping LLM check",
-                op_id,
-                (cooldown - last.elapsed()).as_secs_f32()
-            );
-            chunk.clear();
-            return;
-        }
+        && last.elapsed() < cooldown
+    {
+        debug!(
+            "livelog[{}]: cooldown active ({:.1}s remaining), skipping LLM check",
+            op_id,
+            (cooldown - last.elapsed()).as_secs_f32()
+        );
+        chunk.clear();
+        return;
+    }
 
     let chunk_text = chunk.join("\n");
     let trigger_lines: Vec<String> = std::mem::take(chunk); // ownership + clears in one step

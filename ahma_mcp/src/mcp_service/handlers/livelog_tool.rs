@@ -68,7 +68,8 @@ pub async fn handle_livelog_start(
             "Livelog: {} {:?} (detection: {})",
             livelog.source_command,
             livelog.source_args,
-            &livelog.detection_prompt
+            &livelog
+                .detection_prompt
                 .chars()
                 .take(60)
                 .collect::<String>()
