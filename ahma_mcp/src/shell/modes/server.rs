@@ -254,7 +254,7 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
         .collect::<Vec<_>>();
 
     tracing::info!(
-        "Startup summary: sandbox_mode={}, sandbox_scopes={:?}, no_temp_files={}, tools_dir={}, loaded_tools={}",
+        "Startup summary: sandbox_mode={}, sandbox_scopes={:?}, disable_temp_files={}, tools_dir={}, loaded_tools={}",
         sandbox_mode_label,
         sandbox_scopes,
         sandbox.is_no_temp_files(),

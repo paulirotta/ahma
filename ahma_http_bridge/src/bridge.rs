@@ -99,6 +99,10 @@ pub struct BridgeConfig {
     /// If `true`, attempt to start an HTTP/3 (QUIC) endpoint alongside HTTP/2.
     /// The QUIC endpoint uses a self-signed certificate. Defaults to `true`.
     pub enable_quic: bool,
+
+    /// If `true`, disable HTTP/1.1 on the TCP listener and require HTTP/2+.
+    /// Defaults to `false` (HTTP/1.1 and HTTP/2 are both accepted).
+    pub disable_http1_1: bool,
 }
 
 impl Default for BridgeConfig {
@@ -111,6 +115,7 @@ impl Default for BridgeConfig {
             default_sandbox_scope: None,
             handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
             enable_quic: true,
+            disable_http1_1: false,
         }
     }
 }
@@ -263,6 +268,7 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
                     .get(handle_sse_stream)
                     .delete(handle_session_delete),
             )
+            .fallback(handle_not_found)
             .layer(cors)
             .with_state(state);
 
@@ -306,9 +312,15 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
         });
     }
 
-    info!(
-        "Protocol: HTTP/2 (HTTP/1.1 connections will be rejected; clients may upgrade to HTTP/3 via Alt-Svc)"
-    );
+    if config.disable_http1_1 {
+        info!(
+            "Protocol: HTTP/2+ only (HTTP/1.1 disabled; clients may upgrade to HTTP/3 via Alt-Svc)"
+        );
+    } else {
+        info!(
+            "Protocol: HTTP/1.1 + HTTP/2 (clients may upgrade to HTTP/3 via Alt-Svc when available)"
+        );
+    }
     loop {
         let (stream, _peer_addr) = listener
             .accept()
@@ -326,12 +338,20 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
                         svc.call(req).await
                     }
                 });
-            if let Err(e) =
-                hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+            if config.disable_http1_1 {
+                if let Err(e) =
+                    hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                        .serve_connection(io, hyper_svc)
+                        .await
+                {
+                    tracing::debug!("HTTP connection closed: {:#}", e);
+                }
+            } else if let Err(e) =
+                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
                     .serve_connection(io, hyper_svc)
                     .await
             {
-                tracing::debug!("HTTP/2 connection closed: {:#}", e);
+                tracing::debug!("HTTP connection closed: {:#}", e);
             }
         });
     }
@@ -409,6 +429,18 @@ async fn try_start_quic_endpoint(tcp_addr: SocketAddr) -> Option<QuicInfo> {
 /// Health check endpoint
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
+}
+
+/// Fallback handler for unknown routes.
+///
+/// Returns 404 for any path not explicitly registered (e.g. `/health`, `/mcp`).
+/// This is critical for MCP OAuth discovery: MCP clients probe
+/// `/.well-known/oauth-protected-resource` (RFC 9728) to decide whether the
+/// server requires authentication. A 404 signals "no OAuth metadata" and
+/// prevents clients from launching an unnecessary browser-based auth flow
+/// when the server is running on localhost without authentication.
+async fn handle_not_found() -> impl IntoResponse {
+    StatusCode::NOT_FOUND
 }
 
 /// Handle DELETE requests to terminate a session (R8.4.7)
@@ -743,6 +775,7 @@ mod tests {
             default_sandbox_scope: Some(std::env::temp_dir()),
             handshake_timeout_secs: 10,
             enable_quic: false,
+            disable_http1_1: false,
         };
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.server_command, "custom_server");
@@ -775,6 +808,7 @@ mod tests {
         Router::new()
             .route("/health", get(health_check))
             .route("/mcp", post(handle_mcp_request))
+            .fallback(handle_not_found)
             .layer(build_cors_layer(&loopback_addr))
             .with_state(state)
     }
@@ -1137,5 +1171,47 @@ for line in sys.stdin:
 
         session.record_lagged_events(7);
         assert_eq!(session.total_lagged_events(), 57);
+    }
+
+    /// MCP clients probe `/.well-known/oauth-protected-resource` (RFC 9728) to
+    /// discover whether the server requires OAuth authentication. A 404 tells
+    /// clients there is no authorization server metadata, avoiding spurious
+    /// browser-based auth flows on localhost.
+    #[tokio::test]
+    async fn test_oauth_discovery_returns_404_without_auth_header() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let script_path = write_mock_mcp_server_script(&temp_dir);
+
+        let session_manager = Arc::new(SessionManager::new(SessionManagerConfig {
+            server_command: "python3".to_string(),
+            server_args: vec![script_path.to_string_lossy().to_string()],
+            default_scope: Some(temp_dir.path().to_path_buf()),
+            enable_colored_output: false,
+            handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
+        }));
+
+        let state = create_state_with_session_manager(session_manager);
+        let app = create_app(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/.well-known/oauth-protected-resource")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "OAuth discovery endpoint must return 404 on a localhost server without auth"
+        );
+        assert!(
+            response.headers().get("www-authenticate").is_none(),
+            "Response must not include WWW-Authenticate header"
+        );
     }
 }

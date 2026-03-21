@@ -60,4 +60,4 @@ Before submitting to `winget-pkgs`:
 - [ ] SHA256SUMS file is present in the release
 - [ ] `wingetcreate validate` passes locally
 - [ ] `ahma-mcp --version` works after a clean `winget install`
-- [ ] `ahma-mcp --no-sandbox` confirms the binary runs (sandbox backend is pending)
+- [ ] `ahma-mcp --disable-sandbox` confirms the binary runs (sandbox backend is pending)

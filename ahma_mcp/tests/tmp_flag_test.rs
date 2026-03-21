@@ -4,7 +4,7 @@
 //! - The --tmp flag adds temp directory to sandbox scopes
 //! - AHMA_TMP_ACCESS=1 environment variable works equivalently
 //! - Temp directory is properly canonicalized cross-platform
-//! - Interaction with --no-temp-files flag
+//! - Interaction with --disable-temp-files flag
 
 use ahma_mcp::sandbox::{Sandbox, SandboxMode};
 use tempfile::tempdir;
@@ -53,7 +53,7 @@ fn test_temp_dir_scope_is_canonicalized() {
     );
 }
 
-/// Test that --no-temp-files blocks temp access even when temp is in scopes
+/// Test that --disable-temp-files blocks temp access even when temp is in scopes
 #[test]
 fn test_no_temp_files_blocks_temp_access() {
     let temp_dir = std::env::temp_dir();

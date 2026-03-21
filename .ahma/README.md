@@ -104,7 +104,7 @@ All tool configurations follow the MCP Tool Definition Format (MTDF) schema. Her
 
 ```bash
 # Validate all example configs
-cargo nextest run -p ahma-mcp tool_config_schema_validation
+cargo nextest run -p ahma_mcp tool_config_schema_validation
 
 # Run a specific example to see detailed output
 cargo run --example cargo_tool

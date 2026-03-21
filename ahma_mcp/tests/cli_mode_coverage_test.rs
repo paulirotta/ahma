@@ -3,7 +3,7 @@
 //! These tests specifically target the low-coverage areas in cli.rs (42% coverage).
 //! They cover:
 //! - All --mode combinations (stdio, http, list-tools)
-//! - Flag permutations (--sync, --no-sandbox, --defer-sandbox, --debug, --log-to-stderr)
+//! - Flag permutations (--sync, --disable-sandbox, --defer-sandbox, --debug, --log-to-stderr)
 //! - Error paths for invalid configurations
 //! - Sandbox scope initialization paths
 
@@ -70,7 +70,7 @@ mod mode_flags {
                 "http",
                 "--http-port",
                 "0", // Use port 0 for auto-assign
-                "--no-sandbox",
+                "--disable-sandbox",
                 "--tools-dir",
                 tools_dir.to_str().unwrap(),
             ])
@@ -232,9 +232,9 @@ mod no_sandbox_flag {
         }"#;
         std::fs::write(tools_dir.join("no_sandbox_test.json"), tool).unwrap();
 
-        // Run with explicit AHMA_NO_SANDBOX env var
+        // Run with explicit AHMA_DISABLE_SANDBOX env var
         let output = Command::new(&binary)
-            .env("AHMA_NO_SANDBOX", "1") // Use env var instead
+            .env("AHMA_DISABLE_SANDBOX", "1") // Use env var instead
             .args([
                 "--log-to-stderr",
                 "--tools-dir",
@@ -246,7 +246,7 @@ mod no_sandbox_flag {
                 temp.path().to_str().unwrap(),
             ])
             .output()
-            .expect("Failed to execute with AHMA_NO_SANDBOX");
+            .expect("Failed to execute with AHMA_DISABLE_SANDBOX");
 
         let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -267,15 +267,15 @@ mod no_sandbox_flag {
         let _temp = TempDir::new().unwrap();
 
         let output = Command::new(&binary)
-            .env("AHMA_NO_SANDBOX", "1")
+            .env("AHMA_DISABLE_SANDBOX", "1")
             .args(["--help"])
             .output()
-            .expect("Failed to execute with AHMA_NO_SANDBOX env");
+            .expect("Failed to execute with AHMA_DISABLE_SANDBOX env");
 
         // --help should still work regardless of sandbox setting
         assert!(
             output.status.success(),
-            "Help should work with AHMA_NO_SANDBOX set"
+            "Help should work with AHMA_DISABLE_SANDBOX set"
         );
     }
 }
@@ -479,7 +479,7 @@ mod sandbox_scope {
         let binary = build_binary();
 
         let output = Command::new(&binary)
-            .env_remove("AHMA_NO_SANDBOX")
+            .env_remove("AHMA_DISABLE_SANDBOX")
             .args([
                 "--sandbox-scope",
                 "/nonexistent/path/that/does/not/exist",

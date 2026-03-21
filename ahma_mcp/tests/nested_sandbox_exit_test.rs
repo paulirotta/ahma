@@ -1,11 +1,11 @@
 //! Nested Sandbox Exit Test (R7.6)
 //!
 //! This test verifies that when ahma_mcp is running inside another sandbox,
-//! it exits with a clear error message instructing the user to use --no-sandbox.
+//! it exits with a clear error message instructing the user to use --disable-sandbox.
 //!
 //! Per R7.6.2: "Upon detection, the system **must** exit with a clear error message
-//! instructing the user to disable the internal sandbox using the --no-sandbox flag
-//! or AHMA_NO_SANDBOX=1 environment variable."
+//! instructing the user to disable the internal sandbox using the --disable-sandbox flag
+//! or AHMA_DISABLE_SANDBOX=1 environment variable."
 //!
 //! ## Running These Tests
 //!
@@ -77,7 +77,7 @@ macro_rules! skip_if_sandboxed {
 /// The expected behavior is:
 /// 1. Process exits with non-zero code
 /// 2. stderr contains "SECURITY ERROR" or "nested sandbox"
-/// 3. stderr provides instructions about --no-sandbox or AHMA_NO_SANDBOX
+/// 3. stderr provides instructions about --disable-sandbox or AHMA_DISABLE_SANDBOX
 ///
 /// Note: We use a sandbox profile that allows the binary to run but denies
 /// the `process-exec-interpreter` operation which is required for nested sandbox-exec.
@@ -157,9 +157,9 @@ fn test_nested_sandbox_detection_exits_with_error() {
     );
 }
 
-/// Test that ahma_mcp works normally with --no-sandbox when inside a sandbox (R7.6)
+/// Test that ahma_mcp works normally with --disable-sandbox when inside a sandbox (R7.6)
 ///
-/// When the user explicitly disables the sandbox with --no-sandbox,
+/// When the user explicitly disables the sandbox with --disable-sandbox,
 /// ahma_mcp should run successfully even inside another sandbox.
 #[test]
 fn test_no_sandbox_flag_allows_nested_execution() {
@@ -169,14 +169,14 @@ fn test_no_sandbox_flag_allows_nested_execution() {
 
     let outer_sandbox_profile = "(version 1)(allow default)";
 
-    // Run ahma_mcp inside sandbox-exec with --no-sandbox using CLI mode
+    // Run ahma_mcp inside sandbox-exec with --disable-sandbox using CLI mode
     let output = Command::new("sandbox-exec")
         .current_dir(&workspace_dir)
         .args([
             "-p",
             outer_sandbox_profile,
             binary.to_str().unwrap(),
-            "--no-sandbox", // Explicitly disable sandbox
+            "--disable-sandbox", // Explicitly disable sandbox
             "--tools-dir",
             ".ahma",
             // CLI mode: execute sandboxed_shell with echo (command as single arg)
@@ -185,7 +185,7 @@ fn test_no_sandbox_flag_allows_nested_execution() {
             "echo nested_sandbox_test_success",
         ])
         .output()
-        .expect("Failed to spawn ahma_mcp inside sandbox with --no-sandbox");
+        .expect("Failed to spawn ahma_mcp inside sandbox with --disable-sandbox");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -195,10 +195,10 @@ fn test_no_sandbox_flag_allows_nested_execution() {
     eprintln!("stderr:\n{}", stderr);
     eprintln!("stdout:\n{}", stdout);
 
-    // With --no-sandbox, the process should succeed
+    // With --disable-sandbox, the process should succeed
     assert!(
         output.status.success(),
-        "ahma_mcp should succeed with --no-sandbox even inside another sandbox. stderr:\n{}",
+        "ahma_mcp should succeed with --disable-sandbox even inside another sandbox. stderr:\n{}",
         stderr
     );
 
@@ -210,7 +210,7 @@ fn test_no_sandbox_flag_allows_nested_execution() {
     );
 }
 
-/// Test that AHMA_NO_SANDBOX=1 env var allows nested execution (R7.6)
+/// Test that AHMA_DISABLE_SANDBOX=1 env var allows nested execution (R7.6)
 #[test]
 fn test_no_sandbox_env_var_allows_nested_execution() {
     skip_if_sandboxed!();
@@ -219,10 +219,10 @@ fn test_no_sandbox_env_var_allows_nested_execution() {
 
     let outer_sandbox_profile = "(version 1)(allow default)";
 
-    // Run ahma_mcp inside sandbox-exec with AHMA_NO_SANDBOX=1 using CLI mode
+    // Run ahma_mcp inside sandbox-exec with AHMA_DISABLE_SANDBOX=1 using CLI mode
     let output = Command::new("sandbox-exec")
         .current_dir(&workspace_dir)
-        .env("AHMA_NO_SANDBOX", "1")
+        .env("AHMA_DISABLE_SANDBOX", "1")
         .args([
             "-p",
             outer_sandbox_profile,
@@ -235,7 +235,7 @@ fn test_no_sandbox_env_var_allows_nested_execution() {
             "echo env_var_test_success",
         ])
         .output()
-        .expect("Failed to spawn ahma_mcp inside sandbox with AHMA_NO_SANDBOX=1");
+        .expect("Failed to spawn ahma_mcp inside sandbox with AHMA_DISABLE_SANDBOX=1");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -245,10 +245,10 @@ fn test_no_sandbox_env_var_allows_nested_execution() {
     eprintln!("stderr:\n{}", stderr);
     eprintln!("stdout:\n{}", stdout);
 
-    // With AHMA_NO_SANDBOX=1, the process should succeed
+    // With AHMA_DISABLE_SANDBOX=1, the process should succeed
     assert!(
         output.status.success(),
-        "ahma_mcp should succeed with AHMA_NO_SANDBOX=1 even inside another sandbox. stderr:\n{}",
+        "ahma_mcp should succeed with AHMA_DISABLE_SANDBOX=1 even inside another sandbox. stderr:\n{}",
         stderr
     );
 }

@@ -73,7 +73,7 @@ impl Sandbox {
             // Windows: delegate to the AppContainer scaffolding.
             // `check_windows_sandbox_available` already blocks strict mode until
             // the implementation is complete, so this path is only reached in
-            // Test/Permissive mode or when --no-sandbox is active.
+            // Test/Permissive mode or when --disable-sandbox is active.
             #[cfg(target_os = "windows")]
             {
                 let scope = self

@@ -20,14 +20,14 @@ fn test_sandbox_lifecycle_notifications() {
         .arg(&tools_dir);
 
     // When running inside a nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker),
-    // set AHMA_NO_SANDBOX so the child process can start; app-level path checks still apply.
+    // set AHMA_DISABLE_SANDBOX so the child process can start; app-level path checks still apply.
     #[cfg(target_os = "macos")]
     if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
     #[cfg(windows)]
     if ahma_mcp::sandbox::check_windows_sandbox_available().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
 
     let mut child = cmd

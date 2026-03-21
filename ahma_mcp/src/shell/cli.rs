@@ -21,11 +21,11 @@ struct SandboxPolicy {
 }
 
 fn resolve_sandbox_policy(cli: &Cli) -> SandboxPolicy {
-    let no_sandbox = cli.no_sandbox || env_flag_enabled("AHMA_NO_SANDBOX");
+    let no_sandbox = cli.no_sandbox || env_flag_enabled("AHMA_DISABLE_SANDBOX");
     let tmp_access = cli.tmp || env_flag_enabled("AHMA_TMP_ACCESS");
 
     let mode = if no_sandbox {
-        tracing::warn!("Ahma sandbox disabled via --no-sandbox flag or environment variable");
+        tracing::warn!("Ahma sandbox disabled via --disable-sandbox flag or environment variable");
         #[cfg(target_os = "linux")]
         {
             if let Err(error) = sandbox::check_sandbox_prerequisites() {
@@ -180,15 +180,16 @@ fn apply_platform_sandbox_enforcement(
 ) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        if policy.mode == sandbox::SandboxMode::Strict && !cli.defer_sandbox {
-            if let Err(e) = sandbox::enforce_landlock_sandbox(
+        if policy.mode == sandbox::SandboxMode::Strict
+            && !cli.defer_sandbox
+            && let Err(e) = sandbox::enforce_landlock_sandbox(
                 &sandbox.scopes(),
                 sandbox.read_scopes(),
                 sandbox.is_no_temp_files(),
-            ) {
-                tracing::error!("Failed to enforce Landlock sandbox: {}", e);
-                return Err(e);
-            }
+            )
+        {
+            tracing::error!("Failed to enforce Landlock sandbox: {}", e);
+            return Err(e);
         }
     }
 
@@ -329,43 +330,66 @@ fn check_stdio_not_interactive() -> Result<()> {
 )]
 pub struct Cli {
     /// List all tools from an MCP server and exit
-    #[arg(long)]
+    #[arg(long, help_heading = "Server Mode")]
     pub list_tools: bool,
 
     /// Validate tool configurations against the MTDF schema and exit.
     /// Optionally specify a target path (file, directory, or comma-separated list).
     /// Defaults to '.ahma' if no target is given.
-    #[arg(long, value_name = "TARGET", default_missing_value = ".ahma", num_args = 0..=1)]
+    #[arg(long, value_name = "TARGET", default_missing_value = ".ahma", num_args = 0..=1, help_heading = "Server Mode")]
     pub validate: Option<String>,
 
     /// Name of the server in mcp.json to connect to (for --list-tools mode)
-    #[arg(long)]
+    #[arg(long, help_heading = "Server Mode")]
     pub server: Option<String>,
 
     /// Path to mcp.json configuration file (for --list-tools mode)
-    #[arg(long, default_value = "mcp.json")]
+    #[arg(long, default_value = "mcp.json", help_heading = "Server Mode")]
     pub mcp_config: PathBuf,
 
     /// HTTP URL for --list-tools mode (e.g., http://localhost:3000)
-    #[arg(long)]
+    #[arg(long, help_heading = "Server Mode")]
     pub http: Option<String>,
 
     /// Output format for --list-tools mode
-    #[arg(long, value_enum, default_value_t = list_tools::OutputFormat::Text)]
+    #[arg(long, value_enum, default_value_t = list_tools::OutputFormat::Text, help_heading = "Server Mode")]
     pub format: list_tools::OutputFormat,
 
     /// Server mode: 'stdio' (default) or 'http'
-    #[arg(long, default_value = "stdio")]
+    #[arg(long, default_value = "stdio", help_heading = "Server Mode")]
     pub mode: String,
 
+    /// HTTP server host (for HTTP mode)
+    #[arg(long, default_value = "127.0.0.1", help_heading = "Server Mode")]
+    pub http_host: String,
+
+    /// HTTP server port (for HTTP mode)
+    #[arg(long, default_value_t = 3000, help_heading = "Server Mode")]
+    pub http_port: u16,
+
+    /// Disable HTTP/3 (QUIC) in HTTP bridge mode.
+    /// By default the bridge starts a QUIC endpoint alongside the HTTP/2 TCP listener
+    /// and advertises it via the `Alt-Svc` response header. Pass this flag to serve
+    /// HTTP/2 only (useful when UDP is blocked or QUIC causes issues).
+    #[arg(long = "disable-quic", help_heading = "Server Mode")]
+    pub no_quic: bool,
+
+    /// Disable HTTP/1.1 in HTTP bridge mode (HTTP/2+ only).
+    #[arg(long = "disable-http1-1", help_heading = "Server Mode")]
+    pub disable_http1_1: bool,
+
+    /// Handshake timeout in seconds (for HTTP mode)
+    #[arg(long, default_value_t = 10, help_heading = "Server Mode")]
+    pub handshake_timeout_secs: u64,
+
     /// Path to the tools directory containing JSON configurations
-    #[arg(long)]
+    #[arg(long, help_heading = "Tool Management")]
     pub tools_dir: Option<PathBuf>,
 
     /// Watch `.ahma/` or `--tools-dir` for JSON changes and reload tools at runtime.
     /// Security warning: future writes to that directory can add, replace, or retarget
     /// tools mid-session. Enable this only while developing tool definitions.
-    #[arg(long)]
+    #[arg(long, help_heading = "Tool Management")]
     pub hot_reload_tools: bool,
 
     /// Whether --tools-dir was explicitly provided on the command line
@@ -374,36 +398,12 @@ pub struct Cli {
     #[arg(skip)]
     pub explicit_tools_dir: bool,
 
-    /// Bundle and enable the rust toolset (rust.json)
-    #[arg(long)]
-    pub rust: bool,
-
-    /// Bundle and enable the file tools (file-tools.json)
-    #[arg(long)]
-    pub fileutils: bool,
-
-    /// Bundle and enable the github toolset (gh.json)
-    #[arg(long)]
-    pub github: bool,
-
-    /// Bundle and enable the git toolset (git.json)
-    #[arg(long)]
-    pub git: bool,
-
-    /// Bundle and enable the Kotlin/Android toolset (kotlin.json)
-    #[arg(long)]
-    pub kotlin: bool,
-
-    /// Bundle and enable the python toolset (python.json)
-    #[arg(long)]
-    pub python: bool,
-
-    /// Bundle and enable the simplify AI tool (simplify.json)
-    #[arg(long)]
-    pub simplify: bool,
+    /// Tools to bundle and enable (e.g. --tool rust --tool python)
+    #[arg(long = "tool", value_name = "NAME", help_heading = "Tool Management")]
+    pub tools: Vec<String>,
 
     /// Default timeout for tool execution in seconds
-    #[arg(long, default_value_t = 360)]
+    #[arg(long, default_value_t = 360, help_heading = "Tool Management")]
     pub timeout: u64,
 
     /// Force all tools to run synchronously (disable async execution)
@@ -411,73 +411,57 @@ pub struct Cli {
     pub sync: bool,
 
     /// Enable debug logging
-    #[arg(long)]
+    #[arg(long, help_heading = "Logging & Debugging")]
     pub debug: bool,
 
     /// Log to stderr instead of file
-    #[arg(long)]
+    #[arg(long, help_heading = "Logging & Debugging")]
     pub log_to_stderr: bool,
 
-    /// Disable sandbox (for testing only - UNSAFE)
-    #[arg(long)]
+    /// Disable sandbox (often required for testing or constrained environments like Raspberry Pi - UNSAFE)
+    #[arg(long = "disable-sandbox", help_heading = "Sandbox & Security")]
     pub no_sandbox: bool,
 
     /// Skip tool availability probes at startup (faster startup for testing)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub skip_availability_probes: bool,
 
     /// Block writes to /tmp and other temp directories (higher security, breaks tools needing temp access)
-    #[arg(long)]
+    #[arg(long = "disable-temp-files", hide = true)]
     pub no_temp_files: bool,
 
     /// Add system temp directory to sandbox scopes (explicit temp access for testing/dynamic workflows)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub tmp: bool,
 
     /// Sandbox scope directories (multiple allowed)
-    #[arg(long = "sandbox-scope")]
+    #[arg(long = "sandbox-scope", help_heading = "Sandbox & Security")]
     pub sandbox_scope: Vec<PathBuf>,
 
     /// Defer sandbox initialization until client provides roots
-    #[arg(long)]
+    #[arg(long, help_heading = "Sandbox & Security")]
     pub defer_sandbox: bool,
-
-    /// Minimum seconds between successive log monitoring alerts (default: 60)
-    #[arg(long, default_value_t = 60)]
-    pub monitor_rate_limit: u64,
-
-    /// Disable progressive disclosure (expose all tools immediately instead of on demand)
-    #[arg(long)]
-    pub no_progressive_disclosure: bool,
-
-    /// Safe live log monitoring: evaluate symlinks in /log to configure read-only scopes
-    #[arg(long)]
-    pub livelog: bool,
 
     /// Working directories for sandbox scope when using --defer-sandbox.
     /// Required when MCP client may not provide workspace roots.
     /// Example: --working-directories "/path/to/project1,/path/to/project2"
-    #[arg(long, value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',', help_heading = "Sandbox & Security")]
     pub working_directories: Option<Vec<PathBuf>>,
 
-    /// HTTP server host (for HTTP mode)
-    #[arg(long, default_value = "127.0.0.1")]
-    pub http_host: String,
+    /// Minimum seconds between successive log monitoring alerts (default: 60)
+    #[arg(long, default_value_t = 60, help_heading = "Logging & Debugging")]
+    pub monitor_rate_limit: u64,
 
-    /// HTTP server port (for HTTP mode)
-    #[arg(long, default_value_t = 3000)]
-    pub http_port: u16,
+    /// Disable progressive disclosure (expose all tools immediately instead of on demand)
+    #[arg(
+        long = "disable-progressive-disclosure",
+        help_heading = "Tool Management"
+    )]
+    pub no_progressive_disclosure: bool,
 
-    /// Disable HTTP/3 (QUIC) in HTTP bridge mode.
-    /// By default the bridge starts a QUIC endpoint alongside the HTTP/2 TCP listener
-    /// and advertises it via the `Alt-Svc` response header. Pass this flag to serve
-    /// HTTP/2 only (useful when UDP is blocked or QUIC causes issues).
-    #[arg(long)]
-    pub no_quic: bool,
-
-    /// Handshake timeout in seconds (for HTTP mode)
-    #[arg(long, default_value_t = 10)]
-    pub handshake_timeout_secs: u64,
+    /// Safe live log monitoring: evaluate symlinks in /log to configure read-only scopes
+    #[arg(long, help_heading = "Logging & Debugging")]
+    pub livelog: bool,
 
     /// Tool name (for CLI mode)
     #[arg(value_name = "TOOL")]
@@ -626,7 +610,7 @@ mod tests {
     #[test]
     fn test_resolve_sandbox_policy_no_sandbox_flag() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox"]).unwrap();
+        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
         let policy = resolve_sandbox_policy(&cli);
         assert!(policy.no_sandbox);
         assert_eq!(policy.mode, sandbox::SandboxMode::Test);
@@ -635,7 +619,9 @@ mod tests {
     #[test]
     fn test_resolve_sandbox_policy_strict_by_default() {
         init_test();
-        unsafe { std::env::remove_var("AHMA_NO_SANDBOX") };
+        unsafe {
+            std::env::remove_var("AHMA_DISABLE_SANDBOX");
+        };
         let cli = Cli::try_parse_from(["ahma_mcp"]).unwrap();
         let policy = resolve_sandbox_policy(&cli);
         assert!(!policy.no_sandbox);
@@ -669,7 +655,7 @@ mod tests {
         let path = tmp.path().to_path_buf();
         let cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--sandbox-scope",
             path.to_str().unwrap(),
         ])
@@ -686,7 +672,7 @@ mod tests {
         init_test();
         let cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--sandbox-scope",
             "/nonexistent/path/that/does/not/exist",
         ])
@@ -703,7 +689,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--sandbox-scope",
             tmp.path().to_str().unwrap(),
         ])
@@ -719,7 +705,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let path = tmp.path().to_path_buf();
         unsafe { std::env::set_var("AHMA_SANDBOX_SCOPE", path.as_os_str()) };
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox"]).unwrap();
+        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
         let result = resolve_sandbox_scopes(&cli);
         unsafe { std::env::remove_var("AHMA_SANDBOX_SCOPE") };
         assert!(result.is_ok());
@@ -732,7 +718,7 @@ mod tests {
     fn test_resolve_sandbox_scopes_cwd_fallback() {
         init_test();
         unsafe { std::env::remove_var("AHMA_SANDBOX_SCOPE") };
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox"]).unwrap();
+        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
         let scopes = resolve_sandbox_scopes(&cli).unwrap();
         assert!(scopes.is_some());
         assert_eq!(scopes.unwrap().len(), 1);
@@ -746,7 +732,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--defer-sandbox",
             "--working-directories",
             tmp.path().to_str().unwrap(),
@@ -762,7 +748,8 @@ mod tests {
     #[test]
     fn test_resolve_deferred_scopes_without_working_dirs() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox", "--defer-sandbox"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ahma_mcp", "--disable-sandbox", "--defer-sandbox"]).unwrap();
         let scopes = resolve_deferred_scopes(&cli).unwrap();
         assert!(scopes.is_some());
         assert!(scopes.unwrap().is_empty());
@@ -774,7 +761,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--defer-sandbox",
             "--working-directories",
             tmp.path().to_str().unwrap(),
@@ -832,7 +819,7 @@ mod tests {
     #[test]
     fn test_create_sandbox_instance_none() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox"]).unwrap();
+        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
         let policy = resolve_sandbox_policy(&cli);
         let sandbox = create_sandbox_instance(None, &policy, &cli).unwrap();
         assert!(sandbox.is_none());
@@ -843,7 +830,7 @@ mod tests {
         init_test();
         let tmp = tempdir().unwrap();
         let scopes = Some(vec![tmp.path().to_path_buf()]);
-        let cli = Cli::try_parse_from(["ahma_mcp", "--no-sandbox"]).unwrap();
+        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
         let policy = resolve_sandbox_policy(&cli);
         let sandbox = create_sandbox_instance(scopes, &policy, &cli).unwrap();
         assert!(sandbox.is_some());
@@ -911,7 +898,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let mut cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--sandbox-scope",
             tmp.path().to_str().unwrap(),
         ])
@@ -926,7 +913,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let mut cli = Cli::try_parse_from([
             "ahma_mcp",
-            "--no-sandbox",
+            "--disable-sandbox",
             "--defer-sandbox",
             "--working-directories",
             tmp.path().to_str().unwrap(),

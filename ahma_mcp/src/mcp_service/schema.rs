@@ -241,6 +241,17 @@ pub fn generate_schema_for_tool_config(
     }
 }
 
+/// Generates the JSON schema for a specific subcommand of a tool.
+pub fn generate_schema_for_subcommand(
+    tool_config: &ToolConfig,
+    sub_config: &SubcommandConfig,
+) -> Arc<Map<String, Value>> {
+    Arc::new(generate_single_command_schema(
+        tool_config,
+        &("".to_string(), sub_config),
+    ))
+}
+
 fn add_working_directory_property(properties: &mut Map<String, Value>) {
     properties.insert(
         "working_directory".to_string(),

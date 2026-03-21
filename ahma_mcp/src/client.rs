@@ -95,6 +95,14 @@ impl Client {
         Ok(())
     }
 
+    pub fn service(&self) -> Option<&RunningService<RoleClient, ()>> {
+        self.service.as_ref()
+    }
+
+    pub fn service_mut(&mut self) -> Option<&mut RunningService<RoleClient, ()>> {
+        self.service.as_mut()
+    }
+
     fn get_service(&self) -> Result<&RunningService<RoleClient, ()>> {
         self.service
             .as_ref()

@@ -28,7 +28,7 @@ fn build_binary(package: &str, binary: &str) -> PathBuf {
 /// Create a command for a binary with test mode enabled (bypasses sandbox checks)
 fn test_command(binary: &PathBuf) -> Command {
     let mut cmd = Command::new(binary);
-    cmd.arg("--no-sandbox");
+    cmd.arg("--disable-sandbox");
     cmd
 }
 

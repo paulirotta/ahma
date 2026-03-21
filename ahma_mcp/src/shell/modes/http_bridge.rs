@@ -74,11 +74,11 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
     }
 
     if cli.no_sandbox {
-        server_args.push("--no-sandbox".to_string());
+        server_args.push("--disable-sandbox".to_string());
     }
 
     if cli.no_temp_files {
-        server_args.push("--no-temp-files".to_string());
+        server_args.push("--disable-temp-files".to_string());
     }
 
     if cli.livelog {
@@ -113,6 +113,7 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
         default_sandbox_scope: explicit_fallback_scope,
         handshake_timeout_secs: cli.handshake_timeout_secs,
         enable_quic: !cli.no_quic,
+        disable_http1_1: cli.disable_http1_1,
     };
 
     start_bridge(config).await?;

@@ -199,13 +199,13 @@ impl ClientBuilder {
     ) -> Result<RunningService<RoleClient, ()>> {
         // When the caller explicitly requests sandbox (`no_sandbox == false`) but the current
         // environment is a nested sandbox (Cursor, VS Code, Docker), `sandbox-exec` would fail
-        // inside the child process and cause an immediate exit.  Force `--no-sandbox` so the
+        // inside the child process and cause an immediate exit.  Force `--disable-sandbox` so the
         // child can start; application-level path checks (path_security.rs) still enforce bounds.
         let force_no_sandbox = self.no_sandbox || is_nested_sandbox_environment();
 
         ().serve(TokioChildProcess::new(command.configure(|cmd| {
             if force_no_sandbox {
-                cmd.arg("--no-sandbox");
+                cmd.arg("--disable-sandbox");
             } else {
                 cmd.arg("--sandbox-scope").arg(working_dir);
                 if self.livelog {
@@ -281,7 +281,7 @@ impl McpClientFixture {
 /// prevent the child MCP server from applying its own OS-level sandbox.
 ///
 /// On macOS this probes `sandbox-exec` directly; on other platforms we check for
-/// the `AHMA_NO_SANDBOX` env var as a convention for nested callers.
+/// the `AHMA_DISABLE_SANDBOX` env var as a convention for nested callers.
 #[cfg(target_os = "macos")]
 fn is_nested_sandbox_environment() -> bool {
     ahma_mcp_internal_sandbox_probe()
@@ -325,7 +325,7 @@ pub async fn setup_mcp_service_with_client() -> Result<(TempDir, Client)> {
 
     let mut client = Client::new();
     client
-        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &["--no-sandbox"])
+        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &["--disable-sandbox"])
         .await?;
 
     // Give the server a moment to start

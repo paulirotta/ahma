@@ -10,12 +10,12 @@ pub enum SandboxError {
     PathOutsideSandbox { path: PathBuf, scopes: Vec<PathBuf> },
 
     #[error(
-        "Landlock is not available on this system (requires Linux kernel 5.13+ with Landlock LSM enabled). To run without sandboxing, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]"
+        "Landlock is not available on this system (requires Linux kernel 5.13+ with Landlock LSM enabled). To run without sandboxing, add --disable-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--disable-sandbox\"]"
     )]
     LandlockNotAvailable,
 
     #[error(
-        "macOS sandbox-exec is not available. To run without sandboxing, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]"
+        "macOS sandbox-exec is not available. To run without sandboxing, add --disable-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--disable-sandbox\"]"
     )]
     MacOSSandboxNotAvailable,
 
@@ -32,7 +32,7 @@ pub enum SandboxError {
     HighSecurityViolation { path: PathBuf },
 
     #[error(
-        "Nested sandbox detected - running inside another sandbox (e.g., Cursor, VS Code, Docker). To override, add --no-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--no-sandbox\"]"
+        "Nested sandbox detected - running inside another sandbox (e.g., Cursor, VS Code, Docker). To override, add --disable-sandbox to your mcp.json tool definition. Example: \"args\": [\"--mode\", \"stdio\", \"--disable-sandbox\"]"
     )]
     NestedSandboxDetected,
 }
@@ -141,8 +141,8 @@ mod tests {
         let err = SandboxError::LandlockNotAvailable;
         let msg = err.to_string();
         assert!(
-            msg.contains("Landlock") && msg.contains("--no-sandbox"),
-            "Should instruct to use --no-sandbox: {msg}"
+            msg.contains("Landlock") && msg.contains("--disable-sandbox"),
+            "Should instruct to use --disable-sandbox: {msg}"
         );
     }
 
@@ -151,8 +151,8 @@ mod tests {
         let err = SandboxError::MacOSSandboxNotAvailable;
         let msg = err.to_string();
         assert!(
-            msg.contains("sandbox-exec") && msg.contains("--no-sandbox"),
-            "Should instruct to use --no-sandbox: {msg}"
+            msg.contains("sandbox-exec") && msg.contains("--disable-sandbox"),
+            "Should instruct to use --disable-sandbox: {msg}"
         );
     }
 
@@ -207,8 +207,8 @@ mod tests {
         let err = SandboxError::NestedSandboxDetected;
         let msg = err.to_string();
         assert!(
-            (msg.contains("Nested") || msg.contains("nested")) && msg.contains("--no-sandbox"),
-            "Should mention nesting and --no-sandbox: {msg}"
+            (msg.contains("Nested") || msg.contains("nested")) && msg.contains("--disable-sandbox"),
+            "Should mention nesting and --disable-sandbox: {msg}"
         );
     }
 

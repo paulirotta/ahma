@@ -38,11 +38,11 @@ cat /sys/kernel/security/lsm        # verify landlock is active
 **Older kernels / Raspberry Pi**: Landlock requires kernel ≥ 5.13. On older Pi OS kernels, run with:
 
 ```bash
-export AHMA_NO_SANDBOX=1
+export AHMA_DISABLE_SANDBOX=1
 ahma-mcp --mode stdio
 ```
 
-or add `"--no-sandbox"` to `mcp.json` args.
+or add `"--disable-sandbox"` to `mcp.json` args.
 
 ### macOS (Seatbelt)
 
@@ -61,9 +61,9 @@ When running inside Cursor, VS Code, or Docker, the outer environment may preven
 **Manual override** (when you know the outer environment is safe):
 
 ```bash
-ahma-mcp --no-sandbox
+ahma-mcp --disable-sandbox
 # or
-export AHMA_NO_SANDBOX=1
+export AHMA_DISABLE_SANDBOX=1
 ```
 
 Common `mcp.json` for nested environments (VS Code with workspace scoping):
@@ -88,8 +88,8 @@ By default, the system temp directory is accessible only via platform-implicit r
 |-----------------|----------|
 | (default) | Temp access via platform rules |
 | `--tmp` | Temp dir added as explicit scope |
-| `--no-temp-files` | Temp access blocked entirely |
-| `--tmp --no-temp-files` | `--no-temp-files` wins (blocked) |
+| `--disable-temp-files` | Temp access blocked entirely |
+| `--tmp --disable-temp-files` | `--disable-temp-files` wins (blocked) |
 
 **Security considerations**: `/tmp` is shared by all users and processes. Use `mktemp` with random suffixes to avoid TOCTOU attacks. Clean up sensitive temp files after use.
 

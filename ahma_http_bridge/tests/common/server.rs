@@ -184,7 +184,7 @@ fn build_server_args(handshake_timeout_secs: Option<u64>) -> Vec<String> {
     }
 
     if should_force_no_sandbox_for_test_server() {
-        args.push("--no-sandbox".to_string());
+        args.push("--disable-sandbox".to_string());
     }
 
     args
@@ -214,7 +214,7 @@ fn build_custom_server_args(
     }
 
     if should_force_no_sandbox_for_test_server() {
-        args.push("--no-sandbox".to_string());
+        args.push("--disable-sandbox".to_string());
     }
 
     args
@@ -230,10 +230,10 @@ fn should_force_no_sandbox_for_test_server() -> bool {
     )
 }
 
-/// On macOS, spawn the test server without `--no-sandbox` only when
+/// On macOS, spawn the test server without `--disable-sandbox` only when
 /// `sandbox-exec` is known to work in the current environment.  When running
 /// inside a nested sandbox (Cursor, VS Code, Docker) `sandbox-exec` returns
-/// exit 71 / "Operation not permitted", so we fall back to `--no-sandbox` so
+/// exit 71 / "Operation not permitted", so we fall back to `--disable-sandbox` so
 /// the integration tests can still exercise the server code.
 #[cfg(target_os = "macos")]
 fn should_force_no_sandbox_for_test_server() -> bool {
@@ -314,7 +314,7 @@ fn configure_server_command(
 
     if should_force_no_sandbox_for_test_server() {
         eprintln!("{no_sandbox_message}");
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
 
     SandboxTestEnv::configure(cmd);
@@ -423,7 +423,7 @@ pub async fn spawn_test_server_with_timeout(
         &workspace,
         &args,
         "Failed to spawn test server",
-        "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --no-sandbox",
+        "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --disable-sandbox",
     )?;
 
     let startup_info =

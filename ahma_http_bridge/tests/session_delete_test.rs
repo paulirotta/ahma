@@ -96,7 +96,7 @@ async fn start_http_bridge(
     .env_remove("CARGO_TARGET_DIR")
     .env_remove("RUST_TEST_THREADS");
     if no_sandbox {
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
     let child = cmd
         .stdout(Stdio::piped())

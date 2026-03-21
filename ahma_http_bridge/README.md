@@ -280,12 +280,12 @@ The HTTP bridge implements a sandboxing security model to restrict AI-generated 
 - **macOS**: Uses `sandbox-exec` with Seatbelt profiles per command
 - **Linux**: Uses Landlock (kernel 5.13+) for process-level restrictions
 
-### High-Security Mode: `--no-temp-files`
+### High-Security Mode: `--disable-temp-files`
 
-For environments requiring stricter security, the `--no-temp-files` flag blocks writes to temp directories:
+For environments requiring stricter security, the `--disable-temp-files` flag blocks writes to temp directories:
 
 ```bash
-ahma-http-bridge --no-temp-files
+ahma-http-bridge --disable-temp-files
 ```
 
 This prevents data exfiltration via `/tmp` or `/var/folders` but breaks tools that require temp file access.
@@ -298,7 +298,7 @@ These are accepted trade-offs for practical operation:
 | ------------ | ------ | ------------ |
 | **Read access unrestricted** | AI can read any file (including `~/.ssh/id_rsa`) | Required for shells to function; outer sandbox recommended |
 | **Network unrestricted** | Data exfiltration via network | Future: optional `--restrict-network` |
-| **Temp dirs writable** | Persistence outside sandbox | Use `--no-temp-files` for high-security |
+| **Temp dirs writable** | Persistence outside sandbox | Use `--disable-temp-files` for high-security |
 | **No authentication** | Localhost access is trusted | Only bind to 127.0.0.1 |
 
 ### Trust Model

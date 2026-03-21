@@ -385,12 +385,12 @@ fn is_reserved_tool_name(name: &str) -> bool {
     RESERVED_TOOL_NAMES.contains(&name)
 }
 
-fn builtin_tool_configs(cli: &crate::shell::cli::Cli) -> Vec<(&'static str, &'static str)> {
-    flagged_bundle_pairs(cli)
-        .into_iter()
-        .filter(|(_, enabled)| *enabled)
-        .filter_map(|(bundle_name, _)| {
-            builtin_tool_definition(bundle_name).map(|json| (bundle_name, json))
+fn builtin_tool_configs(cli: &crate::shell::cli::Cli) -> Vec<(String, &'static str)> {
+    cli.tools
+        .iter()
+        .filter_map(|bundle_string| {
+            let bundle_name = bundle_string.as_str();
+            builtin_tool_definition(bundle_name).map(|json| (bundle_string.clone(), json))
         })
         .collect()
 }
@@ -569,18 +569,6 @@ fn synthetic_sandboxed_shell_config() -> ToolConfig {
     }
 }
 
-fn flagged_bundle_pairs(cli: &crate::shell::cli::Cli) -> [(&'static str, bool); 7] {
-    [
-        ("rust", cli.rust),
-        ("fileutils", cli.fileutils),
-        ("github", cli.github),
-        ("git", cli.git),
-        ("kotlin", cli.kotlin),
-        ("python", cli.python),
-        ("simplify", cli.simplify),
-    ]
-}
-
 pub async fn load_mcp_config(config_path: &Path) -> anyhow::Result<McpConfig> {
     if !tokio::fs::try_exists(config_path).await.unwrap_or(false) {
         return Ok(McpConfig {
@@ -630,11 +618,11 @@ pub async fn load_tool_configs(
     for (bundle_name, json_str) in builtin_tool_configs(cli) {
         match parse_builtin_tool_config(json_str) {
             Ok(config) => {
-                validate_tool_name(&config.name, bundle_name)?;
+                validate_tool_name(&config.name, &bundle_name)?;
                 insert_built_in_config(&mut configs, config);
             }
             Err(error) => {
-                log_builtin_config_parse_error(bundle_name, &error);
+                log_builtin_config_parse_error(&bundle_name, &error);
             }
         }
     }
@@ -659,8 +647,8 @@ pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collection
     use crate::mcp_service::bundle_registry::BUNDLES;
     let mut names = std::collections::HashSet::new();
 
-    for (name, enabled) in flagged_bundle_pairs(cli) {
-        if enabled && BUNDLES.iter().any(|b| b.name == name) {
+    for name in &cli.tools {
+        if BUNDLES.iter().any(|b| b.name == name) {
             names.insert(name.to_string());
         }
     }

@@ -41,7 +41,7 @@ MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor,
 
 - **macOS** — Full support with kernel-level sandboxing (Seatbelt)
 - **Linux (Ubuntu, RHEL)** — Intel and ARM. Full support with Landlock (kernel ≥ 5.13)
-- **Raspberry Pi** — 64-bit and 32-bit. Use `--no-sandbox` until kernel-level sandboxing is supported (Landlock requires kernel ≥ 5.13)
+- **Raspberry Pi** — 64-bit and 32-bit. Use `--disable-sandbox` until kernel-level sandboxing is supported (Landlock requires kernel ≥ 5.13)
 - **Windows** — Full support. Uses the built-in PowerShell (5.1+) included with Windows 10/11
 
 ## Installation Script
@@ -101,7 +101,7 @@ If you are an AI agent interacting with this repository:
 
 Ahma enforces **kernel-level filesystem sandboxing** by default — Landlock on Linux, Seatbelt on macOS, Job Objects on Windows. The sandbox scope is set once at startup and cannot be changed. The AI has full access within the workspace, zero access outside it, unconditionally.
 
-See [docs/security-sandbox.md](docs/security-sandbox.md) for platform details, nested sandbox detection (`--no-sandbox`), temp directory access (`--tmp`), and example `mcp.json` configs.
+See [docs/security-sandbox.md](docs/security-sandbox.md) for platform details, nested sandbox detection (`--disable-sandbox`), temp directory access (`--tmp`), and example `mcp.json` configs.
 
 ## Live Log Monitoring
 

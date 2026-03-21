@@ -26,7 +26,7 @@ fn test_no_sandbox_warns_and_runs_on_legacy_kernel() {
     let binary = build_binary();
     let output = Command::new(&binary)
         .current_dir(workspace_dir())
-        .env("AHMA_NO_SANDBOX", "1")
+        .env("AHMA_DISABLE_SANDBOX", "1")
         .args([
             "--log-to-stderr",
             "sandboxed_shell",
@@ -34,7 +34,7 @@ fn test_no_sandbox_warns_and_runs_on_legacy_kernel() {
             "echo legacy-kernel-fallback",
         ])
         .output()
-        .expect("Failed to run ahma_mcp with AHMA_NO_SANDBOX");
+        .expect("Failed to run ahma_mcp with AHMA_DISABLE_SANDBOX");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -67,7 +67,7 @@ echo "    Do not expose to untrusted networks."
 echo "-----------------------------------------------"
 echo
 
-(cd "$PROJECT_ROOT" && cargo run $RELEASE_FLAG -p ahma-mcp --bin ahma-mcp -- \
+(cd "$PROJECT_ROOT" && cargo run $RELEASE_FLAG -p ahma_mcp --bin ahma-mcp -- \
     --mode http \
     --http-port 3000 \
     --tools-dir "$TOOLS_DIR" \

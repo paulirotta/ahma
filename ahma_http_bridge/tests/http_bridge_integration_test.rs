@@ -1232,14 +1232,14 @@ async fn start_http_bridge_dynamic(
 
     #[cfg(target_os = "macos")]
     if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
     #[cfg(target_os = "linux")]
     if ahma_mcp::sandbox::check_sandbox_prerequisites().is_err() {
-        cmd.env("AHMA_NO_SANDBOX", "1");
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }
     #[cfg(windows)]
-    cmd.env("AHMA_NO_SANDBOX", "1");
+    cmd.env("AHMA_DISABLE_SANDBOX", "1");
 
     let mut child = cmd
         .stdout(Stdio::piped())

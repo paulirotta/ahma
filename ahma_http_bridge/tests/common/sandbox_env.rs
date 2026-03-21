@@ -27,14 +27,14 @@ impl SandboxTestEnv {
     /// When the *current* test process is running inside a nested sandbox
     /// (e.g., `mcp_ahma_sandboxed_shell`, Cursor, VS Code, Docker), the child
     /// `ahma_mcp` binary would detect the nesting and exit before serving any
-    /// requests.  This helper adds `AHMA_NO_SANDBOX=1` to the command so the
+    /// requests.  This helper adds `AHMA_DISABLE_SANDBOX=1` to the command so the
     /// binary can start; application-level path security (path_security.rs) is
     /// still active in that mode.
     ///
     /// Call this **after** `configure()` on every direct binary spawn.
     pub fn apply_nested_sandbox_override(cmd: &mut Command) -> &mut Command {
         if Self::is_nested_sandbox() {
-            cmd.env("AHMA_NO_SANDBOX", "1");
+            cmd.env("AHMA_DISABLE_SANDBOX", "1");
         }
         cmd
     }
@@ -44,7 +44,7 @@ impl SandboxTestEnv {
         cmd: &mut tokio::process::Command,
     ) -> &mut tokio::process::Command {
         if Self::is_nested_sandbox() {
-            cmd.env("AHMA_NO_SANDBOX", "1");
+            cmd.env("AHMA_DISABLE_SANDBOX", "1");
         }
         cmd
     }

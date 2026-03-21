@@ -1,8 +1,8 @@
-//! Integration tests for HTTP bridge sandbox security and --no-temp-files flag.
+//! Integration tests for HTTP bridge sandbox security and --disable-temp-files flag.
 //!
 //! These tests verify:
 //! 1. Session sandbox scope is properly set from client workspace roots
-//! 2. The --no-temp-files flag is passed to subprocesses correctly
+//! 2. The --disable-temp-files flag is passed to subprocesses correctly
 //! 3. Sandbox scope prevents access to files outside the workspace
 //!
 //! Note: Full integration tests require spawning actual processes which is
@@ -14,15 +14,15 @@ use ahma_http_bridge::session::{McpRoot, SessionManager, SessionManagerConfig};
 use ahma_mcp::test_utils::path_helpers::{test_abs, test_temp_path};
 use std::path::PathBuf;
 
-/// Test that --no-temp-files is properly passed through server_args
+/// Test that --disable-temp-files is properly passed through server_args
 #[test]
 fn test_no_temp_files_flag_in_server_args() {
-    // Simulate what main.rs does when --no-temp-files is passed
+    // Simulate what main.rs does when --disable-temp-files is passed
     let mut server_args = vec!["--some-arg".to_string()];
     let no_temp_files = true;
 
     if no_temp_files {
-        server_args.push("--no-temp-files".to_string());
+        server_args.push("--disable-temp-files".to_string());
     }
 
     let config = SessionManagerConfig {
@@ -34,8 +34,10 @@ fn test_no_temp_files_flag_in_server_args() {
     };
 
     assert!(
-        config.server_args.contains(&"--no-temp-files".to_string()),
-        "Server args should contain --no-temp-files when flag is enabled"
+        config
+            .server_args
+            .contains(&"--disable-temp-files".to_string()),
+        "Server args should contain --disable-temp-files when flag is enabled"
     );
 }
 

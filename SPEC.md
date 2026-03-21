@@ -150,7 +150,7 @@ These tools are always available regardless of JSON configuration:
 - **R1.5**: **Progressive Disclosure** (default enabled): When progressive disclosure is active, `tools/list` **must** return only built-in tools (`await`, `status`, `sandboxed_shell`, `cancel`) and the `activate_tools` meta-tool. Bundled tools are hidden until their bundle is explicitly revealed.
 - **R1.5.1**: The `activate_tools` meta-tool **must** support two actions: `list` (enumerate available bundles with name, description, tool count, and revealed status) and `reveal` (activate a named bundle).
 - **R1.5.2**: After a bundle is revealed via `activate_tools reveal`, the server **must** send `notifications/tools/list_changed` and include the bundle's tools in subsequent `tools/list` responses.
-- **R1.5.3**: The `--no-progressive-disclosure` CLI flag **must** restore legacy behavior where all enabled tools are listed immediately.
+- **R1.5.3**: The `--disable-progressive-disclosure` CLI flag **must** restore legacy behavior where all enabled tools are listed immediately.
 - **R1.5.4**: The `instructions` field in the MCP `initialize` response **must** contain sandbox routing directives instructing the model to use `sandboxed_shell` for all command execution.
 - **R1.5.5**: The `activate_tools` description **must** dynamically list all loaded bundles with action-oriented hints (`ai_hint`) so the AI knows exactly when to activate each bundle.
 - **R1.5.6**: CLI-enabled bundles (e.g., `--rust`, `--git`) **should** be immediately visible via auto-reveal at startup, eliminating the need for a separate reveal step.
@@ -205,7 +205,7 @@ The sandbox scope defines the root directory boundary. AI has **full read/write 
 
 - **R6.1.1**: Uses Landlock (kernel 5.13+) for kernel-level FS sandboxing.
 - **R6.1.2**: If Landlock is unavailable and sandbox is not explicitly disabled, server **must** refuse to start with upgrade instructions.
-- **R6.1.3**: If user explicitly opts into compatibility mode (`--no-sandbox` or `AHMA_NO_SANDBOX=1`), server **must** start in unsandboxed mode and emit a clear warning that Ahma sandboxing is disabled until the kernel is upgraded.
+- **R6.1.3**: If user explicitly opts into compatibility mode (`--disable-sandbox` or `AHMA_DISABLE_SANDBOX=1`), server **must** start in unsandboxed mode and emit a clear warning that Ahma sandboxing is disabled until the kernel is upgraded.
 
 #### R6.2: macOS (Seatbelt)
 
@@ -218,7 +218,7 @@ The sandbox scope defines the root directory boundary. AI has **full read/write 
 
 > **Security gate**: Windows GA release requires this section to reach `tests-pass` status.
 > Until it does, strict mode **must** fail closed (`SandboxError::PrerequisiteFailed`) so the
-> server never runs unsandboxed without explicit `--no-sandbox` opt-out.
+> server never runs unsandboxed without explicit `--disable-sandbox` opt-out.
 >
 > **Current status**: Job Object enforcement and AppContainer profile + DACL grant are
 > **implemented** in `sandbox/windows.rs`.  Final validation (R6.3.1, R6.3.3, R6.3.7)
@@ -270,8 +270,8 @@ The planned implementation uses two mechanisms in order of preference:
 ### R7: Nested Sandbox Detection
 
 - **R7.1**: System **must** detect when running inside another sandbox (Cursor, VS Code, Docker).
-- **R7.2**: Upon detection, system **must** exit with instructions to use `--no-sandbox` or `AHMA_NO_SANDBOX=1`.
-- **R7.3**: When `--no-sandbox` is used, outer sandbox provides security; Ahma's internal sandbox is disabled.
+- **R7.2**: Upon detection, system **must** exit with instructions to use `--disable-sandbox` or `AHMA_DISABLE_SANDBOX=1`.
+- **R7.3**: When `--disable-sandbox` is used, outer sandbox provides security; Ahma's internal sandbox is disabled.
 
 ---
 
@@ -641,7 +641,7 @@ started_rx.await.ok();  // Don't return until spawn is live
 - **R21.1**: Production behavior **must not** be controllable via environment variables that an attacker or malicious process could set.
 - **R21.2**: Test-only behavior **should** be controlled via:
   - Compile-time features (`#[cfg(test)]`)
-  - Explicit CLI parameters (e.g., `--no-sandbox`)
+  - Explicit CLI parameters (e.g., `--disable-sandbox`)
   - Constructor parameters passed at initialization
 - **R21.3**: The following patterns are **FORBIDDEN**:
   - Any different behavior based on automatic "test mode" detection from environment variables like `NEXTEST`, `CARGO_TARGET_DIR`, etc.

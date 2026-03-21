@@ -345,7 +345,7 @@ feat(sandbox): add nested sandbox detection for Cursor
 
 - Detect when running inside another sandbox (Cursor, VS Code, Docker)
 - Auto-disable internal sandbox with warning
-- Add AHMA_NO_SANDBOX env var for manual override
+- Add AHMA_DISABLE_SANDBOX env var for manual override
 
 Closes #123
 ```
@@ -372,7 +372,7 @@ Examples:
 When running inside another sandbox (Cursor, VS Code, Docker):
 - System auto-detects and disables internal sandbox
 - Outer sandbox still provides security
-- Use `--no-sandbox` to suppress detection warnings
+- Use `--disable-sandbox` to suppress detection warnings
 
 ### Temp Directory Access (`--tmp`)
 
@@ -385,7 +385,7 @@ The `--tmp` flag (or `AHMA_TMP_ACCESS=1` environment variable) adds the system t
 
 **When NOT to use:**
 - Production deployments handling sensitive data
-- When `--no-temp-files` provides sufficient security
+- When `--disable-temp-files` provides sufficient security
 
 **Flag interactions:**
 
@@ -393,8 +393,8 @@ The `--tmp` flag (or `AHMA_TMP_ACCESS=1` environment variable) adds the system t
 |-----------------|----------|
 | (default) | Temp access via implicit platform rules |
 | `--tmp` | Temp dir added as formal scope (explicit) |
-| `--no-temp-files` | Temp access blocked entirely |
-| `--tmp --no-temp-files` | `--no-temp-files` takes precedence (blocked) |
+| `--disable-temp-files` | Temp access blocked entirely |
+| `--tmp --disable-temp-files` | `--disable-temp-files` takes precedence (blocked) |
 
 **Security considerations:**
 

@@ -45,9 +45,13 @@ struct Args {
 
     /// Block writes to temp directories (/tmp, /var/folders) for higher security.
     /// This prevents data exfiltration via temp files but breaks tools that require temp access.
-    /// When enabled, passes --no-temp-files to all spawned MCP subprocesses.
-    #[arg(long)]
+    /// When enabled, passes --disable-temp-files to all spawned MCP subprocesses.
+    #[arg(long = "disable-temp-files")]
     no_temp_files: bool,
+
+    /// Disable HTTP/1.1 support and require HTTP/2+ over TCP.
+    #[arg(long = "disable-http1-1")]
+    disable_http1_1: bool,
 
     /// Timeout in seconds for the MCP handshake to complete.
     /// If the handshake (SSE connection + roots/list response) doesn't complete
@@ -89,10 +93,10 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Build server args, adding --no-temp-files if enabled
+    // Build server args, adding --disable-temp-files if enabled
     let mut server_args = args.server_args;
     if args.no_temp_files {
-        server_args.push("--no-temp-files".to_string());
+        server_args.push("--disable-temp-files".to_string());
         tracing::info!(
             "SECURE High-security mode: temp file writes will be blocked in subprocesses"
         );
@@ -106,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
         default_sandbox_scope: args.default_sandbox_scope,
         handshake_timeout_secs: args.handshake_timeout_secs,
         enable_quic: true,
+        disable_http1_1: args.disable_http1_1,
     };
 
     tracing::info!("Starting Ahma HTTP Bridge on {}", config.bind_addr);

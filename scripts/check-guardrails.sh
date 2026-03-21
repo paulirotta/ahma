@@ -89,7 +89,7 @@ echo "=== Guardrail: workspace cargo check ==="
 cargo check --workspace --locked
 
 echo "=== Guardrail: cargo smoke test scope (ahma-mcp package) ==="
-cargo test -p ahma-mcp --test tool_tests tool_execution_integration_test::test_cargo_check_dry_run -- --nocapture
+cargo test -p ahma_mcp --test tool_tests tool_execution_integration_test::test_cargo_check_dry_run -- --nocapture
 
 echo "=== Guardrail: nextest diagnostics config ==="
 if ! grep -q 'success-output = "immediate"' .config/nextest.toml; then

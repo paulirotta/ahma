@@ -7,7 +7,7 @@ use tempfile::tempdir;
 async fn test_load_builtin_tools_async() {
     let temp_dir = tempdir().unwrap();
 
-    let args_rust = vec!["ahma_mcp", "--rust"];
+    let args_rust = vec!["ahma_mcp", "--tool", "rust"];
     let cli_rust = Cli::try_parse_from(args_rust).unwrap();
     let configs_rust = load_tool_configs(&cli_rust, Some(temp_dir.path()))
         .await
@@ -17,7 +17,7 @@ async fn test_load_builtin_tools_async() {
         "Should load bundled rust.json (named cargo)"
     );
 
-    let args_python = vec!["ahma_mcp", "--python"];
+    let args_python = vec!["ahma_mcp", "--tool", "python"];
     let cli_python = Cli::try_parse_from(args_python).unwrap();
     let configs_python = load_tool_configs(&cli_python, Some(temp_dir.path()))
         .await
@@ -27,7 +27,7 @@ async fn test_load_builtin_tools_async() {
         "Should load bundled python.json"
     );
 
-    let args_multiple = vec!["ahma_mcp", "--rust", "--python"];
+    let args_multiple = vec!["ahma_mcp", "--tool", "rust", "--tool", "python"];
     let cli_multiple = Cli::try_parse_from(args_multiple).unwrap();
     let configs_multiple = load_tool_configs(&cli_multiple, Some(temp_dir.path()))
         .await
@@ -66,8 +66,8 @@ async fn test_filesystem_overrides_bundled_tool() {
 }"#;
     std::fs::write(temp_dir.path().join("rust.json"), custom_cargo).unwrap();
 
-    // Load with --rust flag (bundled) AND the local override
-    let cli = Cli::try_parse_from(["ahma_mcp", "--rust"]).unwrap();
+    // Load with --tool rust flag (bundled) AND the local override
+    let cli = Cli::try_parse_from(["ahma_mcp", "--tool", "rust"]).unwrap();
     let configs = load_tool_configs(&cli, Some(temp_dir.path()))
         .await
         .unwrap();
@@ -116,20 +116,20 @@ async fn test_reserved_names_rejected() {
 /// from a repo that has no `.ahma/` directory and no `--tools-dir` flag.
 #[tokio::test]
 async fn test_bundled_tools_load_without_tools_dir() {
-    // Pass --rust --simplify but NO --tools-dir, and tools_dir = None
-    let cli = Cli::try_parse_from(["ahma_mcp", "--rust", "--simplify"]).unwrap();
+    // Pass --tool rust --tool simplify but NO --tools-dir, and tools_dir = None
+    let cli = Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "simplify"]).unwrap();
 
     // Call with None — this is the code path that was previously broken
     let configs = load_tool_configs(&cli, None).await.unwrap();
 
     assert!(
         configs.contains_key("cargo"),
-        "--rust flag should load bundled cargo tool even without tools_dir. Got keys: {:?}",
+        "--tool rust flag should load bundled cargo tool even without tools_dir. Got keys: {:?}",
         configs.keys().collect::<Vec<_>>()
     );
     assert!(
         configs.contains_key("simplify"),
-        "--simplify flag should load bundled simplify tool even without tools_dir. Got keys: {:?}",
+        "--tool simplify flag should load bundled simplify tool even without tools_dir. Got keys: {:?}",
         configs.keys().collect::<Vec<_>>()
     );
 
@@ -143,22 +143,22 @@ async fn test_bundled_tools_load_without_tools_dir() {
 /// Verify that each individual bundled flag works without a tools directory.
 #[tokio::test]
 async fn test_each_bundled_flag_works_without_tools_dir() {
-    let flag_and_expected: &[(&str, &str)] = &[
-        ("--rust", "cargo"),
-        ("--simplify", "simplify"),
-        ("--python", "python"),
-        ("--git", "git"),
-        ("--github", "gh"),
-        ("--fileutils", "file-tools"),
+    let tool_and_expected: &[(&str, &str)] = &[
+        ("rust", "cargo"),
+        ("simplify", "simplify"),
+        ("python", "python"),
+        ("git", "git"),
+        ("github", "gh"),
+        ("fileutils", "file-tools"),
     ];
 
-    for &(flag, expected_tool) in flag_and_expected {
-        let cli = Cli::try_parse_from(["ahma_mcp", flag]).unwrap();
+    for &(tool, expected_tool) in tool_and_expected {
+        let cli = Cli::try_parse_from(["ahma_mcp", "--tool", tool]).unwrap();
         let configs = load_tool_configs(&cli, None).await.unwrap();
         assert!(
             configs.contains_key(expected_tool),
-            "Flag '{}' should load bundled tool '{}' even without tools_dir. Got keys: {:?}",
-            flag,
+            "Tool flag '{}' should load bundled tool '{}' even without tools_dir. Got keys: {:?}",
+            tool,
             expected_tool,
             configs.keys().collect::<Vec<_>>()
         );
@@ -248,8 +248,9 @@ async fn test_bundle_flags_with_auto_detected_ahma_loads_all_local_tools() {
         std::fs::write(temp_dir.path().join(file), json).unwrap();
     }
 
-    // --rust --simplify flags, but NOT --git. Auto-detected dir (not explicit).
-    let mut cli = Cli::try_parse_from(["ahma_mcp", "--rust", "--simplify"]).unwrap();
+    // --tool rust --tool simplify flags, but NOT git. Auto-detected dir (not explicit).
+    let mut cli =
+        Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "simplify"]).unwrap();
     cli.explicit_tools_dir = false;
 
     let configs = load_tool_configs(&cli, Some(temp_dir.path()))
@@ -309,7 +310,7 @@ async fn test_local_ahma_overrides_bundled_with_all_loaded() {
 }"#;
     std::fs::write(temp_dir.path().join("extra.json"), extra_tool).unwrap();
 
-    let mut cli = Cli::try_parse_from(["ahma_mcp", "--rust"]).unwrap();
+    let mut cli = Cli::try_parse_from(["ahma_mcp", "--tool", "rust"]).unwrap();
     cli.explicit_tools_dir = false;
 
     let configs = load_tool_configs(&cli, Some(temp_dir.path()))

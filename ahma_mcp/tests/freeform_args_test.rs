@@ -25,7 +25,7 @@ async fn test_freeform_argument_passing_ls() -> Result<()> {
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.arg("--tools-dir")
         .arg(temp_dir.path().join(".ahma"))
-        .arg("--no-sandbox")
+        .arg("--disable-sandbox")
         .arg("--skip-availability-probes")
         .arg("ls_ls");
     cmd.env(
@@ -85,7 +85,7 @@ edition = "2021"
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.arg("--tools-dir")
         .arg(temp_dir.path().join(".ahma"))
-        .arg("--no-sandbox")
+        .arg("--disable-sandbox")
         .arg("--skip-availability-probes")
         .arg("cargo_clippy");
     cmd.env(

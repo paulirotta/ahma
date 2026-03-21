@@ -80,7 +80,7 @@ echo
 
 # Step 1: Build the project
 echo -e "${CYAN}Building project (release mode)...${NC}"
-cargo build --release -p ahma-mcp --bin ahma-mcp 2>&1 | tail -5
+cargo build --release -p ahma_mcp --bin ahma-mcp 2>&1 | tail -5
 echo -e "${GREEN}OK Build complete${NC}"
 echo
 

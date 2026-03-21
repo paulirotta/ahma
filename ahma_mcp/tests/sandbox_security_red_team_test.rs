@@ -2,7 +2,7 @@
 //!
 //! These tests attempt various sandbox escape techniques to verify that:
 //! 1. Path validation correctly blocks access outside sandbox scope
-//! 2. The --no-temp-files flag effectively blocks temp directory writes
+//! 2. The --disable-temp-files flag effectively blocks temp directory writes
 //! 3. Symlink-based escape attempts are detected
 //! 4. Encoded/obfuscated path traversal attempts fail
 //!
@@ -95,7 +95,7 @@ fn assert_blocked_shell_result<E: std::fmt::Debug>(
 
 #[cfg(target_os = "linux")]
 fn create_non_tmp_tempdir() -> TempDir {
-    // Landlock adds broad /tmp access unless --no-temp-files is enabled.
+    // Landlock adds broad /tmp access unless --disable-temp-files is enabled.
     // For "outside scope" tests we need fixtures outside /tmp.
     let base = std::env::current_dir().expect("failed to get current directory");
     tempfile::Builder::new()
@@ -566,7 +566,7 @@ async fn red_team_command_write_escape_blocked() {
         .tools_dir(&tools_dir)
         .working_dir(temp_dir.path())
         .no_sandbox(false)
-        .arg("--no-temp-files")
+        .arg("--disable-temp-files")
         .build()
         .await
         .unwrap();
@@ -608,7 +608,7 @@ async fn red_team_command_read_escape_blocked_linux() {
         .tools_dir(&tools_dir)
         .working_dir(temp_dir.path())
         .no_sandbox(false)
-        .arg("--no-temp-files")
+        .arg("--disable-temp-files")
         .build()
         .await
         .unwrap();
@@ -658,7 +658,7 @@ async fn red_team_command_read_escape_blocked_linux_custom() {
         .tools_dir(&tools_dir)
         .working_dir(temp_dir.path())
         .no_sandbox(false)
-        .arg("--no-temp-files")
+        .arg("--disable-temp-files")
         .build()
         .await
         .unwrap();
