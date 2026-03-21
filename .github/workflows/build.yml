@@ -461,9 +461,10 @@ jobs:
           fi
           cargo ndk --version
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: llvm-cov,nextest
+      - name: Install cargo-llvm-cov
+        run: cargo binstall cargo-llvm-cov --no-confirm --force
+
+      - uses: taiki-e/install-action@nextest
 
       - name: Generate coverage report
         run: |
