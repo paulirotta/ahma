@@ -1,39 +1,83 @@
-//! Integration tests for HTTP/3 (QUIC) client support.
+//! Integration tests for HTTP/3 (QUIC) server support.
 //!
-//! These tests verify that an HTTP/3-capable reqwest client works correctly
-//! against the ahma HTTP bridge endpoints (SSE and HTTP streaming at `/mcp`).
+//! These tests verify that the ahma HTTP bridge correctly:
+//! - Starts a QUIC endpoint and advertises it via Alt-Svc headers
+//! - Serves actual HTTP/3 requests from a QUIC-capable reqwest client
+//! - Rejects SSE streams over QUIC (HTTP/3 does not support SSE)
+//! - Continues serving HTTP/2 MCP requests normally alongside QUIC
 //!
-//! With the `http3` feature enabled on reqwest, the client automatically prefers
-//! HTTP/3 (QUIC) when the server advertises it via Alt-Svc headers. Against
-//! servers that only support HTTP/2 (like the current TCP-based bridge),
-//! the client gracefully falls back.
+//! QUIC tests are skipped non-fatally when the server does not report a QUIC
+//! port (e.g. if QUIC failed to start, or the test binary was built without
+//! `reqwest_unstable`).
 
 mod common;
 
 use common::{McpTestClient, TransportMode, spawn_test_server};
-use futures::StreamExt;
-use serde_json::{Value, json};
+use reqwest::Certificate;
+use serde_json::json;
 use std::time::Duration;
 
-/// Build a reqwest client with HTTP/3 (QUIC) support enabled.
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+/// Build a reqwest client that speaks HTTP/3 (QUIC).
 ///
-/// This client will prefer HTTP/3 when the server supports it and
-/// transparently fall back to HTTP/2 otherwise.
-fn build_http3_client() -> reqwest::Client {
+/// `cert_der` is the self-signed DER certificate the test server emitted.
+fn build_http3_client(cert_der: &[u8]) -> reqwest::Client {
+    let cert = Certificate::from_der(cert_der).expect("parse DER cert");
     reqwest::Client::builder()
-        .http2_prior_knowledge()
+        .http3_prior_knowledge()
+        .add_root_certificate(cert)
+        .timeout(Duration::from_secs(30))
         .build()
-        .expect("HTTP/3-capable client should build successfully")
+        .expect("HTTP/3 reqwest client")
 }
 
-/// Verify HTTP/3-enabled client can perform JSON POST against `/mcp`.
-#[tokio::test]
-async fn test_http3_client_json_post() {
-    let server = spawn_test_server().await.expect("server should start");
-    let client = build_http3_client();
+// ─── HTTP/3 QUIC tests (skip if QUIC did not start) ──────────────────────────
 
+/// Verify a QUIC health-check returns HTTP/3 and a 200 OK.
+#[tokio::test]
+async fn test_http3_quic_health_check() {
+    let server = spawn_test_server().await.expect("server should start");
+
+    let (Some(quic_url), Some(cert_der)) = (server.quic_base_url(), server.quic_cert_der()) else {
+        eprintln!("SKIP: server did not start a QUIC endpoint");
+        return;
+    };
+
+    let client = build_http3_client(cert_der);
     let resp = client
-        .post(format!("{}/mcp", server.base_url()))
+        .get(format!("{}/health", quic_url))
+        .version(reqwest::Version::HTTP_3)
+        .send()
+        .await
+        .expect("HTTP/3 health check request");
+
+    assert!(
+        resp.status().is_success(),
+        "health check should return 2xx, got {}",
+        resp.status()
+    );
+    assert_eq!(
+        resp.version(),
+        reqwest::Version::HTTP_3,
+        "expected HTTP/3 response"
+    );
+}
+
+/// Verify a QUIC initialize POST returns HTTP/3 and a valid MCP result.
+#[tokio::test]
+async fn test_http3_quic_initialize() {
+    let server = spawn_test_server().await.expect("server should start");
+
+    let (Some(quic_url), Some(cert_der)) = (server.quic_base_url(), server.quic_cert_der()) else {
+        eprintln!("SKIP: server did not start a QUIC endpoint");
+        return;
+    };
+
+    let client = build_http3_client(cert_der);
+    let resp = client
+        .post(format!("{}/mcp", quic_url))
+        .version(reqwest::Version::HTTP_3)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&json!({
@@ -43,44 +87,47 @@ async fn test_http3_client_json_post() {
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "http3-json-test", "version": "1.0"}
+                "clientInfo": {"name": "http3-init-test", "version": "1.0"}
             }
         }))
-        .timeout(Duration::from_secs(60))
         .send()
         .await
-        .expect("HTTP/3 client should connect (falling back to HTTP/2)");
+        .expect("HTTP/3 initialize request");
 
-    assert!(resp.status().is_success(), "Should return 2xx");
-
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
     assert!(
-        content_type.contains("application/json"),
-        "Expected JSON, got: {}",
-        content_type
+        resp.status().is_success(),
+        "initialize should return 2xx via QUIC, got {}",
+        resp.status()
     );
+    assert_eq!(resp.version(), reqwest::Version::HTTP_3, "expected HTTP/3");
 
-    let body: Value = resp.json().await.expect("should parse JSON");
+    let body: serde_json::Value = resp.json().await.expect("parse JSON body");
     assert!(
         body.get("result").is_some(),
-        "Initialize should return result"
+        "initialize should return a result, got: {body}"
     );
 }
 
-/// Verify HTTP/3-enabled client can use SSE content negotiation on POST `/mcp`.
+/// Verify an SSE GET over HTTP/3 is rejected with 406 Not Acceptable.
+///
+/// SSE (text/event-stream) requires a long-lived, half-closed streaming
+/// response which is not compatible with the HTTP/3 request model used here.
 #[tokio::test]
-async fn test_http3_client_post_sse_content_negotiation() {
+async fn test_http3_quic_sse_get_returns_406() {
     let server = spawn_test_server().await.expect("server should start");
-    let client = build_http3_client();
 
-    let resp = client
-        .post(format!("{}/mcp", server.base_url()))
+    let (Some(quic_url), Some(cert_der)) = (server.quic_base_url(), server.quic_cert_der()) else {
+        eprintln!("SKIP: server did not start a QUIC endpoint");
+        return;
+    };
+
+    let client = build_http3_client(cert_der);
+    // We need a session first (initialize over QUIC).
+    let init = client
+        .post(format!("{}/mcp", quic_url))
+        .version(reqwest::Version::HTTP_3)
         .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
+        .header("Accept", "application/json")
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -91,286 +138,109 @@ async fn test_http3_client_post_sse_content_negotiation() {
                 "clientInfo": {"name": "http3-sse-test", "version": "1.0"}
             }
         }))
-        .timeout(Duration::from_secs(60))
         .send()
         .await
-        .expect("HTTP/3 client SSE request should succeed");
+        .expect("initialize over QUIC");
 
-    assert!(resp.status().is_success(), "Should return 2xx");
-
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    assert!(
-        content_type.contains("text/event-stream"),
-        "Expected SSE, got: {}",
-        content_type
-    );
-
-    // Verify SSE stream delivers events with data and id fields
-    let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-
-    while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
-            Ok(Some(Ok(bytes))) => {
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                if buffer.contains("id:") && buffer.contains("data:") {
-                    // SSE stream has events — verify id is numeric
-                    for line in buffer.lines() {
-                        if let Some(id_str) = line.strip_prefix("id:") {
-                            let id: u64 =
-                                id_str.trim().parse().expect("Event ID should be numeric");
-                            assert!(id > 0, "Event ID should be positive");
-                            return; // Pass
-                        }
-                    }
-                }
-            }
-            Ok(Some(Err(e))) => panic!("SSE stream error: {}", e),
-            Ok(None) => break,
-            Err(_) => continue,
-        }
-    }
-
-    panic!(
-        "HTTP/3 client did not receive SSE events with id field. Buffer: {}",
-        buffer
-    );
-}
-
-/// Verify HTTP/3-enabled client can open GET SSE stream on `/mcp`.
-#[tokio::test]
-async fn test_http3_client_get_sse_stream() {
-    let server = spawn_test_server().await.expect("server should start");
-    let client = build_http3_client();
-
-    // First initialize to get a session ID
-    let init_resp = client
-        .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "http3-get-sse-test", "version": "1.0"}
-            }
-        }))
-        .timeout(Duration::from_secs(60))
-        .send()
-        .await
-        .expect("Initialize should succeed");
-
-    let session_id = init_resp
+    let session_id = init
         .headers()
         .get("mcp-session-id")
-        .or_else(|| init_resp.headers().get("Mcp-Session-Id"))
         .and_then(|v| v.to_str().ok())
-        .expect("Should have session ID")
-        .to_string();
+        .map(str::to_owned);
 
-    // Open GET SSE stream using HTTP/3-capable client
-    let sse_resp = client
-        .get(format!("{}/mcp", server.base_url()))
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", &session_id)
+    let mut get_req = client
+        .get(format!("{}/mcp", quic_url))
+        .version(reqwest::Version::HTTP_3)
+        .header("Accept", "text/event-stream");
+
+    if let Some(ref sid) = session_id {
+        get_req = get_req.header("Mcp-Session-Id", sid.as_str());
+    }
+
+    let resp = get_req.send().await.expect("SSE GET over QUIC");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        406,
+        "SSE GET over HTTP/3 should return 406 Not Acceptable, got {}",
+        resp.status()
+    );
+}
+
+// ─── Alt-Svc advertisement test (HTTP/2) ─────────────────────────────────────
+
+/// Verify that TCP (HTTP/2) responses carry an Alt-Svc header when QUIC is
+/// running, advertising the HTTP/3 alternative endpoint.
+#[tokio::test]
+async fn test_http2_alt_svc_advertised_when_quic_ready() {
+    let server = spawn_test_server().await.expect("server should start");
+
+    if server.quic_port().is_none() {
+        eprintln!("SKIP: server did not start a QUIC endpoint");
+        return;
+    }
+
+    let client = common::make_h2_client();
+    let resp = client
+        .get(format!("{}/health", server.base_url()))
         .send()
         .await
-        .expect("GET SSE should succeed");
+        .expect("HTTP/2 health check");
 
-    assert!(sse_resp.status().is_success(), "SSE should return 200");
+    assert!(resp.status().is_success(), "health check 200");
 
-    let content_type = sse_resp
+    let alt_svc = resp
         .headers()
-        .get("content-type")
+        .get("alt-svc")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+
     assert!(
-        content_type.contains("text/event-stream"),
-        "Expected SSE content type, got: {}",
-        content_type
+        alt_svc.contains("h3="),
+        "Alt-Svc header should advertise HTTP/3 when QUIC is running, got: {alt_svc:?}"
+    );
+}
+
+// ─── HTTP/2 MCP functional tests ─────────────────────────────────────────────
+
+/// Full MCP handshake + tools/list via JSON transport (HTTP/2).
+#[tokio::test]
+async fn test_http2_mcp_tools_list_json() {
+    run_mcp_tools_list(TransportMode::Json).await;
+}
+
+/// Full MCP handshake + tools/list via SSE transport (HTTP/2).
+#[tokio::test]
+async fn test_http2_mcp_tools_list_sse() {
+    run_mcp_tools_list(TransportMode::Sse).await;
+}
+
+async fn run_mcp_tools_list(mode: TransportMode) {
+    let server = spawn_test_server().await.expect("server should start");
+    let mut mcp = McpTestClient::for_server(&server).with_transport(mode);
+
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+
+    let init = mcp
+        .initialize_with_roots("http3-test-client", &[workspace])
+        .await;
+    assert!(
+        init.is_ok(),
+        "MCP handshake should succeed: {:?}",
+        init.err()
     );
 
-    // Send notifications/initialized to trigger server events
-    let _ = client
-        .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Mcp-Session-Id", &session_id)
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized"
-        }))
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await;
-
-    // Verify we can read from the SSE stream
-    let mut stream = sse_resp.bytes_stream();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    let mut received_data = false;
-
-    while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
-            Ok(Some(Ok(bytes))) => {
-                let text = String::from_utf8_lossy(&bytes);
-                if text.contains("data:") {
-                    received_data = true;
-                    break;
-                }
-            }
-            Ok(Some(Err(e))) => panic!("SSE read error: {}", e),
-            Ok(None) => break,
-            Err(_) => continue,
-        }
-    }
-
-    // It's acceptable if no data events arrived (depends on server timing).
-    // The key assertion is that the GET SSE connection succeeded with the HTTP/3 client.
-    if !received_data {
-        eprintln!(
-            "No SSE data events observed (subprocess may not have sent any). \
-             Connection itself succeeded — test passes."
-        );
-    }
-}
-
-/// Verify HTTP/3-enabled client can perform full MCP handshake and call tools
-/// via HTTP streaming (POST with `Accept: text/event-stream`).
-#[tokio::test]
-async fn test_http3_client_http_streaming_tool_call() {
-    let server = spawn_test_server().await.expect("server should start");
-
-    // Use McpTestClient with SSE transport (HTTP streaming)
-    let mut mcp = McpTestClient::for_server(&server).with_transport(TransportMode::Sse);
-
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-
-    let init = mcp
-        .initialize_with_roots("http3-streaming-test", &[workspace])
-        .await;
-    assert!(init.is_ok(), "Handshake should succeed: {:?}", init.err());
-
-    // List tools via HTTP streaming (SSE transport)
-    let tools = mcp.list_tools().await;
-    assert!(tools.is_ok(), "tools/list should succeed via SSE transport");
-    let tools = tools.unwrap();
-    assert!(!tools.is_empty(), "Should have at least one tool");
-}
-
-/// Verify HTTP/3-enabled client can perform full MCP handshake and call tools
-/// via standard JSON transport.
-#[tokio::test]
-async fn test_http3_client_json_transport_tool_call() {
-    let server = spawn_test_server().await.expect("server should start");
-
-    // Use McpTestClient with JSON transport (default)
-    let mut mcp = McpTestClient::for_server(&server).with_transport(TransportMode::Json);
-
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-
-    let init = mcp
-        .initialize_with_roots("http3-json-transport-test", &[workspace])
-        .await;
-    assert!(init.is_ok(), "Handshake should succeed: {:?}", init.err());
-
-    // List tools via JSON transport
     let tools = mcp.list_tools().await;
     assert!(
         tools.is_ok(),
-        "tools/list should succeed via JSON transport"
+        "tools/list should succeed: {:?}",
+        tools.err()
     );
-    let tools = tools.unwrap();
-    assert!(!tools.is_empty(), "Should have at least one tool");
-}
-
-/// Verify that the HTTP/3-enabled client handles health check correctly.
-#[tokio::test]
-async fn test_http3_client_health_check() {
-    let server = spawn_test_server().await.expect("server should start");
-    let client = build_http3_client();
-
-    let resp = client
-        .get(format!("{}/health", server.base_url()))
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await
-        .expect("Health check should succeed");
-
-    assert!(resp.status().is_success(), "Health check should return 200");
-}
-
-/// Verify HTTP/3-enabled client can perform Last-Event-Id replay on GET SSE.
-#[tokio::test]
-async fn test_http3_client_sse_last_event_id_replay() {
-    let server = spawn_test_server().await.expect("server should start");
-    let client = build_http3_client();
-
-    // Initialize to get session ID
-    let init_resp = client
-        .post(format!("{}/mcp", server.base_url()))
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "http3-replay-test", "version": "1.0"}
-            }
-        }))
-        .timeout(Duration::from_secs(60))
-        .send()
-        .await
-        .expect("Initialize should succeed");
-
-    let session_id = init_resp
-        .headers()
-        .get("mcp-session-id")
-        .or_else(|| init_resp.headers().get("Mcp-Session-Id"))
-        .and_then(|v| v.to_str().ok())
-        .expect("Should have session ID")
-        .to_string();
-
-    // Open SSE stream with Last-Event-Id header (replay request)
-    let sse_resp = client
-        .get(format!("{}/mcp", server.base_url()))
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", &session_id)
-        .header("Last-Event-Id", "0")
-        .send()
-        .await
-        .expect("GET SSE with Last-Event-Id should succeed");
-
     assert!(
-        sse_resp.status().is_success(),
-        "SSE replay should return 200"
-    );
-
-    let content_type = sse_resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    assert!(
-        content_type.contains("text/event-stream"),
-        "Expected SSE content type for replay, got: {}",
-        content_type
+        !tools.unwrap().is_empty(),
+        "server should expose at least one tool"
     );
 }

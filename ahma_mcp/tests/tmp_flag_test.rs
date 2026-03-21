@@ -17,7 +17,7 @@ fn test_temp_dir_can_be_added_to_scopes() {
 
     // Create sandbox with both a project dir and temp dir as scopes
     let scopes = vec![temp.path().to_path_buf(), temp_dir.clone()];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false).unwrap();
 
     // Verify temp dir is accessible
     let temp_file = temp_dir.join("test_file.txt");
@@ -39,7 +39,7 @@ fn test_temp_dir_scope_is_canonicalized() {
 
     let project_temp = tempdir().unwrap();
     let scopes = vec![project_temp.path().to_path_buf(), temp_dir.clone()];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false).unwrap();
 
     // Get the scopes and verify temp dir is canonicalized
     let sandbox_scopes = sandbox.scopes();
@@ -61,7 +61,7 @@ fn test_no_temp_files_blocks_temp_access() {
 
     // Create sandbox with temp in scopes BUT no_temp_files=true
     let scopes = vec![project_temp.path().to_path_buf(), temp_dir.clone()];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, true, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, true, false, false).unwrap();
 
     // Verify no_temp_files is set
     assert!(sandbox.is_no_temp_files(), "no_temp_files should be true");
@@ -92,7 +92,7 @@ fn test_sandbox_without_temp_scope() {
 
     // Create sandbox with only project dir (no temp)
     let scopes = vec![project_temp.path().to_path_buf()];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false).unwrap();
 
     // Temp dir path should be outside scope
     let temp_dir = std::env::temp_dir();
@@ -120,7 +120,7 @@ fn test_multiple_scopes_with_temp() {
         project2.path().to_path_buf(),
         temp_dir.clone(),
     ];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false).unwrap();
 
     // All three scopes should be accessible
     let path1 = project1.path().join("file1.txt");
@@ -173,7 +173,7 @@ fn test_temp_dir_not_duplicated_in_scopes() {
 
     // Add temp dir twice
     let scopes = vec![temp_dir.clone(), temp_dir.clone()];
-    let sandbox = Sandbox::new(scopes, SandboxMode::Test, false, false).unwrap();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Test, false, false, false).unwrap();
 
     // Count occurrences of canonical temp in scopes
     let sandbox_scopes = sandbox.scopes();
@@ -188,5 +188,107 @@ fn test_temp_dir_not_duplicated_in_scopes() {
         "Temp dir should not be duplicated. Count: {}, Scopes: {:?}",
         temp_count,
         sandbox_scopes.to_vec()
+    );
+}
+
+/// Test that update_scopes preserves temp dir when tmp_access=true.
+///
+/// This is the core regression test for the bug where `roots/list_changed`
+/// would replace all scopes, losing the temp directory added by `--tmp`.
+#[test]
+fn test_update_scopes_preserves_temp_when_tmp_access() {
+    let project1 = tempdir().unwrap();
+    let project2 = tempdir().unwrap();
+    let temp_dir = std::env::temp_dir();
+    let canonical_temp = dunce::canonicalize(&temp_dir).unwrap();
+
+    // Create sandbox with tmp_access=true, initial scopes include temp
+    let scopes = vec![project1.path().to_path_buf(), temp_dir.clone()];
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, true).unwrap();
+
+    // Verify temp is in initial scopes
+    assert!(
+        sandbox.scopes().iter().any(|s| s == &canonical_temp),
+        "Initial scopes should contain temp dir"
+    );
+
+    // Simulate roots/list_changed: update scopes to a new project (no temp)
+    sandbox
+        .update_scopes(vec![project2.path().to_path_buf()])
+        .unwrap();
+
+    // Temp dir should still be in scopes because tmp_access=true
+    let updated_scopes = sandbox.scopes();
+    assert!(
+        updated_scopes.iter().any(|s| s == &canonical_temp),
+        "After update_scopes, temp dir should be preserved when tmp_access=true. Scopes: {:?}",
+        updated_scopes.to_vec()
+    );
+
+    // New project should also be there
+    let canonical_project2 = dunce::canonicalize(project2.path()).unwrap();
+    assert!(
+        updated_scopes.iter().any(|s| s == &canonical_project2),
+        "New project scope should be present"
+    );
+}
+
+/// Test that update_scopes does NOT add temp when tmp_access=false.
+#[test]
+fn test_update_scopes_no_temp_when_tmp_access_false() {
+    let project1 = tempdir().unwrap();
+    let project2 = tempdir().unwrap();
+    let temp_dir = std::env::temp_dir();
+    let canonical_temp = dunce::canonicalize(&temp_dir).unwrap();
+
+    // Create sandbox with tmp_access=false but with temp in initial scopes
+    let scopes = vec![project1.path().to_path_buf(), temp_dir.clone()];
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false).unwrap();
+
+    // Update scopes to a new project (no temp) — temp should NOT be re-added
+    sandbox
+        .update_scopes(vec![project2.path().to_path_buf()])
+        .unwrap();
+
+    let updated_scopes = sandbox.scopes();
+
+    // If project2 is not under temp_dir, temp should NOT be in scopes
+    if !project2.path().starts_with(&canonical_temp) {
+        let has_temp = updated_scopes.iter().any(|s| s == &canonical_temp);
+        assert!(
+            !has_temp,
+            "Temp dir should NOT be preserved when tmp_access=false. Scopes: {:?}",
+            updated_scopes.to_vec()
+        );
+    }
+}
+
+/// Test that update_scopes with tmp_access=true doesn't duplicate temp dir.
+#[test]
+fn test_update_scopes_no_temp_duplication() {
+    let project = tempdir().unwrap();
+    let temp_dir = std::env::temp_dir();
+    let canonical_temp = dunce::canonicalize(&temp_dir).unwrap();
+
+    // Create sandbox with tmp_access=true
+    let scopes = vec![project.path().to_path_buf(), temp_dir.clone()];
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, true).unwrap();
+
+    // Update scopes WITH temp already included — should not duplicate
+    sandbox
+        .update_scopes(vec![project.path().to_path_buf(), temp_dir.clone()])
+        .unwrap();
+
+    let updated_scopes = sandbox.scopes();
+    let temp_count = updated_scopes
+        .iter()
+        .filter(|s| *s == &canonical_temp)
+        .count();
+
+    assert!(
+        temp_count <= 1,
+        "Temp dir should not be duplicated after update_scopes. Count: {}, Scopes: {:?}",
+        temp_count,
+        updated_scopes.to_vec()
     );
 }

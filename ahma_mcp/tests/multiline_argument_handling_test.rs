@@ -110,8 +110,16 @@ async fn test_multiline_argument_with_echo() {
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
 
     let scopes = vec![ahma_mcp::test_utils::path_helpers::test_root()];
-    let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            scopes,
+            ahma_mcp::sandbox::SandboxMode::Test,
+            false,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
 
     let adapter =
         Adapter::new(monitor.clone(), shell_pool, sandbox).expect("Failed to create adapter");
@@ -246,8 +254,16 @@ async fn test_multiline_git_commit_with_real_tool() {
 
     // Create sandbox with temp_dir as a scope
     let scopes = vec![temp_dir.path().to_path_buf(), std::env::temp_dir()];
-    let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            scopes,
+            ahma_mcp::sandbox::SandboxMode::Test,
+            false,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
 
     let adapter =
         Adapter::new(monitor.clone(), shell_pool, sandbox).expect("Failed to create adapter");
@@ -411,8 +427,16 @@ async fn test_multiline_git_commit_message() {
 
     // Create sandbox with temp_dir as a scope
     let scopes = vec![temp_dir.path().to_path_buf(), std::env::temp_dir()];
-    let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            scopes,
+            ahma_mcp::sandbox::SandboxMode::Test,
+            false,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
 
     let adapter =
         Adapter::new(monitor.clone(), shell_pool, sandbox).expect("Failed to create adapter");

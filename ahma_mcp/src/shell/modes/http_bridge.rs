@@ -112,6 +112,7 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
         enable_colored_output,
         default_sandbox_scope: explicit_fallback_scope,
         handshake_timeout_secs: cli.handshake_timeout_secs,
+        enable_quic: !cli.no_quic,
     };
 
     start_bridge(config).await?;

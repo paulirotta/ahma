@@ -157,8 +157,14 @@ fn create_sandbox_instance(
         return Ok(None);
     };
 
-    let s = sandbox::Sandbox::new(scopes.clone(), policy.mode, cli.no_temp_files, cli.livelog)
-        .context("Failed to initialize sandbox")?;
+    let s = sandbox::Sandbox::new(
+        scopes.clone(),
+        policy.mode,
+        cli.no_temp_files,
+        cli.livelog,
+        policy.tmp_access,
+    )
+    .context("Failed to initialize sandbox")?;
 
     tracing::info!("Sandbox scopes initialized: {:?}", scopes);
 
@@ -461,6 +467,13 @@ pub struct Cli {
     /// HTTP server port (for HTTP mode)
     #[arg(long, default_value_t = 3000)]
     pub http_port: u16,
+
+    /// Disable HTTP/3 (QUIC) in HTTP bridge mode.
+    /// By default the bridge starts a QUIC endpoint alongside the HTTP/2 TCP listener
+    /// and advertises it via the `Alt-Svc` response header. Pass this flag to serve
+    /// HTTP/2 only (useful when UDP is blocked or QUIC causes issues).
+    #[arg(long)]
+    pub no_quic: bool,
 
     /// Handshake timeout in seconds (for HTTP mode)
     #[arg(long, default_value_t = 10)]

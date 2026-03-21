@@ -176,6 +176,7 @@ fn test_validate_path_triggers_format_scopes_single_scope() {
         SandboxMode::Strict,
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -206,6 +207,7 @@ fn test_validate_path_triggers_format_scopes_multiple_scopes() {
     let sandbox = Sandbox::new(
         vec![scope1.path().to_path_buf(), scope2.path().to_path_buf()],
         SandboxMode::Strict,
+        false,
         false,
         false,
     )
@@ -260,6 +262,7 @@ fn test_validate_path_no_temp_files_blocks_temp_dir_scope() {
         vec![scope.path().to_path_buf()],
         SandboxMode::Strict,
         true,
+        false,
         false,
     )
     .unwrap();

@@ -100,6 +100,8 @@ pub struct Sandbox {
     pub(super) read_scopes: Vec<PathBuf>,
     pub(super) mode: SandboxMode,
     pub(super) no_temp_files: bool,
+    /// When true, the canonical temp directory is preserved across scope updates.
+    pub(super) tmp_access: bool,
 }
 
 impl Clone for Sandbox {
@@ -109,6 +111,7 @@ impl Clone for Sandbox {
             read_scopes: self.read_scopes.clone(),
             mode: self.mode,
             no_temp_files: self.no_temp_files,
+            tmp_access: self.tmp_access,
         }
     }
 }
@@ -120,6 +123,7 @@ impl std::fmt::Debug for Sandbox {
             .field("read_scopes", &self.read_scopes)
             .field("mode", &self.mode)
             .field("no_temp_files", &self.no_temp_files)
+            .field("tmp_access", &self.tmp_access)
             .finish()
     }
 }
@@ -131,6 +135,7 @@ impl Sandbox {
         mode: SandboxMode,
         no_temp_files: bool,
         livelog: bool,
+        tmp_access: bool,
     ) -> Result<Self> {
         let canonicalized = scopes::canonicalize_scopes(
             scopes,
@@ -150,6 +155,7 @@ impl Sandbox {
             read_scopes,
             mode,
             no_temp_files,
+            tmp_access,
         })
     }
 
@@ -160,16 +166,28 @@ impl Sandbox {
             read_scopes: Vec::new(),
             mode: SandboxMode::Test,
             no_temp_files: false,
+            tmp_access: false,
         }
     }
 
-    /// Update the sandbox scopes.
+    /// Update the sandbox scopes, preserving the temp directory if `--tmp` was set.
     pub fn update_scopes(&self, scopes: Vec<PathBuf>) -> Result<()> {
-        let canonicalized = scopes::canonicalize_scopes(
+        let mut canonicalized = scopes::canonicalize_scopes(
             scopes,
             self.mode,
             "Client must provide valid workspace roots.",
         )?;
+
+        if self.tmp_access
+            && let Ok(canonical_temp) = dunce::canonicalize(std::env::temp_dir())
+            && !canonicalized.contains(&canonical_temp)
+        {
+            tracing::info!(
+                "Preserving temp directory in sandbox scopes via --tmp: {:?}",
+                canonical_temp
+            );
+            canonicalized.push(canonical_temp);
+        }
 
         let mut current_scopes = self.scopes.write().unwrap();
         *current_scopes = canonicalized;

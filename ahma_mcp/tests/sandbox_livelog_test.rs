@@ -25,7 +25,7 @@ mod unix_tests {
 
         symlink(&actual_log, log_dir.join("current.log")).unwrap();
 
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         let read_scopes = sandbox.read_scopes();
         assert!(
             !read_scopes.is_empty(),
@@ -51,7 +51,7 @@ mod unix_tests {
 
         symlink(&actual_file, log_dir.join("data.txt")).unwrap();
 
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should ignore non-.log symlinks"
@@ -68,7 +68,7 @@ mod unix_tests {
         // Regular file (not a symlink) — should be ignored
         std::fs::write(log_dir.join("app.log"), "log line").unwrap();
 
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should ignore regular .log files (non-symlink)"
@@ -85,7 +85,7 @@ mod unix_tests {
         // Symlink to non-existent file
         symlink("/nonexistent/path.log", log_dir.join("broken.log")).unwrap();
 
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should ignore broken symlinks"
@@ -104,7 +104,7 @@ mod unix_tests {
 
         symlink(&dir_target, log_dir.join("dir.log")).unwrap();
 
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should ignore symlinks to directories"
@@ -117,7 +117,7 @@ mod unix_tests {
         let scope = temp.path().to_path_buf();
 
         // No log/ directory at all
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should return empty when no log/ directory exists"
@@ -132,7 +132,7 @@ mod unix_tests {
         std::fs::create_dir_all(&log_dir).unwrap();
 
         // log/ exists but has no symlinks
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, true, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "should return empty when log/ has no symlinks"
@@ -151,7 +151,7 @@ mod unix_tests {
         symlink(&actual_log, log_dir.join("current.log")).unwrap();
 
         // livelog = false
-        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, false).unwrap();
+        let sandbox = Sandbox::new(vec![scope], SandboxMode::Strict, false, false, false).unwrap();
         assert!(
             sandbox.read_scopes().is_empty(),
             "livelog=false should not resolve any read scopes"

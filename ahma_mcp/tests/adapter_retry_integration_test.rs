@@ -23,8 +23,16 @@ fn create_test_adapter_with_retry_and_root(
 
     // Create a sandbox with the specific root as a scope + /tmp for tests
     let scopes = vec![root.clone(), std::env::temp_dir()];
-    let sandbox =
-        Arc::new(Sandbox::new(scopes, ahma_mcp::sandbox::SandboxMode::Test, false, false).unwrap());
+    let sandbox = Arc::new(
+        Sandbox::new(
+            scopes,
+            ahma_mcp::sandbox::SandboxMode::Test,
+            false,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
 
     let mut adapter = ahma_mcp::adapter::Adapter::new(monitor, shell_pool, sandbox)
         .expect("Failed to create adapter");

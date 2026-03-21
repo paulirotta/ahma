@@ -370,13 +370,13 @@ async fn red_team_shell_metacharacters_in_path() {
 /// Test that no_temp_files mode is properly set on Sandbox
 #[test]
 fn red_team_no_temp_files_flag_setting() {
-    let sandbox = Sandbox::new(vec![], SandboxMode::Strict, true, false).unwrap();
+    let sandbox = Sandbox::new(vec![], SandboxMode::Strict, true, false, false).unwrap();
     assert!(
         sandbox.is_no_temp_files(),
         "no_temp_files should be enabled"
     );
 
-    let sandbox_default = Sandbox::new(vec![], SandboxMode::Strict, false, false).unwrap();
+    let sandbox_default = Sandbox::new(vec![], SandboxMode::Strict, false, false, false).unwrap();
     assert!(
         !sandbox_default.is_no_temp_files(),
         "no_temp_files should be disabled by default"

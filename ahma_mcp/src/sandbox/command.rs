@@ -169,6 +169,7 @@ mod tests {
             SandboxMode::Strict,
             false,
             false,
+            false,
         )
         .unwrap();
         let result = sandbox.create_command("echo", &["hi".to_string()], td.path());

@@ -1,4 +1,5 @@
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+use base64::Engine as _;
 use reqwest::Client;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -14,6 +15,8 @@ use super::sandbox_env::SandboxTestEnv;
 pub struct TestServerInstance {
     child: Child,
     port: u16,
+    quic_port: Option<u16>,
+    quic_cert_der: Option<Vec<u8>>,
     _temp_dir: TempDir,
 }
 
@@ -26,6 +29,22 @@ impl TestServerInstance {
     /// Get the port this server is listening on.
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Get the QUIC base URL (UDP), or `None` if QUIC is not running.
+    pub fn quic_base_url(&self) -> Option<String> {
+        self.quic_port.map(|p| format!("https://127.0.0.1:{}", p))
+    }
+
+    /// Get the QUIC port, or `None` if QUIC is not running.
+    pub fn quic_port(&self) -> Option<u16> {
+        self.quic_port
+    }
+
+    /// Get the DER-encoded self-signed certificate for the QUIC endpoint,
+    /// or `None` if QUIC is not running.
+    pub fn quic_cert_der(&self) -> Option<&[u8]> {
+        self.quic_cert_der.as_deref()
     }
 }
 
@@ -243,16 +262,43 @@ fn wire_output_reader<R: std::io::Read + Send + 'static>(reader: R, sender: mpsc
     });
 }
 
-fn wait_for_bound_port(receiver: &mpsc::Receiver<String>, timeout: Duration) -> Option<u16> {
+struct ServerStartupInfo {
+    bound_port: u16,
+    quic_port: Option<u16>,
+    quic_cert_der: Option<Vec<u8>>,
+}
+
+fn wait_for_startup_info(
+    receiver: &mpsc::Receiver<String>,
+    timeout: Duration,
+) -> Option<ServerStartupInfo> {
     let start = Instant::now();
+    let mut quic_port: Option<u16> = None;
+    let mut quic_cert_der: Option<Vec<u8>> = None;
+
     while start.elapsed() <= timeout {
         match receiver.recv_timeout(Duration::from_millis(200)) {
             Ok(line) => {
                 eprintln!("{}", line);
-                if let Some(idx) = line.find("AHMA_BOUND_PORT=") {
+                if let Some(idx) = line.find("AHMA_QUIC_PORT=") {
+                    let val = &line[idx + "AHMA_QUIC_PORT=".len()..];
+                    quic_port = val.trim().parse::<u16>().ok();
+                } else if let Some(idx) = line.find("AHMA_QUIC_CERT=") {
+                    let b64 = line[idx + "AHMA_QUIC_CERT=".len()..].trim();
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64)
+                        && !bytes.is_empty()
+                    {
+                        quic_cert_der = Some(bytes);
+                    }
+                } else if let Some(idx) = line.find("AHMA_BOUND_PORT=") {
                     let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
                     if let Ok(port) = port_str.trim().parse::<u16>() {
-                        return Some(port);
+                        // AHMA_BOUND_PORT is always the last startup marker.
+                        return Some(ServerStartupInfo {
+                            bound_port: port,
+                            quic_port,
+                            quic_cert_der,
+                        });
                     }
                 }
             }
@@ -332,15 +378,16 @@ pub async fn spawn_test_server_with_timeout(
     wire_output_reader(stdout, line_tx.clone());
     wire_output_reader(stderr, line_tx);
 
-    let bound_port =
-        match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
-            Some(port) => port,
+    let startup_info =
+        match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
+            Some(info) => info,
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err("Timeout waiting for server to start".to_string());
             }
         };
+    let bound_port = startup_info.bound_port;
 
     eprintln!("[TestServer] Server bound to port {}", bound_port);
 
@@ -348,6 +395,8 @@ pub async fn spawn_test_server_with_timeout(
         return Ok(TestServerInstance {
             child,
             port: bound_port,
+            quic_port: startup_info.quic_port,
+            quic_cert_der: startup_info.quic_cert_der,
             _temp_dir: temp_dir,
         });
     }
@@ -402,8 +451,8 @@ pub async fn spawn_server_guard_with_config(
     wire_output_reader(stderr, line_tx);
 
     let bound_port =
-        match wait_for_bound_port(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
-            Some(port) => port,
+        match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
+            Some(info) => info.bound_port,
             None => {
                 let _ = child.kill();
                 let _ = child.wait();

@@ -47,7 +47,7 @@
 //!     // 1. Initialize core tracking and performance components
 //!     let monitor = Arc::new(OperationMonitor::new(MonitorConfig::with_timeout(Duration::from_secs(300))));
 //!     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-//!     let sandbox = Arc::new(Sandbox::new(Vec::new(), SandboxMode::Strict, false, false)?);
+//!     let sandbox = Arc::new(Sandbox::new(Vec::new(), SandboxMode::Strict, false, false, false)?);
 //!
 //!     // 2. Create the execution adapter
 //!     let adapter = Arc::new(Adapter::new(monitor.clone(), shell_pool, sandbox)?);

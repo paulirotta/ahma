@@ -56,6 +56,8 @@
 pub mod bridge;
 /// Error types for bridge operations.
 pub mod error;
+/// QUIC / HTTP/3 server support.
+pub mod quic;
 /// Session lifecycle management for HTTP clients.
 pub mod session;
 

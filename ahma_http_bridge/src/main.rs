@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         enable_colored_output,
         default_sandbox_scope: args.default_sandbox_scope,
         handshake_timeout_secs: args.handshake_timeout_secs,
+        enable_quic: true,
     };
 
     tracing::info!("Starting Ahma HTTP Bridge on {}", config.bind_addr);

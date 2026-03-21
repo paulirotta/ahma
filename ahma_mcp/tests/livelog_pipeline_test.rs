@@ -109,6 +109,7 @@ async fn test_livelog_pipeline_clean_response_no_alert() {
             SandboxMode::Test,
             false,
             false,
+            false,
         )
         .unwrap(),
     );
@@ -158,6 +159,7 @@ async fn test_livelog_pipeline_issue_detected_sends_alert() {
         Sandbox::new(
             vec![temp_dir.path().to_path_buf()],
             SandboxMode::Test,
+            false,
             false,
             false,
         )
@@ -226,6 +228,7 @@ async fn test_livelog_pipeline_cooldown_suppresses_second_alert() {
             SandboxMode::Test,
             false,
             false,
+            false,
         )
         .unwrap(),
     );
@@ -276,6 +279,7 @@ async fn test_livelog_pipeline_cancellation_stops_pipeline() {
         Sandbox::new(
             vec![temp_dir.path().to_path_buf()],
             SandboxMode::Test,
+            false,
             false,
             false,
         )
@@ -341,6 +345,7 @@ async fn test_livelog_pipeline_llm_http_500_graceful() {
             SandboxMode::Test,
             false,
             false,
+            false,
         )
         .unwrap(),
     );
@@ -388,6 +393,7 @@ async fn test_livelog_pipeline_llm_malformed_json_graceful() {
         Sandbox::new(
             vec![temp_dir.path().to_path_buf()],
             SandboxMode::Test,
+            false,
             false,
             false,
         )
@@ -438,6 +444,7 @@ async fn test_livelog_pipeline_zero_cooldown_fires_all_alerts() {
             SandboxMode::Test,
             false,
             false,
+            false,
         )
         .unwrap(),
     );
@@ -484,6 +491,7 @@ async fn test_livelog_pipeline_source_not_found_graceful() {
         Sandbox::new(
             vec![temp_dir.path().to_path_buf()],
             SandboxMode::Test,
+            false,
             false,
             false,
         )

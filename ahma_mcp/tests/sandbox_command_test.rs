@@ -80,6 +80,7 @@ fn test_sandbox_create_shell_command_strict_mode() {
         SandboxMode::Strict,
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -104,6 +105,7 @@ fn test_sandbox_create_command_strict_mode_basic() {
     let sandbox = Sandbox::new(
         vec![td.path().to_path_buf()],
         SandboxMode::Strict,
+        false,
         false,
         false,
     )

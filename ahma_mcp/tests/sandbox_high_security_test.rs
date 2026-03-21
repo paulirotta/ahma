@@ -7,7 +7,8 @@ fn test_high_security_mode_enforcement() {
     // are not rejected by the no_temp_files policy.
     let scope = dunce::canonicalize(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))).unwrap();
 
-    let sandbox = Sandbox::new(vec![scope.clone()], SandboxMode::Strict, true, false).unwrap();
+    let sandbox =
+        Sandbox::new(vec![scope.clone()], SandboxMode::Strict, true, false, false).unwrap();
     assert!(sandbox.is_no_temp_files());
 
     // 1. Path inside the (non-temp) scope should be allowed

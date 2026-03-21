@@ -37,12 +37,14 @@ use axum::{
     },
     routing::{get, post},
 };
+use base64::Engine as _;
 use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use std::{convert::Infallible, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio_stream::wrappers::BroadcastStream;
 use tower_http::{
     cors::{AllowHeaders, AllowMethods, CorsLayer},
+    set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
 use tracing::{debug, error, info, warn};
@@ -93,6 +95,10 @@ pub struct BridgeConfig {
     /// within this time, tool calls will return a timeout error.
     /// Defaults to 45 seconds.
     pub handshake_timeout_secs: u64,
+
+    /// If `true`, attempt to start an HTTP/3 (QUIC) endpoint alongside HTTP/2.
+    /// The QUIC endpoint uses a self-signed certificate. Defaults to `true`.
+    pub enable_quic: bool,
 }
 
 impl Default for BridgeConfig {
@@ -104,6 +110,7 @@ impl Default for BridgeConfig {
             enable_colored_output: false,
             default_sandbox_scope: None,
             handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
+            enable_quic: true,
         }
     }
 }
@@ -220,23 +227,12 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
     let session_manager = Arc::new(SessionManager::new(session_config));
     let state = Arc::new(BridgeState { session_manager });
 
-    // Build the router
+    // Build the CORS layer.
     // MCP Streamable HTTP transport: single endpoint supporting POST (requests), GET (SSE), DELETE (terminate)
     // See: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http
     let cors = build_cors_layer(&config.bind_addr);
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route(
-            "/mcp",
-            post(handle_mcp_request)
-                .get(handle_sse_stream)
-                .delete(handle_session_delete),
-        )
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
 
-    // Start the server - bind first to get actual port (important when port 0 is used)
+    // Bind TCP first to get the actual ephemeral port (important when port 0 is used).
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await
         .map_err(|e| BridgeError::HttpServer(format!("Failed to bind: {}", e)))?;
@@ -249,10 +245,70 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
     info!("MCP endpoint (POST): http://{}/mcp", local_addr);
     info!("MCP endpoint (GET/SSE): http://{}/mcp", local_addr);
 
+    // Optionally start QUIC / HTTP/3 endpoint.
+    let quic_info = if config.enable_quic {
+        try_start_quic_endpoint(local_addr).await
+    } else {
+        None
+    };
+
+    // Build the axum router. When QUIC is active, inject an Alt-Svc header so
+    // HTTP/2 clients advertise HTTP/3 availability.
+    let app = {
+        let base = Router::new()
+            .route("/health", get(health_check))
+            .route(
+                "/mcp",
+                post(handle_mcp_request)
+                    .get(handle_sse_stream)
+                    .delete(handle_session_delete),
+            )
+            .layer(cors)
+            .with_state(state);
+
+        if let Some(ref qi) = quic_info {
+            let alt_svc = HeaderValue::from_str(&qi.alt_svc_header)
+                .unwrap_or_else(|_| HeaderValue::from_static(""));
+            base.layer(SetResponseHeaderLayer::overriding(
+                axum::http::header::ALT_SVC,
+                alt_svc,
+            ))
+            .layer(TraceLayer::new_for_http())
+        } else {
+            base.layer(TraceLayer::new_for_http())
+        }
+    };
+
+    // Print QUIC startup markers *before* AHMA_BOUND_PORT so parsers see them in order.
+    if let Some(ref qi) = quic_info {
+        eprintln!("AHMA_QUIC_PORT={}", qi.quic_port);
+        eprintln!(
+            "AHMA_QUIC_CERT={}",
+            base64::engine::general_purpose::STANDARD.encode(&qi.cert_der)
+        );
+        info!(
+            "QUIC/HTTP/3 listening on udp://{}:{}",
+            local_addr.ip(),
+            qi.quic_port
+        );
+    } else if config.enable_quic {
+        info!("QUIC/HTTP/3 not started (unavailable or failed to bind)");
+    }
+
     // Print machine-readable bound port for test infrastructure (always print, tests parse it)
     eprintln!("AHMA_BOUND_PORT={}", local_addr.port());
 
-    info!("Protocol: HTTP/2 only (HTTP/1.1 connections will be rejected)");
+    // Spawn QUIC accept loop as a background task.
+    if let Some(qi) = quic_info {
+        let quic_app = app.clone();
+        tokio::spawn(async move {
+            crate::quic::serve_quic(qi.endpoint, quic_app).await;
+        });
+    }
+
+    info!(
+        "Protocol: HTTP/2 (HTTP/1.1 connections will be rejected; clients may upgrade to HTTP/3 via Alt-Svc)"
+    );
     loop {
         let (stream, _peer_addr) = listener
             .accept()
@@ -279,6 +335,75 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
             }
         });
     }
+}
+
+/// Internal state for an active QUIC endpoint.
+struct QuicInfo {
+    endpoint: quinn::Endpoint,
+    quic_port: u16,
+    cert_der: Vec<u8>,
+    alt_svc_header: String,
+}
+
+/// Try to start a QUIC endpoint on the same IP as the TCP listener.
+///
+/// Returns `None` non-fatally if QUIC is unavailable or the binding fails.
+async fn try_start_quic_endpoint(tcp_addr: SocketAddr) -> Option<QuicInfo> {
+    let cert = match crate::quic::cert::generate_self_signed_cert() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("QUIC: failed to generate self-signed cert: {e}");
+            return None;
+        }
+    };
+
+    let tls_config = match crate::quic::cert::build_quic_tls_config(&cert) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("QUIC: failed to build TLS config: {e}");
+            return None;
+        }
+    };
+
+    let quic_server_cfg = match crate::quic::build_quinn_server_config(tls_config) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("QUIC: failed to build quinn server config: {e}");
+            return None;
+        }
+    };
+
+    // Try binding QUIC on the same port as TCP (UDP and TCP namespaces are independent).
+    let quic_bind = SocketAddr::new(tcp_addr.ip(), tcp_addr.port());
+    let endpoint = match quinn::Endpoint::server(quic_server_cfg.clone(), quic_bind) {
+        Ok(e) => e,
+        Err(_) => {
+            // Fallback: OS-assigned UDP port.
+            let fallback = SocketAddr::new(tcp_addr.ip(), 0);
+            match quinn::Endpoint::server(quic_server_cfg, fallback) {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!("QUIC: failed to bind endpoint: {e}");
+                    return None;
+                }
+            }
+        }
+    };
+
+    let quic_port = match endpoint.local_addr() {
+        Ok(a) => a.port(),
+        Err(e) => {
+            warn!("QUIC: failed to query local addr: {e}");
+            return None;
+        }
+    };
+
+    Some(QuicInfo {
+        endpoint,
+        quic_port,
+        cert_der: cert.cert_der,
+        alt_svc_header: format!("h3=\":{}\"", quic_port),
+    })
 }
 
 /// Health check endpoint
@@ -617,6 +742,7 @@ mod tests {
             enable_colored_output: false,
             default_sandbox_scope: Some(std::env::temp_dir()),
             handshake_timeout_secs: 10,
+            enable_quic: false,
         };
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.server_command, "custom_server");

@@ -35,7 +35,17 @@ tokio = { workspace = true, features = [
 ] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { workspace = true, features = ["io", "codec"] }
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "set-header"] }
+
+# QUIC / HTTP/3 support
+base64 = "0.22"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+http-body-util = "0.1"
+quinn = "0.11"
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pki-types = "1"
 tracing-opentelemetry = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
