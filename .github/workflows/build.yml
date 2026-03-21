@@ -254,12 +254,12 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Cargo Nextest (excluding Android/Gradle tests)
+      - name: Cargo Nextest (excluding Android/Kotlin tests)
         run: |
           echo "--- cargo --version" && cargo --version
           echo "--- Running cargo nextest (faster parallel test runner)"
-          # Exclude gradle/android tests - they run in job-android only
-          cargo nextest run --profile ci --locked --no-default-features --no-fail-fast -- --skip gradlew --skip android
+          # Exclude kotlin/android tests - they run in job-android only
+          cargo nextest run --profile ci --locked --no-default-features --no-fail-fast -- --skip kotlin --skip android
 
       - name: Show sccache stats
         run: sccache --show-stats
@@ -366,10 +366,10 @@ jobs:
           restore-keys: |
             gradle-android-${{ runner.os }}-
 
-      - name: Run Android/Gradle tests only
+      - name: Run Android/Kotlin tests only
         run: |
-          # Run ONLY gradle/android tests (feature-gated and name-filtered for clarity)
-          cargo test --locked -p ahma_mcp --features android -- gradlew android
+          # Run ONLY kotlin/android tests (feature-gated and name-filtered for clarity)
+          cargo test --locked -p ahma_mcp --features android -- kotlin android
 
       - name: Show sccache stats
         run: sccache --show-stats
@@ -476,7 +476,7 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          cargo llvm-cov nextest --profile coverage --locked --no-default-features --html --output-dir ./coverage -E 'not test(gradlew) & not test(android)'
+          cargo llvm-cov nextest --profile coverage --locked --no-default-features --html --output-dir ./coverage -E 'not test(kotlin) & not test(android)'
 
       - name: Generate code simplicity report
         run: |

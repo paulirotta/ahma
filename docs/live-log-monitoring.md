@@ -32,10 +32,10 @@ source_command  →  chunk accumulator  →  LLM  →  ProgressUpdate::LogAlert
 
 ```bash
 mkdir -p .ahma
-cp /path/to/ahma/.ahma/android_logcat.json .ahma/
+cp /path/to/ahma/.ahma/android-logcat.json .ahma/
 ```
 
-Or create `.ahma/android_logcat.json` with the content below.
+Or create `.ahma/android-logcat.json` with the content below.
 
 2. Add `--livelog` to your `mcp.json` (VS Code example):
 
@@ -57,7 +57,7 @@ Or create `.ahma/android_logcat.json` with the content below.
 
 ```json
 {
-    "name": "android_logcat",
+    "name": "android-logcat",
     "description": "Monitor Android application logs via ADB logcat, using an LLM to detect crashes, exceptions, and ANR errors in real-time. Returns immediately with an operation ID; push alerts are delivered as MCP progress notifications whenever the LLM detects an issue. Use `cancel` with the operation ID to stop monitoring.",
     "command": "adb",
     "tool_type": "livelog",
@@ -87,10 +87,10 @@ Or create `.ahma/android_logcat.json` with the content below.
 
 ### Starting Monitoring
 
-In your MCP client (VS Code, Cursor, etc.), call the `android_logcat` tool:
+In your MCP client (VS Code, Cursor, etc.), call the `android-logcat` tool:
 
 ```
-Use the android_logcat tool to start monitoring my device logs for crashes.
+Use the android-logcat tool to start monitoring my device logs for crashes.
 ```
 
 The tool returns immediately with an operation ID, for example:
@@ -113,8 +113,49 @@ Or use the built-in `cancel` tool with the operation ID.
 When an issue is detected, you receive a progress notification like:
 
 ```
-[android_logcat] LLM alert: FATAL EXCEPTION in com.example.app — NullPointerException at
+[android-logcat] LLM alert: FATAL EXCEPTION in com.example.app — NullPointerException at
 MainActivity.onCreate(MainActivity.kt:42). Triggered by 3 lines at 14:32:06.
+```
+
+---
+
+## Rust Log Monitoring (Dogfooding)
+
+ahma ships a built-in `rust-log-monitor` livelog tool that watches tracing-appender output. This is used to monitor ahma's own logs during development.
+
+### Setup
+
+```bash
+# Copy the built-in config
+cp .ahma/rust-log-monitor.json .ahma/
+
+# Ensure Ollama is running with llama3.2
+ollama pull llama3.2
+```
+
+### How It Works
+
+The tool runs `tail -F ./log/ahma_mcp.log` and feeds output to a local LLM, which watches for:
+- `ERROR` or `WARN` level tracing entries
+- Thread panics (`thread 'main' panicked at ...`)
+- Unwrap failures on `Option::None` or `Result::Err`
+- Stack traces and backtraces
+- Signals (SIGSEGV, SIGABRT)
+
+### Example Alert
+
+```
+[rust-log-monitor] LLM alert: ERROR in ahma_mcp::sandbox — sandbox enforcement failed:
+"Landlock ruleset creation returned ENOSYS". This indicates the kernel does not support
+Landlock. Triggered by 2 lines at 09:15:32.
+```
+
+### Adapting for Other Rust Projects
+
+Edit `source_args` in the JSON to point to your application's log file:
+
+```json
+"source_args": ["-F", "./logs/my-app.log"]
 ```
 
 ---

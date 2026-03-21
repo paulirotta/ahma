@@ -89,8 +89,8 @@ name = "git_tool"
 path = "examples/git_tool.rs"
 
 [[example]]
-name = "gradlew_tool"
-path = "examples/gradlew_tool.rs"
+name = "kotlin_tool"
+path = "examples/kotlin_tool.rs"
 
 [[example]]
 name = "python_tool"

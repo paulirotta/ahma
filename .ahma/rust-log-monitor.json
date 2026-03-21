@@ -1,0 +1,33 @@
+{
+    "name": "rust-log-monitor",
+    "description": "Monitor Rust application logs (tracing-appender output) using an LLM to detect errors, panics, and stack traces in real-time. Returns immediately with an operation ID; push alerts are delivered as MCP progress notifications whenever the LLM detects an issue. Use `cancel` with the operation ID to stop monitoring.",
+    "command": "tail",
+    "tool_type": "livelog",
+    "enabled": true,
+    "livelog": {
+        "source_command": "tail",
+        "source_args": [
+            "-F",
+            "./log/ahma_mcp.log"
+        ],
+        "detection_prompt": "Look for ERROR or WARN level lines, thread panics ('thread .* panicked at'), unwrap failures ('called `Option::unwrap()` on a `None` value' or 'called `Result::unwrap()` on an `Err` value'), stack traces (lines starting with whitespace followed by 'at' or containing '::' backtraces), SIGSEGV, SIGABRT, or any log line indicating a real problem rather than normal operation.",
+        "llm_provider": {
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2"
+        },
+        "chunk_max_lines": 50,
+        "chunk_max_seconds": 30,
+        "cooldown_seconds": 60,
+        "llm_timeout_seconds": 30
+    },
+    "hints": {
+        "build": null,
+        "test": null,
+        "custom": {
+            "usage": "Call this tool to start live monitoring of Rust tracing-appender log output. The tool watches `./log/ahma_mcp.log` using `tail -F` (follows through log rotation). Returns an operation ID immediately; MCP progress notifications appear when the LLM detects errors or panics. Call `cancel` with the operation ID when finished.",
+            "prerequisites": "The Rust application must write logs via tracing-appender to `./log/`. Set RUST_LOG to control log verbosity (e.g. RUST_LOG=debug). Ollama must be running locally on port 11434 with the `llama3.2` model available (`ollama pull llama3.2`).",
+            "log_path": "Default watches `./log/ahma_mcp.log`. For other Rust projects, edit `source_args` to point to your tracing-appender log file.",
+            "stopping": "Use `cancel <operation_id>` to stop monitoring gracefully."
+        }
+    }
+}

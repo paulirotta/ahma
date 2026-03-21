@@ -407,7 +407,7 @@ Set `"tool_type": "livelog"` to turn any long-running log-streaming command into
 
 ```json
 {
-    "name": "android_logcat",
+    "name": "android-logcat",
     "description": "Monitor Android logs with LLM-powered crash detection.",
     "command": "adb",
     "tool_type": "livelog",
@@ -427,7 +427,7 @@ Set `"tool_type": "livelog"` to turn any long-running log-streaming command into
 }
 ```
 
-A ready-to-use copy is in [`.ahma/android_logcat.json`](.ahma/android_logcat.json).  Usage guide: [docs/live-log-monitoring.md](docs/live-log-monitoring.md).
+A ready-to-use copy is in [`.ahma/android-logcat.json`](.ahma/android-logcat.json).  Usage guide: [docs/live-log-monitoring.md](docs/live-log-monitoring.md).
 
 #### Security note
 
@@ -447,7 +447,7 @@ ahma-mcp --mode stdio
 
 Alternatively, standard tool configurations are bundled directly inside the binary. Enable them using CLI flags to activate built-in fallback definitions:
 ```bash
-ahma-mcp --mode stdio --rust --python --git --github --fileutils --simplify --gradle
+ahma-mcp --mode stdio --rust --python --git --github --fileutils --simplify --kotlin
 ```
 
 Note: Core tools (`sandboxed_shell`, `await`, `status`, `cancel`) are always available without any flags.

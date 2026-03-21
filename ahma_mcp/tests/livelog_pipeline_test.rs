@@ -322,3 +322,197 @@ async fn test_livelog_pipeline_cancellation_stops_pipeline() {
         "no alerts expected after immediate cancellation"
     );
 }
+
+/// LLM returning HTTP 500 should not crash the pipeline — it logs a warning
+/// and continues to the next chunk.
+#[tokio::test]
+async fn test_livelog_pipeline_llm_http_500_graceful() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
+        .mount(&server)
+        .await;
+
+    let temp_dir = tempdir().unwrap();
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp_dir.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
+
+    let config = make_config(
+        "echo",
+        vec!["ERROR something broke".to_string()],
+        &server.uri(),
+        "look for errors",
+    );
+
+    let callback = MockCallback::new();
+    let token = CancellationToken::new();
+
+    // Pipeline should complete without panic/hang despite LLM 500.
+    run_livelog_pipeline(
+        "test-op-500",
+        &config,
+        &sandbox,
+        temp_dir.path(),
+        token,
+        Some(&callback),
+    )
+    .await;
+
+    // The LLM error means no alert is generated (the error is logged, not propagated).
+    assert!(
+        callback.captured_alerts().is_empty(),
+        "LLM 500 should not produce an alert"
+    );
+}
+
+/// LLM returning invalid JSON should be handled gracefully — no crash, no alert.
+#[tokio::test]
+async fn test_livelog_pipeline_llm_malformed_json_graceful() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not valid json {{{"))
+        .mount(&server)
+        .await;
+
+    let temp_dir = tempdir().unwrap();
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp_dir.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
+
+    let config = make_config(
+        "echo",
+        vec!["WARN something fishy".to_string()],
+        &server.uri(),
+        "look for warnings",
+    );
+
+    let callback = MockCallback::new();
+    let token = CancellationToken::new();
+
+    run_livelog_pipeline(
+        "test-op-bad-json",
+        &config,
+        &sandbox,
+        temp_dir.path(),
+        token,
+        Some(&callback),
+    )
+    .await;
+
+    assert!(
+        callback.captured_alerts().is_empty(),
+        "malformed LLM JSON should not produce an alert"
+    );
+}
+
+/// With cooldown=0, every chunk that triggers an LLM issue should fire an alert.
+#[tokio::test]
+async fn test_livelog_pipeline_zero_cooldown_fires_all_alerts() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(make_llm_response("Bug detected!")))
+        .expect(2) // two chunks → two LLM calls
+        .mount(&server)
+        .await;
+
+    let temp_dir = tempdir().unwrap();
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp_dir.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
+
+    // Two lines with chunk_max_lines=1 → two chunks.
+    let mut config = make_config(
+        "printf",
+        vec!["line1\\nline2\\n".to_string()],
+        &server.uri(),
+        "look for bugs",
+    );
+    config.cooldown_seconds = 0; // no suppression
+
+    let callback = MockCallback::new();
+    let token = CancellationToken::new();
+
+    run_livelog_pipeline(
+        "test-op-zero-cd",
+        &config,
+        &sandbox,
+        temp_dir.path(),
+        token,
+        Some(&callback),
+    )
+    .await;
+
+    let alerts = callback.captured_alerts();
+    assert_eq!(
+        alerts.len(),
+        2,
+        "both chunks should produce alerts with cooldown=0, got {}",
+        alerts.len()
+    );
+}
+
+/// A source command that does not exist should not crash the pipeline.
+#[tokio::test]
+async fn test_livelog_pipeline_source_not_found_graceful() {
+    let server = MockServer::start().await;
+    // LLM mock is set up but should never be reached.
+
+    let temp_dir = tempdir().unwrap();
+    let sandbox = Arc::new(
+        Sandbox::new(
+            vec![temp_dir.path().to_path_buf()],
+            SandboxMode::Test,
+            false,
+            false,
+        )
+        .unwrap(),
+    );
+
+    let config = make_config(
+        "this_command_definitely_does_not_exist_12345",
+        vec![],
+        &server.uri(),
+        "unused",
+    );
+
+    let callback = MockCallback::new();
+    let token = CancellationToken::new();
+
+    // Should complete without panicking.
+    run_livelog_pipeline(
+        "test-op-not-found",
+        &config,
+        &sandbox,
+        temp_dir.path(),
+        token,
+        Some(&callback),
+    )
+    .await;
+
+    assert!(
+        callback.captured_alerts().is_empty(),
+        "no alerts expected when source command not found"
+    );
+}

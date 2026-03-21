@@ -1,5 +1,5 @@
 {
-    "name": "android_logcat",
+    "name": "android-logcat",
     "description": "Monitor Android application logs via ADB logcat, using an LLM to detect crashes, exceptions, and ANR errors in real-time. Returns immediately with an operation ID; push alerts are delivered as MCP progress notifications whenever the LLM detects an issue. Use `cancel` with the operation ID to stop monitoring.",
     "command": "adb",
     "tool_type": "livelog",

@@ -10,7 +10,7 @@ use ahma_mcp::config::{LivelogConfig, LlmProviderConfig, ToolConfig, ToolType};
 #[test]
 fn test_livelog_config_full_roundtrip() {
     let json = r#"{
-        "name": "android_logcat",
+        "name": "android-logcat",
         "description": "Monitor Android logs",
         "command": "adb",
         "tool_type": "livelog",
@@ -183,4 +183,114 @@ fn test_tool_type_command_deserialization() {
     let json = r#""command""#;
     let tt: ToolType = serde_json::from_str(json).expect("should parse command");
     assert_eq!(tt, ToolType::Command);
+}
+
+// ---------------------------------------------------------------------------
+// Load from actual bundled config files
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_android_logcat_json_loads() {
+    let json = include_str!("../../.ahma/android-logcat.json");
+    let config: ToolConfig = serde_json::from_str(json).expect("android-logcat.json should parse");
+    assert_eq!(config.name, "android-logcat");
+    assert_eq!(config.tool_type, Some(ToolType::Livelog));
+    let lc = config.livelog.expect("livelog block required");
+    assert_eq!(lc.source_command, "adb");
+    assert!(!lc.detection_prompt.is_empty());
+}
+
+#[test]
+fn test_rust_log_monitor_json_loads() {
+    let json = include_str!("../../.ahma/rust-log-monitor.json");
+    let config: ToolConfig =
+        serde_json::from_str(json).expect("rust-log-monitor.json should parse");
+    assert_eq!(config.name, "rust-log-monitor");
+    assert_eq!(config.tool_type, Some(ToolType::Livelog));
+    let lc = config.livelog.expect("livelog block required");
+    assert_eq!(lc.source_command, "tail");
+    assert!(lc.source_args.contains(&"-F".to_string()));
+    assert!(!lc.detection_prompt.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Edge cases: zero-valued tunables
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_livelog_config_zero_chunk_max_lines() {
+    let json = r#"{
+        "source_command": "tail",
+        "source_args": ["-f", "app.log"],
+        "detection_prompt": "Look for errors",
+        "llm_provider": {
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2"
+        },
+        "chunk_max_lines": 0
+    }"#;
+
+    let lc: LivelogConfig = serde_json::from_str(json).expect("zero chunk_max_lines should parse");
+    assert_eq!(lc.chunk_max_lines, 0);
+}
+
+#[test]
+fn test_livelog_config_zero_cooldown() {
+    let json = r#"{
+        "source_command": "tail",
+        "source_args": ["-f", "app.log"],
+        "detection_prompt": "Look for errors",
+        "llm_provider": {
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2"
+        },
+        "cooldown_seconds": 0
+    }"#;
+
+    let lc: LivelogConfig = serde_json::from_str(json).expect("zero cooldown should parse");
+    assert_eq!(lc.cooldown_seconds, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Invalid LLM provider config
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_llm_provider_missing_base_url_fails() {
+    let json = r#"{
+        "model": "llama3.2"
+    }"#;
+
+    let result = serde_json::from_str::<LlmProviderConfig>(json);
+    assert!(result.is_err(), "should fail without base_url");
+}
+
+#[test]
+fn test_llm_provider_missing_model_fails() {
+    let json = r#"{
+        "base_url": "http://localhost:11434/v1"
+    }"#;
+
+    let result = serde_json::from_str::<LlmProviderConfig>(json);
+    assert!(result.is_err(), "should fail without model");
+}
+
+// ---------------------------------------------------------------------------
+// tool_type = livelog without livelog block deserializes (handler catches this)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_livelog_tool_type_without_block_deserializes() {
+    let json = r#"{
+        "name": "broken_livelog",
+        "description": "Missing livelog block",
+        "command": "tail",
+        "tool_type": "livelog",
+        "enabled": true
+    }"#;
+
+    let config: ToolConfig =
+        serde_json::from_str(json).expect("should deserialize even without livelog block");
+    assert_eq!(config.tool_type, Some(ToolType::Livelog));
+    assert!(config.livelog.is_none(), "livelog block should be absent");
 }

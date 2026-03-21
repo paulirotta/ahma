@@ -125,7 +125,7 @@ fn test_json_tool_configuration_count_invariant() {
     println!("📁 Found JSON tool configurations: {:?}", json_files);
 
     // CRITICAL: These are CLI tool adapters only. Core tools (sandboxed_shell, status, await, cancel) are hardwired.
-    // Expected bundled tool definitions (minimal set): rust.json, python.json, git.json, gh.json, gradlew.json, file-tools.json, simplify.json
+    // Expected bundled tool definitions (minimal set): rust.json, python.json, git.json, gh.json, kotlin.json, file-tools.json, simplify.json
     // total should be at least 5.
     assert!(
         json_files.len() >= 5,

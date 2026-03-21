@@ -1,6 +1,6 @@
 {
-    "name": "gradlew",
-    "description": "Android Gradle Wrapper for building and managing Android projects",
+    "name": "kotlin",
+    "description": "Kotlin/Android build tools via Gradle Wrapper",
     "command": "./gradlew",
     "enabled": true,
     "timeout_seconds": 600,
@@ -762,6 +762,20 @@
             "name": "ktlintFormat",
             "guidance_key": "async_behavior",
             "description": "Run Kotlin linter and auto-fix issues (Runs asynchronously - returns id immediately)",
+            "options": [
+                {
+                    "name": "working_directory",
+                    "type": "string",
+                    "description": "Working directory for command execution",
+                    "format": "path"
+                }
+            ],
+            "synchronous": false
+        },
+        {
+            "name": "custom",
+            "guidance_key": "async_behavior",
+            "description": "Run any Gradle task not explicitly listed above. Pass the task name as the first extra argument (Runs asynchronously - returns id immediately)",
             "options": [
                 {
                     "name": "working_directory",

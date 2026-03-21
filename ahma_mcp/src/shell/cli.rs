@@ -384,9 +384,9 @@ pub struct Cli {
     #[arg(long)]
     pub git: bool,
 
-    /// Bundle and enable the gradle toolset (gradlew.json)
+    /// Bundle and enable the Kotlin/Android toolset (kotlin.json)
     #[arg(long)]
-    pub gradle: bool,
+    pub kotlin: bool,
 
     /// Bundle and enable the python toolset (python.json)
     #[arg(long)]

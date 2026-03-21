@@ -10,7 +10,7 @@ Each example loads and validates a specific tool configuration from the `configs
 - **[file-tools.rs](file-tools.rs)** - Validates `configs/file-tools.json` (Unix file operations)
 - **[gh_tool.rs](gh_tool.rs)** - Validates `configs/gh.json` (GitHub CLI)
 - **[git_tool.rs](git_tool.rs)** - Validates `configs/git.json` (Git version control)
-- **[gradlew_tool.rs](gradlew_tool.rs)** - Validates `configs/gradlew.json` (Gradle wrapper)
+- **[kotlin_tool.rs](kotlin_tool.rs)** - Validates `configs/kotlin.json` (Kotlin/Android Gradle wrapper)
 - **[python_tool.rs](python_tool.rs)** - Validates `configs/python.json` (Python interpreter)
 
 ## Running Examples

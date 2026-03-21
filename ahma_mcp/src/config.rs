@@ -523,8 +523,8 @@ pub async fn load_tool_configs(
     if cli.git {
         builtin_tools.push(("git", include_str!("../../.ahma/git.json")));
     }
-    if cli.gradle {
-        builtin_tools.push(("gradlew", include_str!("../../.ahma/gradlew.json")));
+    if cli.kotlin {
+        builtin_tools.push(("kotlin", include_str!("../../.ahma/kotlin.json")));
     }
     if cli.python {
         builtin_tools.push(("python", include_str!("../../.ahma/python.json")));
@@ -614,7 +614,7 @@ pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collection
         ("fileutils", cli.fileutils),
         ("github", cli.github),
         ("git", cli.git),
-        ("gradle", cli.gradle),
+        ("kotlin", cli.kotlin),
         ("python", cli.python),
         ("simplify", cli.simplify),
     ];

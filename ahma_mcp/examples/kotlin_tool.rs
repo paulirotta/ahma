@@ -1,12 +1,12 @@
-//! Gradle Wrapper Tool Configuration Example
+//! Kotlin/Android Tool Configuration Example
 //!
-//! This example demonstrates how to load and validate the gradlew (Gradle Wrapper) tool configuration
+//! This example demonstrates how to load and validate the Kotlin/Android (Gradle Wrapper) tool configuration
 //! from the examples/configs directory.
 //!
 //! # Usage
 //!
 //! ```bash
-//! cargo run --example gradlew_tool
+//! cargo run --example kotlin_tool
 //! ```
 
 use ahma_mcp::schema_validation::MtdfValidator;
@@ -16,10 +16,10 @@ use std::process;
 fn main() {
     // Get the workspace root
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let config_path = manifest_dir.join("examples/configs/gradlew.json");
+    let config_path = manifest_dir.join("examples/configs/kotlin.json");
 
     println!(
-        "Loading gradlew tool configuration from: {}",
+        "Loading Kotlin/Android tool configuration from: {}",
         config_path.display()
     );
 

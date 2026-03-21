@@ -24,7 +24,7 @@ Standard tool configurations are compiled into the `ahma-mcp` binary. They are o
 | `--git` | `git` | Git version control |
 | `--github` | `gh` | GitHub CLI (PRs, issues, releases) |
 | `--python` | `python` | Python interpreter and pip |
-| `--gradle` | `gradlew` | Android Gradle wrapper |
+| `--kotlin` | `kotlin` | Kotlin/Android Gradle wrapper |
 | `--simplify` | `simplify` | Code complexity metrics |
 
 Example: `ahma-mcp --mode stdio --rust --git --fileutils`
