@@ -6,14 +6,14 @@
 mod common;
 
 use common::spawn_test_server;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 
 #[tokio::test]
 async fn test_sse_without_session_header_returns_404() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let resp = client
         .get(format!("{}/mcp", server.base_url()))
@@ -29,7 +29,7 @@ async fn test_sse_with_unknown_session_returns_404() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let resp = client
         .get(format!("{}/mcp", server.base_url()))

@@ -233,7 +233,7 @@ macro_rules! setup_fast_error_test {
 
         let _server = spawn_test_server().await.expect("Failed to spawn server");
         CURRENT_SERVER_URL.with(|u| *u.borrow_mut() = Some(_server.base_url()));
-        let $client = Client::new();
+        let $client = common::make_h2_client();
 
         // Wait a moment for the server to stabilize if it just started
         tokio::time::sleep(Duration::from_millis(200)).await;

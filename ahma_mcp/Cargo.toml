@@ -35,7 +35,7 @@ opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true, optional = true }
 rand = "0.10.0"
 regex.workspace = true
-reqwest = { workspace = true, features = ["json", "rustls", "http3"] }
+reqwest = { workspace = true, features = ["json", "rustls", "http2", "http3"] }
 rmcp.workspace = true
 schemars.workspace = true
 serde.workspace = true

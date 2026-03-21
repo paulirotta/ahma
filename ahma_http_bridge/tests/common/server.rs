@@ -264,7 +264,10 @@ fn wait_for_bound_port(receiver: &mpsc::Receiver<String>, timeout: Duration) -> 
 }
 
 async fn wait_for_health(port: u16) -> bool {
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 health-check client");
     let health_url = format!("http://127.0.0.1:{}/health", port);
     let timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
     let poll_interval = TestTimeouts::poll_interval();

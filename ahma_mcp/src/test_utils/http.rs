@@ -133,7 +133,10 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
     let mut child = cmd.spawn()?;
 
     // Wait for server health
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .context("Failed to build HTTP/2 health-check client")?;
     let health_url = format!("http://127.0.0.1:{}/health", port);
 
     let start = Instant::now();
@@ -170,7 +173,10 @@ pub struct HttpMcpTestClient {
 impl HttpMcpTestClient {
     pub fn new(base_url: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .http2_prior_knowledge()
+                .build()
+                .expect("Failed to build HTTP/2 test client"),
             base_url,
             session_id: None,
         }

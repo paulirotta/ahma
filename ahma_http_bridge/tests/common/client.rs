@@ -43,7 +43,10 @@ impl McpTestClient {
     /// Create a new MCP test client for a specific server URL.
     pub fn with_url(base_url: &str) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .http2_prior_knowledge()
+                .build()
+                .expect("Failed to build HTTP/2 test client"),
             base_url: base_url.to_string(),
             session_id: None,
             transport_mode: TransportMode::Json,

@@ -15,7 +15,7 @@ async fn test_initialize_missing_protocol_version_fails_fast() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = reqwest::Client::new();
+    let client = common::make_h2_client();
 
     let malformed_initialize = serde_json::json!({
         "jsonrpc": "2.0",

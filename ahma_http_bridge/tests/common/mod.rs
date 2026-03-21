@@ -31,6 +31,16 @@ pub use uri::{
     parse_file_uri, paths_equivalent,
 };
 
+/// Create an HTTP/2-only reqwest client for use against the bridge server.
+///
+/// The server only accepts HTTP/2 (h2c). HTTP/1.1 connections are rejected.
+pub fn make_h2_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 test client")
+}
+
 /// Spawn and handshake a test MCP server/client, then verify required tools exist.
 ///
 /// Returns `None` (skip) when infrastructure setup fails or required tools are missing.

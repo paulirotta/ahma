@@ -105,7 +105,10 @@ async fn start_http_bridge(
         .expect("Failed to start HTTP bridge");
 
     // Wait for server to be ready
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 client");
     let health_url = format!("http://127.0.0.1:{}/health", port);
 
     for _ in 0..30 {
@@ -189,7 +192,10 @@ async fn test_delete_session_terminates_subprocess() {
 
     let child = start_http_bridge(port, &tools_dir, temp_dir.path()).await;
     let _guard = ServerGuard::new(child);
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 client");
 
     // Step 1: Initialize a session
     let init_request = json!({
@@ -285,7 +291,10 @@ async fn test_delete_without_session_id_returns_400() {
 
     let child = start_http_bridge(port, &tools_dir, temp_dir.path()).await;
     let _guard = ServerGuard::new(child);
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 client");
 
     // Send DELETE without session ID
     let delete_url = format!("{}/mcp", base_url);
@@ -326,7 +335,10 @@ async fn test_delete_nonexistent_session_returns_404() {
 
     let child = start_http_bridge(port, &tools_dir, temp_dir.path()).await;
     let _guard = ServerGuard::new(child);
-    let client = Client::new();
+    let client = Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("Failed to build HTTP/2 client");
 
     // Send DELETE with a fake session ID
     let delete_url = format!("{}/mcp", base_url);

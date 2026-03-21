@@ -12,6 +12,9 @@ ahma_common = { path = "../ahma_common" }
 anyhow.workspace = true
 axum = { version = "0.8", features = ["http2", "tokio"] }
 bytes = "1.11"
+hyper = { version = "1", features = ["http2", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5" }
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 dashmap = "6.1"
@@ -49,7 +52,7 @@ opentelemetry = [
 ahma_mcp = { path = "../ahma_mcp" }
 dunce.workspace = true
 futures.workspace = true
-reqwest = { workspace = true, features = ["json", "stream", "http3"] }
+reqwest = { workspace = true, features = ["json", "stream", "http2", "http3"] }
 serial_test = "3.4"
 tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }

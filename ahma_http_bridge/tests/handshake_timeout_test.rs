@@ -16,7 +16,6 @@ mod common;
 
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::{spawn_test_server, spawn_test_server_with_timeout};
-use reqwest::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{Value, json};
 
@@ -30,7 +29,7 @@ async fn test_tools_call_without_sse_returns_handshake_timeout() {
     let server = spawn_test_server_with_timeout(Some(2))
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Step 1: Initialize (creates session)
     let init_req = json!({
@@ -130,7 +129,7 @@ async fn test_tools_call_without_initialized_notification_returns_timeout() {
     let server = spawn_test_server_with_timeout(Some(2))
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Step 1: Initialize
     let init_req = json!({
@@ -271,7 +270,7 @@ async fn test_tools_call_during_handshake_returns_conflict() {
     let server = spawn_test_server_with_timeout(Some(60))
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Initialize only
     let init_req = json!({
@@ -355,7 +354,7 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
         .await
         .expect("Failed to spawn server 2");
 
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Initialize both servers
     let init_req = |name: &str| {

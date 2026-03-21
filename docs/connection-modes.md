@@ -1,6 +1,8 @@
 # Connection Modes
 
-`ahma-mcp` supports three connection modes for different integration scenarios.
+`ahma-mcp` supports:
+1. **STDIO Mode** (default): IDE spawns `ahma-mcp` as a subprocess and communicates via standard I/O. Recommended for development.
+2. **HTTP Mode**: Start `ahma-mcp --mode http` for HTTP/3 (QUIC) support.
 
 ## 1. STDIO Mode (Default)
 
@@ -25,6 +27,19 @@ ahma-mcp --mode stdio
             "type": "stdio",
             "command": "ahma-mcp",
             "args": ["--tmp", "--livelog", "--simplify"]
+        }
+    }
+}
+```
+
+Alternatively, in a terminal run `ahma-mcp --mode http` for visibility of all actions, and use:
+
+```json
+{
+    "servers": {
+        "Ahma-http": {
+            "type": "http",
+            "url": "http://localhost:3000/mcp"
         }
     }
 }
@@ -71,9 +86,45 @@ ahma-mcp --mode stdio
 }
 ```
 
-## 2. HTTP Bridge Mode
+## 2. HTTP Mode (EXPERIMENTAL)
+
+**IMPORTANT SECURITY NOTE**: HTTP mode is for local development only. Do not expose to untrusted networks. OAuth pass through is not yet fully implemented, so all tools are available to any client that can connect. Use firewall rules or `--http-host` to restrict access.
+
+First start the server in a terminal with your preferred flags, defaulting to port 3000:
+
+```bash
+ahma-mcp --mode http --tmp --livelog --simplify
+```
+
+The HTTP server requires **HTTP/2 or HTTP/3**. HTTP/1.1 connections are explicitly rejected.
+
+- **HTTP/2** (h2c — cleartext, no TLS required): the default transport for all HTTP clients.
+- **HTTP/3** (QUIC): clients that support HTTP/3 and Alt-Svc negotiation may upgrade automatically. Server-side QUIC is not yet implemented; clients fall back to HTTP/2.
+
+Default endpoint: `http://localhost:3000/mcp`
+
+- `POST /mcp` with `Accept: application/json`: JSON-RPC, preferred for speed and low overhead.
+- `POST /mcp` with `Accept: text/event-stream`: Streamable HTTP (SSE fallback for some networks).
+- `GET /mcp` with `Accept: text/event-stream`: SSE stream for server-to-client events.
+
+> **Client configuration**: Configure your HTTP client with HTTP/2 prior-knowledge (`--http2-prior-knowledge` in curl, `http2_prior_knowledge()` in reqwest) because the server does not negotiate via ALPN (no TLS).
+
+Then configure your IDE to connect to for example `http://localhost:3000/mcp`:
+
+```json
+{
+    "servers": {
+        "Ahma-http": {
+            "type": "http",
+            "url": "http://localhost:3000/mcp"
+        }
+    }
+}
+```
 
 HTTP server that proxies MCP protocol to a stdio subprocess. Used for web clients, remote agents, debugging, or multi-client scenarios.
+
+#  Used for increased visibility, web clients, remote agents, debugging, or multi-client scenarios. While sandbox scope is automatic in stdio mode, HTTP mode requires your MCP client to support `roots/list` responses. VSCode and Cursor do this automatically. For clients that don't, you can set a fixed sandbox scope (e.g. `--sandbox-scope /path/to/your/project`).
 
 ```bash
 # Start on default port 3000 (sandbox scope from roots/list)
@@ -89,8 +140,6 @@ ahma-mcp --mode http
 # Custom port and host
 ahma-mcp --mode http --http-port 8080 --http-host 127.0.0.1
 ```
-
-**Security note**: HTTP mode is for local development only. Do not expose to untrusted networks.
 
 | Feature | STDIO Mode | HTTP Mode |
 |---------|-----------|----------|
@@ -147,4 +196,6 @@ In HTTP mode, each MCP session gets its own sandbox scope derived from the `root
 
 ## HTTP/3 (QUIC)
 
-All HTTP clients in Ahma prefer HTTP/3 (QUIC) when the server advertises support via `Alt-Svc` headers, with transparent fallback to HTTP/2 and HTTP/1.1.
+Ahma HTTP clients built on `reqwest` prefer HTTP/3 (QUIC) when the remote server advertises support via `Alt-Svc`, with transparent fallback to HTTP/2 and HTTP/1.1.
+
+For this local HTTP bridge endpoint, clients should expect HTTP/2 or HTTP/1.1.

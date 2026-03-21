@@ -252,11 +252,33 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
     // Print machine-readable bound port for test infrastructure (always print, tests parse it)
     eprintln!("AHMA_BOUND_PORT={}", local_addr.port());
 
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| BridgeError::HttpServer(format!("Server error: {}", e)))?;
-
-    Ok(())
+    info!("Protocol: HTTP/2 only (HTTP/1.1 connections will be rejected)");
+    loop {
+        let (stream, _peer_addr) = listener
+            .accept()
+            .await
+            .map_err(|e| BridgeError::HttpServer(format!("Accept error: {}", e)))?;
+        let svc = app.clone();
+        tokio::spawn(async move {
+            let io = hyper_util::rt::TokioIo::new(stream);
+            let hyper_svc =
+                hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    let mut svc = svc.clone();
+                    async move {
+                        use tower::Service;
+                        let req = req.map(axum::body::Body::new);
+                        svc.call(req).await
+                    }
+                });
+            if let Err(e) =
+                hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(io, hyper_svc)
+                    .await
+            {
+                tracing::debug!("HTTP/2 connection closed: {:#}", e);
+            }
+        });
+    }
 }
 
 /// Health check endpoint

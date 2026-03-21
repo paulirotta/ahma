@@ -5,7 +5,7 @@
 //!
 //! With the `http3` feature enabled on reqwest, the client automatically prefers
 //! HTTP/3 (QUIC) when the server advertises it via Alt-Svc headers. Against
-//! servers that only support HTTP/1.1 or HTTP/2 (like the current TCP-based bridge),
+//! servers that only support HTTP/2 (like the current TCP-based bridge),
 //! the client gracefully falls back.
 
 mod common;
@@ -18,9 +18,10 @@ use std::time::Duration;
 /// Build a reqwest client with HTTP/3 (QUIC) support enabled.
 ///
 /// This client will prefer HTTP/3 when the server supports it and
-/// transparently fall back to HTTP/2 or HTTP/1.1 otherwise.
+/// transparently fall back to HTTP/2 otherwise.
 fn build_http3_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .http2_prior_knowledge()
         .build()
         .expect("HTTP/3-capable client should build successfully")
 }
@@ -48,7 +49,7 @@ async fn test_http3_client_json_post() {
         .timeout(Duration::from_secs(60))
         .send()
         .await
-        .expect("HTTP/3 client should connect (falling back to HTTP/1.1 or HTTP/2)");
+        .expect("HTTP/3 client should connect (falling back to HTTP/2)");
 
     assert!(resp.status().is_success(), "Should return 2xx");
 

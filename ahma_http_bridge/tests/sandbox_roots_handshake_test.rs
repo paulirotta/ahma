@@ -128,7 +128,7 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
     }
 
     // Wait for server to be ready (health check)
-    let client = Client::new();
+    let client = common::make_h2_client();
     let health_url = format!("http://127.0.0.1:{}/health", port);
     let health_timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
     let health_start = std::time::Instant::now();
@@ -401,7 +401,7 @@ async fn test_empty_roots_rejection() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Complete handshake
     let session_id = complete_handshake(&client, &base_url)
@@ -546,7 +546,7 @@ async fn test_session_with_only_malformed_uris() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let session_id = complete_handshake(&client, &base_url)
         .await
@@ -629,7 +629,7 @@ async fn test_multi_root_workspace_scoping() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let session_id = complete_handshake(&client, &base_url)
         .await
@@ -736,7 +736,7 @@ async fn test_url_encoded_path_in_roots() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let session_id = complete_handshake(&client, &base_url)
         .await
@@ -899,7 +899,7 @@ async fn test_handshake_ordering_sse_first() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // VSCode Copilot style: Initialize, then SSE connects and answers roots/list
 
@@ -999,7 +999,7 @@ async fn test_mixed_valid_invalid_uris() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let session_id = complete_handshake(&client, &base_url)
         .await
@@ -1091,7 +1091,7 @@ async fn test_post_lock_roots_change_rejected() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Complete handshake with initial root
     let session_id = complete_handshake(&client, &base_url)
@@ -1228,7 +1228,7 @@ async fn test_working_directory_outside_sandbox_rejected() {
 
     let server = start_deferred_sandbox_server(&tools_dir).await;
     let base_url = format!("http://127.0.0.1:{}", server.port());
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let session_id = complete_handshake(&client, &base_url)
         .await

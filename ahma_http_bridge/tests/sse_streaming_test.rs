@@ -8,7 +8,6 @@ mod common;
 
 use common::{McpTestClient, spawn_test_server};
 use futures::StreamExt;
-use reqwest::Client;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -18,7 +17,7 @@ use std::time::Duration;
 async fn test_post_json_content_negotiation() {
     let server = spawn_test_server().await.expect("server should start");
 
-    let http = Client::new();
+    let http = common::make_h2_client();
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
         .header("Content-Type", "application/json")
@@ -59,7 +58,7 @@ async fn test_post_json_content_negotiation() {
 async fn test_post_sse_content_negotiation() {
     let server = spawn_test_server().await.expect("server should start");
 
-    let http = Client::new();
+    let http = common::make_h2_client();
 
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
@@ -116,7 +115,7 @@ async fn test_post_sse_content_negotiation() {
 async fn test_post_sse_response_includes_event_id() {
     let server = spawn_test_server().await.expect("server should start");
 
-    let http = Client::new();
+    let http = common::make_h2_client();
 
     let resp = http
         .post(format!("{}/mcp", server.base_url()))
@@ -187,7 +186,7 @@ async fn test_get_sse_events_include_event_id() {
         .expect("should have session")
         .to_string();
 
-    let http = Client::new();
+    let http = common::make_h2_client();
 
     // Open SSE stream
     let resp = http
@@ -336,7 +335,7 @@ async fn test_post_sse_streams_response() {
         .session_id()
         .expect("should have session")
         .to_string();
-    let http = Client::new();
+    let http = common::make_h2_client();
 
     let resp = http
         .post(format!("{}/mcp", server.base_url()))

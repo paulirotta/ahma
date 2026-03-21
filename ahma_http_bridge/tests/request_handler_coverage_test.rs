@@ -9,7 +9,6 @@ mod common;
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::{TransportMode, setup_test_mcp_for_tools, spawn_test_server};
 use futures::StreamExt;
-use reqwest::Client;
 use serde_json::json;
 use std::time::Instant;
 use tokio::time::sleep;
@@ -23,7 +22,7 @@ async fn test_missing_session_id_json() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let req = json!({
         "jsonrpc": "2.0",
@@ -63,7 +62,7 @@ async fn test_nonexistent_session_json() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let req = json!({
         "jsonrpc": "2.0",
@@ -107,7 +106,7 @@ async fn test_sse_initialize_returns_sse_stream() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let req = json!({
         "jsonrpc": "2.0",
@@ -155,7 +154,7 @@ async fn test_sse_missing_session_id() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let req = json!({
         "jsonrpc": "2.0",
@@ -185,7 +184,7 @@ async fn test_sse_nonexistent_session() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let req = json!({
         "jsonrpc": "2.0",
@@ -220,7 +219,7 @@ async fn test_client_response_invalid_roots() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_req = json!({
         "jsonrpc": "2.0",
@@ -397,7 +396,7 @@ async fn test_sse_notification_initialized() {
     let server = spawn_test_server()
         .await
         .expect("Failed to spawn test server");
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_req = json!({
         "jsonrpc": "2.0",

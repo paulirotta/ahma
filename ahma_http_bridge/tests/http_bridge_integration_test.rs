@@ -492,7 +492,7 @@ async fn test_tool_call_with_different_working_directory() {
 
     let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Step 1: Send initialize request (no session ID - creates new session)
     let init_request = json!({
@@ -625,7 +625,7 @@ async fn test_basic_tool_call_within_sandbox() {
     let sandbox_scope = temp_dir.path().to_path_buf();
     let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Initialize
     let init_request = json!({
@@ -735,7 +735,7 @@ async fn test_roots_uri_parsing_percent_encoded_path() {
 
     let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_request = json!({
         "jsonrpc": "2.0",
@@ -858,7 +858,7 @@ async fn test_roots_uri_parsing_file_localhost() {
     // Start server on dynamic port to avoid conflicts/flakiness
     let (server, _stderr) = start_http_bridge_dynamic(&tools_dir, server_scope_dir.path()).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_request = json!({
         "jsonrpc": "2.0",
@@ -959,7 +959,7 @@ async fn test_rejects_working_directory_path_traversal_outside_root() {
 
     let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_request = json!({
         "jsonrpc": "2.0",
@@ -1067,7 +1067,7 @@ async fn test_symlink_escape_attempt_is_blocked() {
 
     let server = start_http_bridge(&tools_dir, server_scope_dir.path()).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let init_request = json!({
         "jsonrpc": "2.0",
@@ -1156,7 +1156,7 @@ async fn test_tool_call_without_initialize_returns_proper_error() {
     let sandbox_scope = temp_dir.path().to_path_buf();
     let server = start_http_bridge(&tools_dir, &sandbox_scope).await;
     let base_url = server.base_url();
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // SKIP initialize - send tools/call directly
     // This reproduces the user's bug where the subprocess gets a tools/call first
@@ -1289,7 +1289,7 @@ async fn start_http_bridge_dynamic(
     };
 
     // Wait for health check using the discovered port
-    let client = Client::new();
+    let client = common::make_h2_client();
     let health_url = format!("http://127.0.0.1:{}/health", port);
 
     let deadline = Instant::now() + TestTimeouts::get(TimeoutCategory::HealthCheck);

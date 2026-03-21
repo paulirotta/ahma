@@ -1,14 +1,8 @@
 {
     "servers": {
         "Ahma": {
-            "type": "stdio",
-            "command": "ahma-mcp",
-            "args": [
-                "--tmp",
-                "--livelog",
-                "--simplify",
-                "--rust"
-            ]
+            "type": "http",
+            "url": "http://localhost:3000/mcp"
         }
     }
 }

@@ -80,7 +80,7 @@ async fn start_deferred_sandbox_server(
         .spawn()
         .expect("Failed to start HTTP bridge");
 
-    let client = Client::new();
+    let client = common::make_h2_client();
     let health_url = format!("http://127.0.0.1:{}/health", port);
     let timeout = TestTimeouts::get(TimeoutCategory::HealthCheck);
     let poll_interval = TestTimeouts::poll_interval();
@@ -212,7 +212,7 @@ async fn test_tool_call_before_roots_handshake() {
     let port = find_available_port();
     let _server = ServerGuard::new(start_deferred_sandbox_server(port, &tools_dir).await, port);
     let base_url = format!("http://127.0.0.1:{}", port);
-    let client = Client::new();
+    let client = common::make_h2_client();
     let mut mcp_client = McpTestClient::with_url(&base_url);
 
     // 1. Send only the initialize request (not initialized notification yet).
@@ -315,7 +315,7 @@ async fn test_slow_client_handshake() {
     let port = find_available_port();
     let _server = ServerGuard::new(start_deferred_sandbox_server(port, &tools_dir).await, port);
     let base_url = format!("http://127.0.0.1:{}", port);
-    let client = Client::new();
+    let client = common::make_h2_client();
     let mut mcp_client = McpTestClient::with_url(&base_url);
 
     mcp_client
@@ -490,7 +490,7 @@ async fn test_rapid_connect_disconnect() {
     let port = find_available_port();
     let _server = ServerGuard::new(start_deferred_sandbox_server(port, &tools_dir).await, port);
     let base_url = format!("http://127.0.0.1:{}", port);
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     // Attempt 1: Connect, Initialize, then Abandon
     {

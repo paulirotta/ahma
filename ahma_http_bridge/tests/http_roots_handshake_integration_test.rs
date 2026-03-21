@@ -19,7 +19,6 @@ mod common;
 use common::uri::{encode_file_uri, paths_equivalent};
 use common::{TestServerInstance, spawn_test_server};
 use futures::StreamExt;
-use reqwest::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Value, json};
 use std::env;
@@ -36,7 +35,7 @@ const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
 async fn get_server_url() -> (String, Option<TestServerInstance>) {
     if let Ok(url) = env::var("AHMA_TEST_SSE_URL") {
         // User specified a custom URL, verify it's available
-        let client = Client::new();
+        let client = common::make_h2_client();
         let health_url = format!("{}/health", url);
         match client
             .get(&health_url)
@@ -72,7 +71,7 @@ fn extract_text_content(result: &Value) -> String {
 
 #[tokio::test]
 async fn http_roots_handshake_then_tool_call_defaults_to_root() {
-    let client = Client::new();
+    let client = common::make_h2_client();
 
     let (base_url, _server) = get_server_url().await;
     eprintln!("Using server at {}", base_url);

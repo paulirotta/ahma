@@ -35,7 +35,10 @@ pub async fn ensure_server_available() -> Option<TestServerInstance> {
     // If user specified a custom URL, just check if it's available
     if let Ok(url) = env::var("AHMA_TEST_SSE_URL") {
         let health_url = format!("{}/health", url);
-        let client = Client::new();
+        let client = Client::builder()
+            .http2_prior_knowledge()
+            .build()
+            .expect("Failed to build HTTP/2 health-check client");
         match client
             .get(&health_url)
             .timeout(Duration::from_secs(2))
