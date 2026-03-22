@@ -385,34 +385,11 @@ fn is_reserved_tool_name(name: &str) -> bool {
     RESERVED_TOOL_NAMES.contains(&name)
 }
 
-fn builtin_tool_configs(cli: &crate::shell::cli::Cli) -> Vec<(String, &'static str)> {
-    let mut bundle_names = cli.tools.clone();
-
-    // Add individual bundle flags
-    if cli.rust {
-        bundle_names.push("rust".to_string());
-    }
-    if cli.fileutils {
-        bundle_names.push("fileutils".to_string());
-    }
-    if cli.github {
-        bundle_names.push("github".to_string());
-    }
-    if cli.git {
-        bundle_names.push("git".to_string());
-    }
-    if cli.kotlin {
-        bundle_names.push("kotlin".to_string());
-    }
-    if cli.python {
-        bundle_names.push("python".to_string());
-    }
-    if cli.simplify {
-        bundle_names.push("simplify".to_string());
-    }
+fn builtin_tool_configs(config: &crate::shell::cli::AppConfig) -> Vec<(String, &'static str)> {
+    let mut bundle_names = config.tool_bundles.clone();
 
     // Deduplicate bundle names
-    let unique_names: std::collections::HashSet<_> = bundle_names.into_iter().collect();
+    let unique_names: std::collections::HashSet<_> = bundle_names.drain(..).collect();
     let mut sorted_names: Vec<_> = unique_names.into_iter().collect();
     sorted_names.sort();
 
@@ -615,18 +592,17 @@ pub async fn load_mcp_config(config_path: &Path) -> anyhow::Result<McpConfig> {
 ///
 /// This function scans the specified directory for JSON files and attempts to
 /// deserialize each one into a `ToolConfig`. If the directory doesn't exist or
-/// is empty, an empty HashMap is returned. It also loads built-in tools based on CLI flags.
+/// is empty, an empty HashMap is returned. It also loads built-in tools based on config flags.
 ///
 /// # Arguments
-/// * `cli` - Current CLI arguments to determine which tools are built-in
+/// * `config` - Current application configuration to determine which tool bundles are active
 /// * `tools_dir` - Optional path to the directory containing tool configuration files.
-///   When `None`, only bundled (CLI-flag) tools and the synthetic `sandboxed_shell` config
-///   are loaded. This ensures `--rust`, `--simplify`, etc. work even without a `.ahma/` dir.
+///   When `None`, only bundled tools and the synthetic `sandboxed_shell` config are loaded.
 ///
 /// # Returns
 /// * `Result<HashMap<String, ToolConfig>>` - Map of tool name to configuration or error
 pub async fn load_tool_configs(
-    cli: &crate::shell::cli::Cli,
+    config: &crate::shell::cli::AppConfig,
     tools_dir: Option<&Path>,
 ) -> anyhow::Result<HashMap<String, ToolConfig>> {
     let all_dirs: Vec<std::path::PathBuf> =
@@ -644,8 +620,8 @@ pub async fn load_tool_configs(
         load_configs_from_dir(&dir, &mut configs).await?;
     }
 
-    // Load built-in tools based on CLI flags
-    for (bundle_name, json_str) in builtin_tool_configs(cli) {
+    // Load built-in tools based on configured bundles
+    for (bundle_name, json_str) in builtin_tool_configs(config) {
         match parse_builtin_tool_config(json_str) {
             Ok(config) => {
                 validate_tool_name(&config.name, &bundle_name)?;
@@ -669,45 +645,20 @@ pub async fn load_tool_configs(
     Ok(configs)
 }
 
-/// Returns the set of bundle names that were explicitly passed as CLI flags.
+/// Returns the set of bundle names that were explicitly requested via `--tool` flags.
 ///
-/// These bundles should be auto-revealed (pre-disclosed) when progressive
+/// These bundles are auto-revealed (pre-disclosed) when progressive
 /// disclosure is enabled, since the user explicitly requested them.
-pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collections::HashSet<String> {
+pub fn cli_flagged_bundle_names(
+    config: &crate::shell::cli::AppConfig,
+) -> std::collections::HashSet<String> {
     use crate::mcp_service::bundle_registry::BUNDLES;
-    let mut names = std::collections::HashSet::new();
-
-    // Collect from --tool NAME arguments
-    for name in &cli.tools {
-        if BUNDLES.iter().any(|b| b.name == name) {
-            names.insert(name.to_string());
-        }
-    }
-
-    // Collect from individual bundle flags
-    if cli.rust {
-        names.insert("rust".to_string());
-    }
-    if cli.fileutils {
-        names.insert("fileutils".to_string());
-    }
-    if cli.github {
-        names.insert("github".to_string());
-    }
-    if cli.git {
-        names.insert("git".to_string());
-    }
-    if cli.kotlin {
-        names.insert("kotlin".to_string());
-    }
-    if cli.python {
-        names.insert("python".to_string());
-    }
-    if cli.simplify {
-        names.insert("simplify".to_string());
-    }
-
-    names
+    config
+        .tool_bundles
+        .iter()
+        .filter(|name| BUNDLES.iter().any(|b| b.name == name.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Synchronous wrapper around `load_tool_configs` for test use only.
@@ -715,8 +666,8 @@ pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collection
 /// Creates a one-shot Tokio runtime and delegates to the async version.
 /// Production code should use `load_tool_configs` directly.
 pub fn load_tool_configs_sync(
-    cli: &crate::shell::cli::Cli,
+    config: &crate::shell::cli::AppConfig,
     tools_dir: Option<&Path>,
 ) -> anyhow::Result<HashMap<String, ToolConfig>> {
-    tokio::runtime::Runtime::new()?.block_on(load_tool_configs(cli, tools_dir))
+    tokio::runtime::Runtime::new()?.block_on(load_tool_configs(config, tools_dir))
 }

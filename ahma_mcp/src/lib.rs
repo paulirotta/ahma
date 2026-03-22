@@ -69,6 +69,22 @@
 //! }
 //! ```
 //!
+//! ## Environment Variables
+//!
+//! The `ahma-mcp` binary (and any binary built on this library) reads the following
+//! environment variables at startup to configure runtime behaviour. All `AHMA_*`
+//! boolean flags accept `1`, `true`, `yes`, or `on` as truthy values.
+//!
+//! | Category | Variables |
+//! |---|---|
+//! | **Tool management** | `AHMA_TOOLS_DIR`, `AHMA_TIMEOUT`, `AHMA_SYNC`, `AHMA_HOT_RELOAD`, `AHMA_SKIP_PROBES`, `AHMA_PROGRESSIVE_DISCLOSURE_OFF` |
+//! | **Sandbox & security** | `AHMA_DISABLE_SANDBOX`, `AHMA_SANDBOX_SCOPE`, `AHMA_SANDBOX_DEFER`, `AHMA_WORKING_DIRS`, `AHMA_TMP_ACCESS`, `AHMA_DISABLE_TEMP` |
+//! | **Logging** | `RUST_LOG`, `AHMA_LOG_TARGET`, `AHMA_LOG_MONITOR`, `AHMA_MONITOR_RATE_LIMIT` |
+//! | **HTTP transport** | `AHMA_DISABLE_QUIC`, `AHMA_DISABLE_HTTP1_1`, `AHMA_HANDSHAKE_TIMEOUT` |
+//!
+//! See [`shell::cli::AppConfig`] for where each variable is consumed, and the project's
+//! `docs/environment-variables.md` for descriptions, defaults, and usage examples.
+//!
 //! ## Module Overview
 //!
 //! - **[`adapter`]**: The "heavy lifter" that coordinates shell processes and task monitors.

@@ -106,17 +106,18 @@ fn test_nested_sandbox_detection_exits_with_error() {
 (deny process-exec (literal "/usr/bin/sandbox-exec") (with send-signal SIGKILL))
 "#;
 
-    // Run ahma_mcp inside sandbox-exec using CLI mode (single command execution)
-    // CLI mode triggers sandbox checks and exits after command completion
+    // Run ahma_mcp inside sandbox-exec using run subcommand
+    // run subcommand triggers sandbox checks and exits after command completion
     let output = Command::new("sandbox-exec")
         .current_dir(&workspace_dir)
+        .env("AHMA_TOOLS_DIR", ".ahma")
         .args([
             "-p",
             outer_sandbox_profile,
             binary.to_str().unwrap(),
-            "--tools-dir",
-            ".ahma",
-            // CLI mode: execute sandboxed_shell with echo (command as single arg)
+            "tool",
+            "run",
+            // run subcommand: execute sandboxed_shell with echo (command as single arg)
             "sandboxed_shell",
             "--",
             "echo test",
@@ -169,17 +170,18 @@ fn test_no_sandbox_flag_allows_nested_execution() {
 
     let outer_sandbox_profile = "(version 1)(allow default)";
 
-    // Run ahma_mcp inside sandbox-exec with --disable-sandbox using CLI mode
+    // Run ahma_mcp inside sandbox-exec with AHMA_DISABLE_SANDBOX=1 using run subcommand
     let output = Command::new("sandbox-exec")
         .current_dir(&workspace_dir)
+        .env("AHMA_DISABLE_SANDBOX", "1")
+        .env("AHMA_TOOLS_DIR", ".ahma")
         .args([
             "-p",
             outer_sandbox_profile,
             binary.to_str().unwrap(),
-            "--disable-sandbox", // Explicitly disable sandbox
-            "--tools-dir",
-            ".ahma",
-            // CLI mode: execute sandboxed_shell with echo (command as single arg)
+            "tool",
+            "run",
+            // run subcommand: execute sandboxed_shell with echo (command as single arg)
             "sandboxed_shell",
             "--",
             "echo nested_sandbox_test_success",
@@ -219,17 +221,18 @@ fn test_no_sandbox_env_var_allows_nested_execution() {
 
     let outer_sandbox_profile = "(version 1)(allow default)";
 
-    // Run ahma_mcp inside sandbox-exec with AHMA_DISABLE_SANDBOX=1 using CLI mode
+    // Run ahma_mcp inside sandbox-exec with AHMA_DISABLE_SANDBOX=1 using run subcommand
     let output = Command::new("sandbox-exec")
         .current_dir(&workspace_dir)
         .env("AHMA_DISABLE_SANDBOX", "1")
+        .env("AHMA_TOOLS_DIR", ".ahma")
         .args([
             "-p",
             outer_sandbox_profile,
             binary.to_str().unwrap(),
-            "--tools-dir",
-            ".ahma",
-            // CLI mode: execute sandboxed_shell with echo (command as single arg)
+            "tool",
+            "run",
+            // run subcommand: execute sandboxed_shell with echo (command as single arg)
             "sandboxed_shell",
             "--",
             "echo env_var_test_success",

@@ -199,21 +199,28 @@ impl ClientBuilder {
     ) -> Result<RunningService<RoleClient, ()>> {
         // When the caller explicitly requests sandbox (`no_sandbox == false`) but the current
         // environment is a nested sandbox (Cursor, VS Code, Docker), `sandbox-exec` would fail
-        // inside the child process and cause an immediate exit.  Force `--disable-sandbox` so the
+        // inside the child process and cause an immediate exit.  Force no-sandbox so the
         // child can start; application-level path checks (path_security.rs) still enforce bounds.
         let force_no_sandbox = self.no_sandbox || is_nested_sandbox_environment();
 
         ().serve(TokioChildProcess::new(command.configure(|cmd| {
+            // New CLI: `ahma-mcp serve stdio [--tools-dir PATH]`
+            // All behaviour flags are now environment variables (no CLI flags).
+            cmd.args(["serve", "stdio"]);
+
             if force_no_sandbox {
-                cmd.arg("--disable-sandbox");
+                cmd.env("AHMA_DISABLE_SANDBOX", "1");
             } else {
-                cmd.arg("--sandbox-scope").arg(working_dir);
+                // Set sandbox scope via env var (--sandbox-scope CLI flag removed in new CLI)
+                if let Some(scope) = working_dir.to_str() {
+                    cmd.env("AHMA_SANDBOX_SCOPE", scope);
+                }
                 if self.livelog {
-                    cmd.arg("--livelog");
+                    cmd.env("AHMA_LOG_MONITOR", "1");
                 }
             }
             if self.skip_availability_probes {
-                cmd.arg("--skip-availability-probes");
+                cmd.env("AHMA_SKIP_PROBES", "1");
             }
             cmd.current_dir(working_dir).kill_on_drop(true);
 
@@ -228,7 +235,8 @@ impl ClientBuilder {
                     // Resolve relative to working_dir
                     working_dir.join(dir)
                 };
-                cmd.arg("--tools-dir").arg(tools_path);
+                // --tools-dir was removed from CLI; use AHMA_TOOLS_DIR env var instead
+                cmd.env("AHMA_TOOLS_DIR", tools_path);
             }
             for arg in self.extra_args {
                 cmd.arg(arg);
@@ -325,7 +333,7 @@ pub async fn setup_mcp_service_with_client() -> Result<(TempDir, Client)> {
 
     let mut client = Client::new();
     client
-        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &["--disable-sandbox"])
+        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &[])
         .await?;
 
     // Give the server a moment to start

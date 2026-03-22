@@ -23,11 +23,10 @@ async fn test_freeform_argument_passing_ls() -> Result<()> {
     // Run prebuilt binary directly to avoid nested Cargo lock contention.
     let binary = common::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
     let mut cmd = tokio::process::Command::new(&binary);
-    cmd.arg("--tools-dir")
-        .arg(temp_dir.path().join(".ahma"))
-        .arg("--disable-sandbox")
-        .arg("--skip-availability-probes")
-        .arg("ls_ls");
+    cmd.env("AHMA_TOOLS_DIR", temp_dir.path().join(".ahma"))
+        .env("AHMA_DISABLE_SANDBOX", "1")
+        .env("AHMA_SKIP_PROBES", "1")
+        .args(["tool", "run", "ls_ls"]);
     cmd.env(
         "AHMA_MCP_ARGS",
         json!({
@@ -83,11 +82,10 @@ edition = "2021"
     // Run prebuilt binary directly to avoid nested Cargo lock contention.
     let binary = common::cli::build_binary_cached("ahma_mcp", "ahma-mcp");
     let mut cmd = tokio::process::Command::new(&binary);
-    cmd.arg("--tools-dir")
-        .arg(temp_dir.path().join(".ahma"))
-        .arg("--disable-sandbox")
-        .arg("--skip-availability-probes")
-        .arg("cargo_clippy");
+    cmd.env("AHMA_TOOLS_DIR", temp_dir.path().join(".ahma"))
+        .env("AHMA_DISABLE_SANDBOX", "1")
+        .env("AHMA_SKIP_PROBES", "1")
+        .args(["tool", "run", "cargo_clippy"]);
     cmd.env(
         "AHMA_MCP_ARGS",
         json!({

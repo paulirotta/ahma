@@ -161,63 +161,42 @@ pub fn resolve_binary_path() -> PathBuf {
     binary_path
 }
 
-fn build_server_args(handshake_timeout_secs: Option<u64>) -> Vec<String> {
-    let workspace = workspace_dir();
-    let tools_dir = workspace.join(".ahma");
-
-    let mut args = vec![
-        "--mode".to_string(),
-        "http".to_string(),
-        "--http-port".to_string(),
-        "0".to_string(),
-        "--sync".to_string(),
-        "--tools-dir".to_string(),
-        tools_dir.to_string_lossy().to_string(),
-        "--sandbox-scope".to_string(),
-        String::new(),
-        "--log-to-stderr".to_string(),
-    ];
-
-    if let Some(timeout) = handshake_timeout_secs {
-        args.push("--handshake-timeout-secs".to_string());
-        args.push(timeout.to_string());
-    }
-
-    if should_force_no_sandbox_for_test_server() {
-        args.push("--disable-sandbox".to_string());
-    }
-
-    args
+struct ServerSpec {
+    args: Vec<String>,
+    env: Vec<(String, String)>,
 }
 
-fn build_custom_server_args(
+fn build_server_spec(
     tools_dir: &Path,
     sandbox_scope: &Path,
     handshake_timeout_secs: Option<u64>,
-) -> Vec<String> {
-    let mut args = vec![
-        "--mode".to_string(),
-        "http".to_string(),
-        "--http-port".to_string(),
-        "0".to_string(),
-        "--sync".to_string(),
-        "--tools-dir".to_string(),
-        tools_dir.to_string_lossy().to_string(),
-        "--sandbox-scope".to_string(),
-        sandbox_scope.to_string_lossy().to_string(),
-        "--log-to-stderr".to_string(),
+) -> ServerSpec {
+    let mut env = vec![
+        ("AHMA_SYNC".to_string(), "1".to_string()),
+        ("AHMA_LOG_TARGET".to_string(), "stderr".to_string()),
+        (
+            "AHMA_TOOLS_DIR".to_string(),
+            tools_dir.to_string_lossy().to_string(),
+        ),
+        (
+            "AHMA_SANDBOX_SCOPE".to_string(),
+            sandbox_scope.to_string_lossy().to_string(),
+        ),
     ];
 
     if let Some(timeout) = handshake_timeout_secs {
-        args.push("--handshake-timeout-secs".to_string());
-        args.push(timeout.to_string());
+        env.push(("AHMA_HANDSHAKE_TIMEOUT".to_string(), timeout.to_string()));
     }
 
-    if should_force_no_sandbox_for_test_server() {
-        args.push("--disable-sandbox".to_string());
+    ServerSpec {
+        args: vec![
+            "serve".to_string(),
+            "http".to_string(),
+            "--port".to_string(),
+            "0".to_string(),
+        ],
+        env,
     }
-
-    args
 }
 
 #[cfg(target_os = "linux")]
@@ -304,6 +283,7 @@ fn configure_server_command(
     cmd: &mut Command,
     workspace: &Path,
     args: &[String],
+    env: &[(String, String)],
     no_sandbox_message: &str,
 ) {
     cmd.args(args)
@@ -311,6 +291,10 @@ fn configure_server_command(
         .env_remove("AHMA_HANDSHAKE_TIMEOUT_SECS")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
 
     if should_force_no_sandbox_for_test_server() {
         eprintln!("{no_sandbox_message}");
@@ -332,12 +316,18 @@ fn attach_output_readers(child: &mut Child) -> mpsc::Receiver<String> {
 fn spawn_server_child(
     binary: &Path,
     workspace: &Path,
-    args: &[String],
+    spec: &ServerSpec,
     spawn_error: &str,
     no_sandbox_message: &str,
 ) -> Result<(Child, mpsc::Receiver<String>), String> {
     let mut cmd = Command::new(binary);
-    configure_server_command(&mut cmd, workspace, args, no_sandbox_message);
+    configure_server_command(
+        &mut cmd,
+        workspace,
+        &spec.args,
+        &spec.env,
+        no_sandbox_message,
+    );
 
     let mut child = cmd.spawn().map_err(|e| format!("{spawn_error}: {e}"))?;
     let line_rx = attach_output_readers(&mut child);
@@ -408,20 +398,16 @@ pub async fn spawn_test_server_with_timeout(
 ) -> Result<TestServerInstance, String> {
     let binary = resolve_binary_path();
     let workspace = workspace_dir();
+    let tools_dir = workspace.join(".ahma");
     let temp_dir = TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
     let sandbox_scope = temp_dir.path().to_path_buf();
-    let mut args = build_server_args(handshake_timeout_secs);
-
-    // Slot was intentionally reserved in build_server_args.
-    if let Some(scope_slot) = args.get_mut(8) {
-        *scope_slot = sandbox_scope.to_string_lossy().to_string();
-    }
+    let spec = build_server_spec(&tools_dir, &sandbox_scope, handshake_timeout_secs);
 
     eprintln!("[TestServer] Starting test server with dynamic port");
     let (mut child, line_rx) = spawn_server_child(
         &binary,
         &workspace,
-        &args,
+        &spec,
         "Failed to spawn test server",
         "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --disable-sandbox",
     )?;
@@ -463,7 +449,7 @@ pub async fn spawn_server_guard_with_config(
 ) -> Result<ServerGuard, String> {
     let binary = resolve_binary_path();
     let workspace = workspace_dir();
-    let args = build_custom_server_args(tools_dir, sandbox_scope, handshake_timeout_secs);
+    let spec = build_server_spec(tools_dir, sandbox_scope, handshake_timeout_secs);
 
     eprintln!(
         "[TestServer] Starting custom server with scope {}",
@@ -472,7 +458,7 @@ pub async fn spawn_server_guard_with_config(
     let (mut child, line_rx) = spawn_server_child(
         &binary,
         &workspace,
-        &args,
+        &spec,
         "Failed to spawn custom test server",
         "[TestServer] Sandbox unavailable on this platform/kernel; forcing custom server no-sandbox",
     )?;

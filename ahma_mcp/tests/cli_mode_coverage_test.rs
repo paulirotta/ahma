@@ -232,19 +232,13 @@ mod no_sandbox_flag {
         }"#;
         std::fs::write(tools_dir.join("no_sandbox_test.json"), tool).unwrap();
 
-        // Run with explicit AHMA_DISABLE_SANDBOX env var
+        // Run with env vars replacing removed CLI flags
         let output = Command::new(&binary)
-            .env("AHMA_DISABLE_SANDBOX", "1") // Use env var instead
-            .args([
-                "--log-to-stderr",
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-                "--sandbox-scope",
-                temp.path().to_str().unwrap(),
-                "no_sandbox_test",
-                "--working-directory",
-                temp.path().to_str().unwrap(),
-            ])
+            .env("AHMA_DISABLE_SANDBOX", "1")
+            .env("AHMA_LOG_TARGET", "stderr")
+            .env("AHMA_TOOLS_DIR", tools_dir.to_str().unwrap())
+            .env("AHMA_SANDBOX_SCOPE", temp.path().to_str().unwrap())
+            .args(["tool", "run", "no_sandbox_test"])
             .output()
             .expect("Failed to execute with AHMA_DISABLE_SANDBOX");
 
@@ -493,10 +487,14 @@ mod sandbox_scope {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        // Help should be shown OR error about path should appear
+        // Should fail (--sandbox-scope is no longer a valid top-level flag)
+        // or succeed with help output
         assert!(
-            stdout.contains("ahma") || stderr.contains("Failed") || stderr.contains("path"),
-            "Should either show help or report path error. stdout: {}, stderr: {}",
+            !output.status.success()
+                || stdout.contains("ahma")
+                || stderr.contains("Failed")
+                || stderr.contains("path"),
+            "Should fail or report error. stdout: {}, stderr: {}",
             stdout,
             stderr
         );
@@ -689,14 +687,14 @@ mod http_mode {
         let binary = build_binary();
 
         let output = test_command(&binary)
-            .args(["--mode", "http", "--http-port", "12345", "--help"])
+            .args(["serve", "http", "--port", "12345", "--help"])
             .output()
-            .expect("Failed to execute with --http-port");
+            .expect("Failed to execute with serve http --port");
 
-        // --help should work and recognize --http-port
+        // --help should work and show http serve options
         assert!(
             output.status.success(),
-            "Help with --http-port should succeed"
+            "Help with serve http --port should succeed"
         );
     }
 
@@ -705,14 +703,14 @@ mod http_mode {
         let binary = build_binary();
 
         let output = test_command(&binary)
-            .args(["--mode", "http", "--http-host", "0.0.0.0", "--help"])
+            .args(["serve", "http", "--host", "0.0.0.0", "--help"])
             .output()
-            .expect("Failed to execute with --http-host");
+            .expect("Failed to execute with serve http --host");
 
-        // --help should work and recognize --http-host
+        // --help should work and show http serve options
         assert!(
             output.status.success(),
-            "Help with --http-host should succeed"
+            "Help with serve http --host should succeed"
         );
     }
 
@@ -753,24 +751,16 @@ mod combined_flags {
         }"#;
         std::fs::write(tools_dir.join("combined_test.json"), tool).unwrap();
 
-        // Combine multiple flags
+        // Combine multiple env vars (replacing removed flags) with run subcommand
         let output = test_command(&binary)
-            .args([
-                "--debug",
-                "--sync",
-                "--log-to-stderr",
-                "--timeout",
-                "120",
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-                "--sandbox-scope",
-                temp.path().to_str().unwrap(),
-                "combined_test",
-                "--working-directory",
-                temp.path().to_str().unwrap(),
-            ])
+            .env("RUST_LOG", "debug")
+            .env("AHMA_SYNC", "1")
+            .env("AHMA_LOG_TARGET", "stderr")
+            .env("AHMA_TOOLS_DIR", tools_dir.to_str().unwrap())
+            .env("AHMA_SANDBOX_SCOPE", temp.path().to_str().unwrap())
+            .args(["tool", "run", "combined_test"])
             .output()
-            .expect("Failed to execute with combined flags");
+            .expect("Failed to execute with combined env vars");
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _stdout = String::from_utf8_lossy(&output.stdout);

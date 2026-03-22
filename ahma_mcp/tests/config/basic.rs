@@ -1,6 +1,7 @@
 use ahma_mcp::config::{
-    CommandOption, SequenceStep, SubcommandConfig, ToolConfig, ToolHints, load_tool_configs,
+    CommandOption, SequenceStep, SubcommandConfig, ToolConfig, ToolHints, load_tool_configs_sync,
 };
+use ahma_mcp::shell::cli::AppConfig;
 use ahma_mcp::utils::logging::init_test_logging;
 use serde_json::json;
 use std::fs;
@@ -318,7 +319,7 @@ fn test_nested_subcommands() {
 fn test_load_tool_configs_empty_directory() {
     init_test_logging();
     let temp_dir = tempdir().unwrap();
-    let configs = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), temp_dir.path()).unwrap();
+    let configs = load_tool_configs_sync(&AppConfig::default(), Some(temp_dir.path())).unwrap();
     assert!(configs.is_empty());
 }
 
@@ -327,7 +328,7 @@ fn test_load_tool_configs_nonexistent_directory() {
     init_test_logging();
     let temp_dir = tempdir().unwrap();
     let nonexistent_path = temp_dir.path().join("nonexistent");
-    let configs = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), &nonexistent_path).unwrap();
+    let configs = load_tool_configs_sync(&AppConfig::default(), Some(&nonexistent_path)).unwrap();
     assert!(configs.is_empty());
 }
 
@@ -352,7 +353,7 @@ fn test_load_tool_configs_valid_json() {
     )
     .unwrap();
 
-    let configs = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), tools_dir).unwrap();
+    let configs = load_tool_configs_sync(&AppConfig::default(), Some(tools_dir)).unwrap();
     assert_eq!(configs.len(), 1);
     assert!(configs.contains_key("test_tool"));
 
@@ -382,7 +383,7 @@ fn test_load_tool_configs_disabled_tool() {
     )
     .unwrap();
 
-    let configs = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), tools_dir).unwrap();
+    let configs = load_tool_configs_sync(&AppConfig::default(), Some(tools_dir)).unwrap();
     assert!(configs.is_empty()); // Disabled tools should not be loaded
 }
 
@@ -417,7 +418,7 @@ fn test_load_tool_configs_multiple_files() {
     // Create a non-JSON file that should be ignored
     fs::write(tools_dir.join("readme.txt"), "This is not a JSON file").unwrap();
 
-    let configs = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), tools_dir).unwrap();
+    let configs = load_tool_configs_sync(&AppConfig::default(), Some(tools_dir)).unwrap();
     assert_eq!(configs.len(), 2); // Only enabled tools
     assert!(configs.contains_key("tool1"));
     assert!(configs.contains_key("tool2"));
@@ -434,7 +435,7 @@ fn test_load_tool_configs_invalid_json() {
     fs::write(tools_dir.join("invalid.json"), "{ invalid json content").unwrap();
 
     // Should succeed but skip the invalid file (logged as warning)
-    let result = load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), tools_dir);
+    let result = load_tool_configs_sync(&AppConfig::default(), Some(tools_dir));
     assert!(result.is_ok());
     assert!(result.unwrap().is_empty()); // No valid configs loaded
 }

@@ -12,12 +12,9 @@ fn test_sandbox_lifecycle_notifications() {
     std::fs::create_dir(&tools_dir).unwrap();
 
     let mut cmd = Command::new(&binary);
-    cmd.arg("--mode")
-        .arg("stdio")
-        .arg("--sandbox-scope")
-        .arg(temp_dir.path())
-        .arg("--tools-dir")
-        .arg(&tools_dir);
+    cmd.args(["serve", "stdio"])
+        .env("AHMA_SANDBOX_SCOPE", temp_dir.path())
+        .env("AHMA_TOOLS_DIR", &tools_dir);
 
     // When running inside a nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker),
     // set AHMA_DISABLE_SANDBOX so the child process can start; app-level path checks still apply.

@@ -1,17 +1,194 @@
 //! # Ahma Server CLI
 //!
 //! This module contains the command-line interface definition and main entry point.
+//!
+//! ## CLI Design
+//!
+//! `ahma-mcp` uses a subcommand model (git/docker style):
+//!
+//! ```text
+//! ahma-mcp serve stdio [--tools rust,python,git]
+//! ahma-mcp serve http  [--port 3000] [--host 127.0.0.1] [--disable-quic] [--disable-http1-1]
+//! ahma-mcp tool run <TOOL> [-- <TOOL_ARGS>...]
+//! ahma-mcp tool validate [TARGET]
+//! ahma-mcp tool list [--server NAME] [--http URL] [--format json|text] [--mcp-config PATH]
+//! ahma-mcp tool info [--tools rust,git] [--format json|text] [TOOL]
+//! ```
+//!
+//! Niche options that rarely need changing are controlled via environment variables.
+//! See `docs/environment-variables.md` for the full reference.
 
 use super::{list_tools, modes, resolution};
 
 use crate::{sandbox, utils::logging::init_logging};
 use anyhow::{Context, Result, anyhow};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use dunce;
 use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper types and functions to reduce run() complexity
+// AppConfig — single immutable application configuration
+//
+// Built once from CLI args + env vars, then passed as a shared reference.
+// Never mutated after startup.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Unified, immutable application configuration.
+///
+/// Constructed once at startup from CLI flags and environment variables.
+/// All subsystems receive `Arc<AppConfig>` or `&AppConfig`; nothing reads
+/// the CLI or env vars again after this point.
+#[derive(Debug, Clone)]
+pub struct AppConfig {
+    // ── Tool loading ────────────────────────────────────────────────────────
+    /// Path to the `.ahma/` tools directory (auto-detected or from AHMA_TOOLS_DIR).
+    pub tools_dir: Option<PathBuf>,
+    /// Whether `tools_dir` was explicitly set (vs auto-detected).
+    pub explicit_tools_dir: bool,
+    /// Tool bundles to activate (e.g. ["rust", "python"]).
+    pub tool_bundles: Vec<String>,
+
+    // ── Execution ───────────────────────────────────────────────────────────
+    /// Default command timeout in seconds (AHMA_TIMEOUT, default 360).
+    pub timeout_secs: u64,
+    /// Run all tools synchronously (AHMA_SYNC=1).
+    pub force_sync: bool,
+    /// Reload tools from disk when `.ahma/` changes (AHMA_HOT_RELOAD=1).
+    pub hot_reload_tools: bool,
+    /// Skip tool availability probes at startup (AHMA_SKIP_PROBES=1).
+    pub skip_availability_probes: bool,
+    /// Show all tools without progressive disclosure (AHMA_PROGRESSIVE_DISCLOSURE=0).
+    pub progressive_disclosure: bool,
+
+    // ── Sandbox ─────────────────────────────────────────────────────────────
+    /// Disable the kernel sandbox entirely (AHMA_DISABLE_SANDBOX=1).
+    pub no_sandbox: bool,
+    /// Explicit sandbox scope directories (from AHMA_SANDBOX_SCOPE, colon-separated).
+    pub sandbox_scopes: Vec<PathBuf>,
+    /// Defer sandbox lock until client provides roots/list (AHMA_SANDBOX_DEFER=1).
+    pub defer_sandbox: bool,
+    /// Working directories seeded when defer mode lacks client roots (AHMA_WORKING_DIRS).
+    pub working_dirs: Vec<PathBuf>,
+    /// Add system temp dir to sandbox scopes (AHMA_TMP_ACCESS=1).
+    pub tmp_access: bool,
+    /// Block writes to temp directories (AHMA_DISABLE_TEMP=1).
+    pub no_temp_files: bool,
+    /// Enable live-log monitoring mode (AHMA_LOG_MONITOR=1).
+    pub log_monitor: bool,
+    /// Minimum seconds between log-monitor alerts (AHMA_MONITOR_RATE_LIMIT, default 60).
+    pub monitor_rate_limit_secs: u64,
+
+    // ── HTTP serve mode ─────────────────────────────────────────────────────
+    /// Bind host for HTTP mode (default 127.0.0.1).
+    pub http_host: String,
+    /// Bind port for HTTP mode (default 3000).
+    pub http_port: u16,
+    /// Disable HTTP/3 QUIC (AHMA_DISABLE_QUIC=1).
+    pub no_quic: bool,
+    /// Require HTTP/2+ only (AHMA_DISABLE_HTTP1_1=1).
+    pub disable_http1_1: bool,
+    /// Handshake timeout for HTTP mode in seconds (AHMA_HANDSHAKE_TIMEOUT, default 45).
+    pub handshake_timeout_secs: u64,
+
+    // ── tool list subcommand ─────────────────────────────────────────────────
+    /// Server name from mcp.json (for `tool list`).
+    pub list_server: Option<String>,
+    /// Path to mcp.json (for `tool list`).
+    pub mcp_config: PathBuf,
+    /// HTTP URL to query (for `tool list`).
+    pub list_http: Option<String>,
+    /// Output format (for `tool list`).
+    pub list_format: list_tools::OutputFormat,
+
+    // ── run subcommand ───────────────────────────────────────────────────────
+    /// Tool name for `run` subcommand (also used for positional args in that context).
+    pub run_tool: Option<String>,
+    /// Arguments forwarded to the tool after `--`.
+    pub run_tool_args: Vec<String>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            tools_dir: None,
+            explicit_tools_dir: false,
+            tool_bundles: vec![],
+            timeout_secs: 360,
+            force_sync: false,
+            hot_reload_tools: false,
+            skip_availability_probes: false,
+            progressive_disclosure: true,
+            no_sandbox: false,
+            sandbox_scopes: vec![],
+            defer_sandbox: false,
+            working_dirs: vec![],
+            tmp_access: false,
+            no_temp_files: false,
+            log_monitor: false,
+            monitor_rate_limit_secs: 60,
+            http_host: "127.0.0.1".to_string(),
+            http_port: 3000,
+            no_quic: false,
+            disable_http1_1: false,
+            handshake_timeout_secs: 45,
+            list_server: None,
+            mcp_config: PathBuf::from("mcp.json"),
+            list_http: None,
+            list_format: list_tools::OutputFormat::Text,
+            run_tool: None,
+            run_tool_args: vec![],
+        }
+    }
+}
+
+impl AppConfig {
+    /// Read a boolean env var ("1","true","yes","on" → true; anything else → false).
+    pub fn env_flag(name: &str) -> bool {
+        std::env::var(name)
+            .map(|v| {
+                let t = v.trim().to_ascii_lowercase();
+                matches!(t.as_str(), "1" | "true" | "yes" | "on")
+            })
+            .unwrap_or(false)
+    }
+
+    /// Read a u64 env var, returning `default` if absent or unparseable.
+    fn env_u64(name: &str, default: u64) -> u64 {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(default)
+    }
+
+    /// Parse `AHMA_SANDBOX_SCOPE` as a colon-separated list of paths.
+    fn env_sandbox_scopes() -> Vec<PathBuf> {
+        std::env::var("AHMA_SANDBOX_SCOPE")
+            .ok()
+            .map(|s| {
+                s.split(':')
+                    .filter(|p| !p.is_empty())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Parse `AHMA_WORKING_DIRS` as a colon-separated list of paths.
+    fn env_working_dirs() -> Vec<PathBuf> {
+        std::env::var("AHMA_WORKING_DIRS")
+            .ok()
+            .map(|s| {
+                s.split(':')
+                    .filter(|p| !p.is_empty())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sandbox policy helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct SandboxPolicy {
@@ -20,21 +197,19 @@ struct SandboxPolicy {
     mode: sandbox::SandboxMode,
 }
 
-fn resolve_sandbox_policy(cli: &Cli) -> SandboxPolicy {
-    let no_sandbox = cli.no_sandbox || env_flag_enabled("AHMA_DISABLE_SANDBOX");
-    let tmp_access = cli.tmp || env_flag_enabled("AHMA_TMP_ACCESS");
+fn resolve_sandbox_policy(cfg: &AppConfig) -> SandboxPolicy {
+    let no_sandbox = cfg.no_sandbox;
+    let tmp_access = cfg.tmp_access;
 
     let mode = if no_sandbox {
-        tracing::warn!("Ahma sandbox disabled via --disable-sandbox flag or environment variable");
+        tracing::warn!("Ahma sandbox disabled via AHMA_DISABLE_SANDBOX or --serve flag");
         #[cfg(target_os = "linux")]
-        {
-            if let Err(error) = sandbox::check_sandbox_prerequisites() {
-                tracing::warn!(
-                    "Continuing without Ahma sandbox because Linux sandbox prerequisites are unavailable: {}. \
-                     Update Linux kernel to 5.13+ to enable Landlock.",
-                    error
-                );
-            }
+        if let Err(error) = sandbox::check_sandbox_prerequisites() {
+            tracing::warn!(
+                "Continuing without Ahma sandbox because Linux sandbox prerequisites are unavailable: {}. \
+                 Update Linux kernel to 5.13+ to enable Landlock.",
+                error
+            );
         }
         sandbox::SandboxMode::Test
     } else {
@@ -77,25 +252,14 @@ fn canonicalize_paths(paths: &[PathBuf], context: &str) -> Result<Vec<PathBuf>> 
         .collect()
 }
 
-fn resolve_sandbox_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
-    if cli.defer_sandbox {
-        return resolve_deferred_scopes(cli);
+fn resolve_sandbox_scopes(cfg: &AppConfig) -> Result<Option<Vec<PathBuf>>> {
+    if cfg.defer_sandbox {
+        return resolve_deferred_scopes(cfg);
     }
 
-    if !cli.sandbox_scope.is_empty() {
-        let scopes = canonicalize_paths(&cli.sandbox_scope, "sandbox scope")?;
+    if !cfg.sandbox_scopes.is_empty() {
+        let scopes = canonicalize_paths(&cfg.sandbox_scopes, "sandbox scope")?;
         return Ok(Some(scopes));
-    }
-
-    if let Ok(env_scope) = std::env::var("AHMA_SANDBOX_SCOPE") {
-        let env_path = PathBuf::from(&env_scope);
-        let canonical = dunce::canonicalize(&env_path).with_context(|| {
-            format!(
-                "Failed to canonicalize AHMA_SANDBOX_SCOPE environment variable: {:?}",
-                env_scope
-            )
-        })?;
-        return Ok(Some(vec![canonical]));
     }
 
     let cwd = std::env::current_dir()
@@ -103,13 +267,10 @@ fn resolve_sandbox_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
     Ok(Some(vec![cwd]))
 }
 
-fn resolve_deferred_scopes(cli: &Cli) -> Result<Option<Vec<PathBuf>>> {
-    if let Some(ref dirs) = cli.working_directories {
-        let scopes = canonicalize_paths(dirs, "working directory")?;
-        tracing::info!(
-            "Sandbox initialized from --working-directories: {:?}",
-            scopes
-        );
+fn resolve_deferred_scopes(cfg: &AppConfig) -> Result<Option<Vec<PathBuf>>> {
+    if !cfg.working_dirs.is_empty() {
+        let scopes = canonicalize_paths(&cfg.working_dirs, "working directory")?;
+        tracing::info!("Sandbox initialized from AHMA_WORKING_DIRS: {:?}", scopes);
         Ok(Some(scopes))
     } else {
         tracing::info!("Sandbox initialization deferred - will be set from client roots/list");
@@ -131,7 +292,7 @@ fn add_temp_scope_if_requested(
     match dunce::canonicalize(&temp_dir) {
         Ok(canonical_temp) if !scopes.contains(&canonical_temp) => {
             tracing::info!(
-                "Adding temp directory to sandbox scopes via --tmp: {:?}",
+                "Adding temp directory to sandbox scopes via AHMA_TMP_ACCESS: {:?}",
                 canonical_temp
             );
             scopes.push(canonical_temp);
@@ -139,7 +300,7 @@ fn add_temp_scope_if_requested(
         Ok(_) => {}
         Err(_) => {
             tracing::warn!(
-                "Could not canonicalize temp directory {:?}, skipping --tmp scope addition",
+                "Could not canonicalize temp directory {:?}, skipping AHMA_TMP_ACCESS scope addition",
                 temp_dir
             );
         }
@@ -151,7 +312,7 @@ fn add_temp_scope_if_requested(
 fn create_sandbox_instance(
     scopes: Option<Vec<PathBuf>>,
     policy: &SandboxPolicy,
-    cli: &Cli,
+    cfg: &AppConfig,
 ) -> Result<Option<Arc<sandbox::Sandbox>>> {
     let Some(scopes) = scopes else {
         return Ok(None);
@@ -160,15 +321,15 @@ fn create_sandbox_instance(
     let s = sandbox::Sandbox::new(
         scopes.clone(),
         policy.mode,
-        cli.no_temp_files,
-        cli.livelog,
+        cfg.no_temp_files,
+        cfg.log_monitor,
         policy.tmp_access,
     )
     .context("Failed to initialize sandbox")?;
 
     tracing::info!("Sandbox scopes initialized: {:?}", scopes);
 
-    apply_platform_sandbox_enforcement(&s, policy, cli)?;
+    apply_platform_sandbox_enforcement(&s, policy, cfg)?;
 
     Ok(Some(Arc::new(s)))
 }
@@ -176,12 +337,12 @@ fn create_sandbox_instance(
 fn apply_platform_sandbox_enforcement(
     sandbox: &sandbox::Sandbox,
     policy: &SandboxPolicy,
-    cli: &Cli,
+    cfg: &AppConfig,
 ) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         if policy.mode == sandbox::SandboxMode::Strict
-            && !cli.defer_sandbox
+            && !cfg.defer_sandbox
             && let Err(e) = sandbox::enforce_landlock_sandbox(
                 &sandbox.scopes(),
                 sandbox.read_scopes(),
@@ -201,7 +362,7 @@ fn apply_platform_sandbox_enforcement(
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let _ = (sandbox, policy, cli);
+    let _ = (sandbox, policy, cfg);
 
     Ok(())
 }
@@ -252,32 +413,48 @@ fn check_powershell_available() {
     }
 }
 
-async fn dispatch_mode(cli: Cli, sandbox: Option<Arc<sandbox::Sandbox>>) -> Result<()> {
-    let is_server_mode = cli.tool_name.is_none();
-
-    if !is_server_mode {
-        let sandbox =
-            sandbox.ok_or_else(|| anyhow!("Sandbox scopes must be initialized for CLI mode"))?;
-        tracing::info!("Running in CLI mode");
-        return modes::run_cli_mode(cli, sandbox).await;
-    }
-
-    match cli.mode.as_str() {
-        "http" => {
-            tracing::info!("Running in HTTP bridge mode");
-            modes::run_http_bridge_mode(cli).await
-        }
-        "stdio" => {
-            let sandbox = sandbox
-                .ok_or_else(|| anyhow!("Sandbox scopes must be initialized for stdio mode"))?;
-            check_stdio_not_interactive()?;
-            tracing::info!("Running in STDIO server mode");
-            modes::run_server_mode(cli, sandbox).await
-        }
-        _ => {
-            eprintln!("Invalid mode: {}. Use 'stdio' or 'http'", cli.mode);
-            std::process::exit(1);
-        }
+async fn dispatch_subcommand(cmd: Subcommands, cfg: AppConfig) -> Result<()> {
+    match cmd {
+        Subcommands::Serve(serve_args) => match serve_args.transport {
+            ServeTransport::Stdio => {
+                let sandbox = initialize_sandbox(&cfg)?;
+                let sandbox = sandbox
+                    .ok_or_else(|| anyhow!("Sandbox failed to initialize for stdio mode"))?;
+                check_stdio_not_interactive()?;
+                tracing::info!("Running in STDIO server mode");
+                modes::run_server_mode(cfg, sandbox).await
+            }
+            ServeTransport::Http(_) => {
+                tracing::info!("Running in HTTP bridge mode");
+                modes::run_http_bridge_mode(cfg).await
+            }
+        },
+        Subcommands::Tool(tool_cmd) => match tool_cmd.command {
+            ToolCommand::Validate(v) => {
+                tracing::info!("Running in validate mode");
+                run_validation_mode(&v.target.unwrap_or_else(|| ".ahma".to_string()))
+            }
+            ToolCommand::List(_) => {
+                tracing::info!("Running in list-tools mode");
+                modes::run_list_tools_mode(&cfg).await
+            }
+            ToolCommand::Run(run_args) => {
+                let cfg = AppConfig {
+                    run_tool: Some(run_args.tool),
+                    run_tool_args: run_args.tool_args,
+                    ..cfg
+                };
+                let sandbox = initialize_sandbox(&cfg)?;
+                let sandbox = sandbox
+                    .ok_or_else(|| anyhow!("Sandbox scopes must be initialized for run mode"))?;
+                tracing::info!("Running in CLI mode");
+                modes::run_cli_mode(cfg, sandbox).await
+            }
+            ToolCommand::Info(info_args) => {
+                tracing::info!("Running in tool-info mode");
+                run_tool_info_mode(info_args).await
+            }
+        },
     }
 }
 
@@ -292,255 +469,438 @@ fn check_stdio_not_interactive() -> Result<()> {
     eprintln!("It cannot be run directly from an interactive terminal.\n");
     eprintln!("Usage options:");
     eprintln!("  1. Run as stdio MCP server (requires MCP client):");
-    eprintln!("     ahma_mcp --mode stdio\n");
+    eprintln!("     ahma-mcp serve stdio\n");
     eprintln!("  2. Run as HTTP bridge server:");
-    eprintln!("     ahma_mcp --mode http --http-port 3000\n");
+    eprintln!("     ahma-mcp serve http --port 3000\n");
     eprintln!("  3. Execute a single tool command:");
-    eprintln!("     ahma_mcp <tool_name> [tool_arguments...]\n");
-    eprintln!("For more information, run: ahma_mcp --help\n");
+    eprintln!("     ahma-mcp tool run <tool_name> [-- tool_arguments...]\n");
+    eprintln!("For more information, run: ahma-mcp --help\n");
     std::process::exit(1);
 }
 
-/// Ahma Server: A generic, config-driven adapter for CLI tools.
-#[derive(Parser, Debug, Clone)]
+// ─────────────────────────────────────────────────────────────────────────────
+// CLI argument types (clap)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ahma MCP: A secure, config-driven adapter for CLI tools.
+///
+/// Environment variables control all non-essential options.
+/// See docs/environment-variables.md for the full reference.
+#[derive(Parser, Debug)]
 #[command(
     name = "ahma-mcp",
     author,
     version,
-    about,
-    long_about = "ahma_mcp runs in five modes:
-
-1. STDIO Mode (default): MCP server over stdio for direct integration.
-   Example: ahma_mcp --mode stdio
-
-2. HTTP Mode: HTTP bridge server that proxies to stdio MCP server.
-   Example: ahma_mcp --mode http --http-port 3000
-
-3. CLI Mode: Execute a single command and print result to stdout.
-   Example: ahma_mcp cargo_build --working-directory . -- --release
-
-4. List Tools Mode: List all tools from an MCP server.
-   Example: ahma_mcp --list-tools -- /path/to/server
-   Example: ahma_mcp --list-tools --http http://localhost:3000
-
-5. Validate Mode: Validate tool configurations against MTDF schema.
-   Example: ahma_mcp --validate
-   Example: ahma_mcp --validate .ahma
-   Example: ahma_mcp --validate tool.json"
+    about = "Ahma MCP: secure, config-driven adapter for CLI tools"
 )]
 pub struct Cli {
-    /// List all tools from an MCP server and exit
-    #[arg(long, help_heading = "Server Mode")]
-    pub list_tools: bool,
+    #[command(subcommand)]
+    pub command: Subcommands,
+}
 
-    /// Validate tool configurations against the MTDF schema and exit.
-    /// Optionally specify a target path (file, directory, or comma-separated list).
-    /// Defaults to '.ahma' if no target is given.
-    #[arg(long, value_name = "TARGET", default_missing_value = ".ahma", num_args = 0..=1, help_heading = "Server Mode")]
-    pub validate: Option<String>,
+#[derive(Subcommand, Debug)]
+pub enum Subcommands {
+    /// Start an MCP server (stdio or http).
+    Serve(ServeArgs),
+    /// Tool management and execution utilities.
+    Tool(ToolArgs),
+}
 
-    /// Name of the server in mcp.json to connect to (for --list-tools mode)
-    #[arg(long, help_heading = "Server Mode")]
-    pub server: Option<String>,
+// ── serve ────────────────────────────────────────────────────────────────────
 
-    /// Path to mcp.json configuration file (for --list-tools mode)
-    #[arg(long, default_value = "mcp.json", help_heading = "Server Mode")]
-    pub mcp_config: PathBuf,
+/// Start the ahma-mcp MCP server.
+///
+/// Choose a transport that fits your integration:
+///
+/// * **stdio** — spawned as a subprocess by an MCP client (Cursor, VS Code,
+///   Claude Desktop).  The client manages the process lifetime; no network
+///   port is opened.  This is the most common mode.
+///
+/// * **http** — a persistent, multi-session bridge that listens on a TCP
+///   port and supports several MCP clients concurrently.  Useful for CI,
+///   shared developer machines, or any situation where clients connect over
+///   a network rather than spawning a process.
+///
+/// Tools are loaded from the directory specified by `--tools-dir`, the
+/// `AHMA_TOOLS_DIR` environment variable, or the `.ahma/` folder detected
+/// in the current working directory (in that order of precedence).
+#[derive(Parser, Debug)]
+#[command(after_help = "EXAMPLES:
+  # Serve over stdio (typical mcp.json entry for Cursor / VS Code)
+  ahma-mcp serve stdio
 
-    /// HTTP URL for --list-tools mode (e.g., http://localhost:3000)
-    #[arg(long, help_heading = "Server Mode")]
-    pub http: Option<String>,
+  # Serve over stdio and enable the rust + git tool bundles
+  ahma-mcp serve stdio --tools rust,git
 
-    /// Output format for --list-tools mode
-    #[arg(long, value_enum, default_value_t = list_tools::OutputFormat::Text, help_heading = "Server Mode")]
-    pub format: list_tools::OutputFormat,
+  # Serve over HTTP on the default address (127.0.0.1:3000)
+  ahma-mcp serve http
 
-    /// Server mode: 'stdio' (default) or 'http'
-    #[arg(long, default_value = "stdio", help_heading = "Server Mode")]
-    pub mode: String,
+  # Serve over HTTP on a custom port with HTTP/3 disabled
+  ahma-mcp serve http --port 8080 --disable-quic")]
+pub struct ServeArgs {
+    #[command(subcommand)]
+    pub transport: ServeTransport,
 
-    /// HTTP server host (for HTTP mode)
-    #[arg(long, default_value = "127.0.0.1", help_heading = "Server Mode")]
-    pub http_host: String,
+    /// Tool bundles to enable (e.g. --tools rust --tools python,git).
+    /// Repeat or comma-separate. Available: rust, python, git, kotlin, fileutils, github, simplify.
+    #[arg(
+        long = "tools",
+        value_name = "NAME",
+        value_delimiter = ',',
+        global = true
+    )]
+    pub tool_bundles: Vec<String>,
 
-    /// HTTP server port (for HTTP mode)
-    #[arg(long, default_value_t = 3000, help_heading = "Server Mode")]
-    pub http_port: u16,
+    /// Path to the tools directory containing JSON tool definitions.
+    /// Defaults to the auto-detected .ahma/ in the current directory.
+    /// Override with AHMA_TOOLS_DIR env var.
+    #[arg(long)]
+    pub tools_dir: Option<PathBuf>,
+}
 
-    /// Disable HTTP/3 (QUIC) in HTTP bridge mode.
-    /// By default the bridge starts a QUIC endpoint alongside the HTTP/2 TCP listener
-    /// and advertises it via the `Alt-Svc` response header. Pass this flag to serve
-    /// HTTP/2 only (useful when UDP is blocked or QUIC causes issues).
-    #[arg(long = "disable-quic", help_heading = "Server Mode")]
+#[derive(Subcommand, Debug)]
+pub enum ServeTransport {
+    /// Serve over stdio — the standard transport for MCP clients.
+    ///
+    /// The MCP client (Cursor, VS Code, Claude Desktop, …) spawns
+    /// ahma-mcp as a child process and communicates over stdin/stdout.
+    /// No network port is opened; sandboxing is applied per-session.
+    ///
+    /// To wire ahma-mcp into an MCP client add an entry like this to
+    /// your `mcp.json` (exact key names vary by client):
+    ///
+    ///   "ahma": {
+    ///     "command": "ahma-mcp",
+    ///     "args": ["serve", "stdio", "--tool", "rust,git"]
+    ///   }
+    #[command(after_help = "EXAMPLES:
+  # Minimal stdio server
+  ahma-mcp serve stdio
+
+  # Enable specific tool bundles
+  ahma-mcp serve stdio --tool rust --tool python,git
+
+  # Use a custom tools directory
+  ahma-mcp serve stdio --tools-dir /path/to/.ahma")]
+    Stdio,
+    /// Serve over HTTP — a persistent multi-session bridge.
+    ///
+    /// Listens on a TCP port and routes MCP sessions over HTTP/2 and
+    /// (optionally) HTTP/3/QUIC.  Multiple MCP clients can connect
+    /// concurrently.  Suitable for CI runners, shared machines, or
+    /// remote integrations.
+    Http(HttpArgs),
+}
+
+/// Start a persistent HTTP-based MCP bridge.
+///
+/// Binds a TCP listener and serves the MCP Streamable HTTP transport
+/// (2025-03-26 spec).  Each connecting client gets an isolated session
+/// with its own sandbox scope.
+///
+/// HTTP/3 over QUIC is enabled by default when the platform supports it
+/// (requires a valid TLS certificate).  Use `--disable-quic` to fall back
+/// to HTTP/2 over TCP only.  HTTP/1.1 is accepted by default; use
+/// `--disable-http1-1` to require HTTP/2 or better.
+///
+/// Security: the server binds to `127.0.0.1` by default.  Bind to
+/// `0.0.0.0` only in trusted network environments and consider placing
+/// a reverse proxy in front for production use.
+#[derive(Parser, Debug)]
+#[command(after_help = "EXAMPLES:
+  # Default: 127.0.0.1:3000, HTTP/2 + HTTP/3
+  ahma-mcp serve http
+
+  # Custom port, localhost only
+  ahma-mcp serve http --port 8080
+
+  # Bind on all interfaces (use with care)
+  ahma-mcp serve http --host 0.0.0.0 --port 3000
+
+  # HTTP/2 over TCP only (disable QUIC/HTTP3)
+  ahma-mcp serve http --disable-quic
+
+  # Require at least HTTP/2 — reject HTTP/1.1 clients
+  ahma-mcp serve http --disable-http1-1")]
+pub struct HttpArgs {
+    /// Host to bind the HTTP server on.
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+
+    /// Port to bind the HTTP server on.
+    #[arg(long, default_value_t = 3000)]
+    pub port: u16,
+
+    /// Disable HTTP/3 (QUIC). Serve HTTP/2 over TCP only.
+    #[arg(long = "disable-quic")]
     pub no_quic: bool,
 
-    /// Disable HTTP/1.1 in HTTP bridge mode (HTTP/2+ only).
-    #[arg(long = "disable-http1-1", help_heading = "Server Mode")]
+    /// Require HTTP/2+; reject HTTP/1.1 connections.
+    #[arg(long = "disable-http1-1")]
     pub disable_http1_1: bool,
+}
 
-    /// Handshake timeout in seconds (for HTTP mode)
-    #[arg(long, default_value_t = 10, help_heading = "Server Mode")]
-    pub handshake_timeout_secs: u64,
+// ── run ──────────────────────────────────────────────────────────────────────
 
-    /// Path to the tools directory containing JSON configurations
-    #[arg(long, help_heading = "Tool Management")]
-    pub tools_dir: Option<PathBuf>,
-
-    /// Watch `.ahma/` or `--tools-dir` for JSON changes and reload tools at runtime.
-    /// Security warning: future writes to that directory can add, replace, or retarget
-    /// tools mid-session. Enable this only while developing tool definitions.
-    #[arg(long, help_heading = "Tool Management")]
-    pub hot_reload_tools: bool,
-
-    /// Whether --tools-dir was explicitly provided on the command line
-    /// (as opposed to auto-detected via .ahma/ directory).
-    /// Set automatically during CLI initialization; not a user-facing flag.
-    #[arg(skip)]
-    pub explicit_tools_dir: bool,
-
-    /// Tools to bundle and enable (e.g. --tool rust --tool python)
-    #[arg(long = "tool", value_name = "NAME", help_heading = "Tool Management")]
-    pub tools: Vec<String>,
-
-    /// Enable Rust/Cargo tools (compile, test, lint, format)
-    #[arg(long, help_heading = "Tool Management")]
-    pub rust: bool,
-
-    /// Enable file utility tools (ls, cp, mv, rm, grep, find, diff)
-    #[arg(long, help_heading = "Tool Management")]
-    pub fileutils: bool,
-
-    /// Enable GitHub CLI tools (PRs, Actions, workflows)
-    #[arg(long, help_heading = "Tool Management")]
-    pub github: bool,
-
-    /// Enable Git version control tools (status, add, commit, push, log)
-    #[arg(long, help_heading = "Tool Management")]
-    pub git: bool,
-
-    /// Enable Kotlin/Gradle tools (build, test, lint)
-    #[arg(long, help_heading = "Tool Management")]
-    pub kotlin: bool,
-
-    /// Enable Python tools (scripts, inline code, modules)
-    #[arg(long, help_heading = "Tool Management")]
-    pub python: bool,
-
-    /// Enable code complexity analysis tools
-    #[arg(long, help_heading = "Tool Management")]
-    pub simplify: bool,
-
-    /// Default timeout for tool execution in seconds
-    #[arg(long, default_value_t = 360, help_heading = "Tool Management")]
-    pub timeout: u64,
-
-    /// Force all tools to run synchronously (disable async execution)
-    #[arg(long)]
-    pub sync: bool,
-
-    /// Enable debug logging
-    #[arg(long, help_heading = "Logging & Debugging")]
-    pub debug: bool,
-
-    /// Log to stderr instead of file
-    #[arg(long, help_heading = "Logging & Debugging")]
-    pub log_to_stderr: bool,
-
-    /// Disable sandbox (often required for testing or constrained environments like Raspberry Pi - UNSAFE)
-    #[arg(long = "disable-sandbox", help_heading = "Sandbox & Security")]
-    pub no_sandbox: bool,
-
-    /// Skip tool availability probes at startup (faster startup for testing)
-    #[arg(long, hide = true)]
-    pub skip_availability_probes: bool,
-
-    /// Block writes to /tmp and other temp directories (higher security, breaks tools needing temp access)
-    #[arg(long = "disable-temp-files", hide = true)]
-    pub no_temp_files: bool,
-
-    /// Add system temp directory to sandbox scopes (explicit temp access for testing/dynamic workflows)
-    #[arg(long, hide = true)]
-    pub tmp: bool,
-
-    /// Sandbox scope directories (multiple allowed)
-    #[arg(long = "sandbox-scope", help_heading = "Sandbox & Security")]
-    pub sandbox_scope: Vec<PathBuf>,
-
-    /// Defer sandbox initialization until client provides roots
-    #[arg(long, help_heading = "Sandbox & Security")]
-    pub defer_sandbox: bool,
-
-    /// Working directories for sandbox scope when using --defer-sandbox.
-    /// Required when MCP client may not provide workspace roots.
-    /// Example: --working-directories "/path/to/project1,/path/to/project2"
-    #[arg(long, value_delimiter = ',', help_heading = "Sandbox & Security")]
-    pub working_directories: Option<Vec<PathBuf>>,
-
-    /// Minimum seconds between successive log monitoring alerts (default: 60)
-    #[arg(long, default_value_t = 60, help_heading = "Logging & Debugging")]
-    pub monitor_rate_limit: u64,
-
-    /// Disable progressive disclosure (expose all tools immediately instead of on demand)
-    #[arg(
-        long = "disable-progressive-disclosure",
-        help_heading = "Tool Management"
-    )]
-    pub no_progressive_disclosure: bool,
-
-    /// Safe live log monitoring: evaluate symlinks in /log to configure read-only scopes
-    #[arg(long, help_heading = "Logging & Debugging")]
-    pub livelog: bool,
-
-    /// Tool name (for CLI mode)
+/// Arguments for `ahma-mcp run <TOOL> [-- <TOOL_ARGS>...]`.
+#[derive(Parser, Debug)]
+pub struct RunArgs {
+    /// Name of the tool to execute.
     #[arg(value_name = "TOOL")]
-    pub tool_name: Option<String>,
+    pub tool: String,
 
-    /// Tool arguments (for CLI mode, after --)
+    /// Arguments forwarded to the tool (after --).
     #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
     pub tool_args: Vec<String>,
 }
 
-pub async fn run() -> Result<()> {
-    let mut cli = Cli::parse();
-    cli.explicit_tools_dir = cli.tools_dir.is_some();
-    cli.tools_dir = resolution::normalize_tools_dir(cli.tools_dir);
+// ── tool ─────────────────────────────────────────────────────────────────────
 
-    let log_level = if cli.debug { "debug" } else { "info" };
-    init_logging(log_level, !cli.log_to_stderr)?;
+/// Arguments for `ahma-mcp tool`.
+#[derive(Parser, Debug)]
+pub struct ToolArgs {
+    #[command(subcommand)]
+    pub command: ToolCommand,
+}
 
-    if let Some(early_result) = handle_early_exit_modes(&cli).await {
-        return early_result;
+#[derive(Subcommand, Debug)]
+pub enum ToolCommand {
+    /// Validate tool JSON configurations against the MTDF schema.
+    Validate(ValidateArgs),
+    /// List all tools available from an MCP server.
+    List(ListArgs),
+    /// Execute a single tool command and print the result.
+    ///
+    /// Loads tool configurations, applies sandboxing, runs the named tool
+    /// with the supplied arguments, and prints the output to stdout.
+    /// Useful for scripting, CI pipelines, and debugging tool behaviour
+    /// outside the MCP protocol.
+    #[command(after_help = "EXAMPLES:
+  # Run a cargo build in release mode
+  ahma-mcp tool run cargo_build -- --release
+
+  # Run git status
+  ahma-mcp tool run git_status
+
+  # Run with a custom tools directory
+  AHMA_TOOLS_DIR=/path/to/.ahma ahma-mcp tool run my_tool -- --flag value")]
+    Run(RunArgs),
+    /// Show locally configured tools with descriptions and parameters.
+    ///
+    /// Loads tool definitions from the `.ahma/` directory (or `--tools-dir`)
+    /// and built-in bundles (activated with `--tools`), then prints a summary
+    /// of each tool including its subcommands, parameters, and hints.
+    #[command(after_help = "EXAMPLES:
+  # Show all tools from the local .ahma/ directory
+  ahma-mcp tool info
+
+  # Include built-in bundles
+  ahma-mcp tool info --tools rust,git
+
+  # JSON output for scripting
+  ahma-mcp tool info --tools rust --format json
+
+  # Show details for a specific tool
+  ahma-mcp tool info cargo")]
+    Info(InfoArgs),
+}
+
+/// Arguments for `ahma-mcp tool validate [TARGET]`.
+#[derive(Parser, Debug)]
+pub struct ValidateArgs {
+    /// File, directory, or comma-separated list of paths to validate.
+    /// Defaults to `.ahma` in the current directory.
+    #[arg(value_name = "TARGET")]
+    pub target: Option<String>,
+}
+
+/// Arguments for `ahma-mcp tool list`.
+#[derive(Parser, Debug)]
+pub struct ListArgs {
+    /// Name of the server in mcp.json to connect to.
+    #[arg(long)]
+    pub server: Option<String>,
+
+    /// Path to mcp.json configuration file.
+    #[arg(long, default_value = "mcp.json")]
+    pub mcp_config: PathBuf,
+
+    /// HTTP URL for the MCP server (e.g. http://localhost:3000).
+    #[arg(long)]
+    pub http: Option<String>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = list_tools::OutputFormat::Text)]
+    pub format: list_tools::OutputFormat,
+}
+
+/// Arguments for `ahma-mcp tool info`.
+#[derive(Parser, Debug)]
+pub struct InfoArgs {
+    /// Tool bundles to include (e.g. --tools rust --tools python,git).
+    /// Repeat or comma-separate. Available: rust, python, git, kotlin, fileutils, github, simplify.
+    #[arg(long = "tools", value_name = "NAME", value_delimiter = ',')]
+    pub tool_bundles: Vec<String>,
+
+    /// Path to the tools directory containing JSON tool definitions.
+    /// Defaults to the auto-detected `.ahma/` in the current directory.
+    #[arg(long)]
+    pub tools_dir: Option<PathBuf>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = list_tools::OutputFormat::Text)]
+    pub format: list_tools::OutputFormat,
+
+    /// Show only a specific tool by name.
+    #[arg(value_name = "TOOL")]
+    pub filter: Option<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AppConfig construction from CLI + env vars
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn build_app_config(cli: Cli) -> AppConfig {
+    // Gather serve-level fields if present
+    let (tool_bundles, cli_tools_dir, http_host, http_port, no_quic, disable_http1_1) = match &cli
+        .command
+    {
+        Subcommands::Serve(s) => {
+            let (host, port, no_quic, disable_http1_1) = match &s.transport {
+                ServeTransport::Http(h) => (h.host.clone(), h.port, h.no_quic, h.disable_http1_1),
+                ServeTransport::Stdio => ("127.0.0.1".to_string(), 3000u16, false, false),
+            };
+            (
+                s.tool_bundles.clone(),
+                s.tools_dir.clone(),
+                host,
+                port,
+                no_quic,
+                disable_http1_1,
+            )
+        }
+        _ => (vec![], None, "127.0.0.1".to_string(), 3000u16, false, false),
+    };
+
+    // Tool list args
+    let (list_server, mcp_config, list_http, list_format) = if let Subcommands::Tool(ToolArgs {
+        command: ToolCommand::List(la),
+    }) = &cli.command
+    {
+        (
+            la.server.clone(),
+            la.mcp_config.clone(),
+            la.http.clone(),
+            la.format.clone(),
+        )
+    } else {
+        (
+            None,
+            PathBuf::from("mcp.json"),
+            None,
+            list_tools::OutputFormat::Text,
+        )
+    };
+
+    // Run args (now under tool run)
+    let (run_tool, run_tool_args) = if let Subcommands::Tool(ToolArgs {
+        command: ToolCommand::Run(r),
+    }) = &cli.command
+    {
+        (Some(r.tool.clone()), r.tool_args.clone())
+    } else {
+        (None, vec![])
+    };
+
+    // Env-var overrides for tools_dir
+    let env_tools_dir = std::env::var("AHMA_TOOLS_DIR").ok().map(PathBuf::from);
+    let explicit_tools_dir = cli_tools_dir.is_some();
+    let raw_tools_dir = cli_tools_dir.or(env_tools_dir);
+    let tools_dir = resolution::normalize_tools_dir(raw_tools_dir);
+
+    // Flatten and deduplicate tool bundles (support comma-separation already handled by clap delimiter)
+    let tool_bundles = {
+        let mut seen = std::collections::HashSet::new();
+        tool_bundles
+            .into_iter()
+            .filter(|b| seen.insert(b.clone()))
+            .collect()
+    };
+
+    // Sandbox scopes: --sandbox-scope CLI flag is gone; use AHMA_SANDBOX_SCOPE env var
+    let sandbox_scopes = AppConfig::env_sandbox_scopes();
+    let working_dirs = AppConfig::env_working_dirs();
+
+    // HTTP quic override from env
+    let no_quic = no_quic || AppConfig::env_flag("AHMA_DISABLE_QUIC");
+    let disable_http1_1 = disable_http1_1 || AppConfig::env_flag("AHMA_DISABLE_HTTP1_1");
+
+    AppConfig {
+        tools_dir,
+        explicit_tools_dir,
+        tool_bundles,
+        timeout_secs: AppConfig::env_u64("AHMA_TIMEOUT", 360),
+        force_sync: AppConfig::env_flag("AHMA_SYNC"),
+        hot_reload_tools: AppConfig::env_flag("AHMA_HOT_RELOAD"),
+        skip_availability_probes: AppConfig::env_flag("AHMA_SKIP_PROBES"),
+        progressive_disclosure: !AppConfig::env_flag("AHMA_PROGRESSIVE_DISCLOSURE_OFF"),
+        no_sandbox: AppConfig::env_flag("AHMA_DISABLE_SANDBOX"),
+        sandbox_scopes,
+        defer_sandbox: AppConfig::env_flag("AHMA_SANDBOX_DEFER"),
+        working_dirs,
+        tmp_access: AppConfig::env_flag("AHMA_TMP_ACCESS"),
+        no_temp_files: AppConfig::env_flag("AHMA_DISABLE_TEMP"),
+        log_monitor: AppConfig::env_flag("AHMA_LOG_MONITOR"),
+        monitor_rate_limit_secs: AppConfig::env_u64("AHMA_MONITOR_RATE_LIMIT", 60),
+        http_host,
+        http_port,
+        no_quic,
+        disable_http1_1,
+        handshake_timeout_secs: AppConfig::env_u64("AHMA_HANDSHAKE_TIMEOUT", 45),
+        list_server,
+        mcp_config,
+        list_http,
+        list_format,
+        run_tool,
+        run_tool_args,
     }
+}
 
-    let sandbox = initialize_sandbox(&mut cli)?;
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub async fn run() -> Result<()> {
+    // Determine log target before parsing full CLI so logging works for all subcommands.
+    // RUST_LOG controls verbosity; AHMA_LOG_TARGET=stderr routes to stderr (default: file).
+    let log_to_stderr = std::env::var("AHMA_LOG_TARGET")
+        .map(|v| v.trim().eq_ignore_ascii_case("stderr"))
+        .unwrap_or(false);
+    init_logging("info", !log_to_stderr)?;
+
+    let cli = Cli::parse();
+    let subcommand = cli.command; // move out before consuming cli
+
+    // We need the Cli to build AppConfig, but we moved it. Re-parse just for config.
+    // Actually we already extracted the subcommand. Let's rebuild cli fresh.
+    // Better: parse into a new CLI struct only for config.
+    let cli2 = Cli::parse(); // second parse is cheap; both are from argv
+    let cfg = build_app_config(cli2);
 
     #[cfg(target_os = "windows")]
     check_powershell_available();
 
-    dispatch_mode(cli, sandbox).await
+    dispatch_subcommand(subcommand, cfg).await
 }
 
-async fn handle_early_exit_modes(cli: &Cli) -> Option<Result<()>> {
-    if cli.list_tools {
-        tracing::info!("Running in list-tools mode");
-        return Some(modes::run_list_tools_mode(cli).await);
-    }
-    if let Some(ref target) = cli.validate {
-        tracing::info!("Running in validate mode");
-        return Some(run_validation_mode(target));
-    }
-    None
-}
-
-fn initialize_sandbox(cli: &mut Cli) -> Result<Option<Arc<sandbox::Sandbox>>> {
-    let policy = resolve_sandbox_policy(cli);
-    cli.no_sandbox = policy.no_sandbox;
+fn initialize_sandbox(cfg: &AppConfig) -> Result<Option<Arc<sandbox::Sandbox>>> {
+    let policy = resolve_sandbox_policy(cfg);
 
     check_sandbox_availability(policy.no_sandbox)?;
 
-    let scopes = resolve_sandbox_scopes(cli)?;
+    let scopes = resolve_sandbox_scopes(cfg)?;
     let scopes = add_temp_scope_if_requested(scopes, policy.tmp_access);
-    let sandbox = create_sandbox_instance(scopes, &policy, cli)?;
+    let sandbox = create_sandbox_instance(scopes, &policy, cfg)?;
 
     log_sandbox_mode(policy.no_sandbox);
     Ok(sandbox)
@@ -560,20 +920,201 @@ fn run_validation_mode(target: &str) -> Result<()> {
     }
 }
 
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                return false;
-            }
+async fn run_tool_info_mode(args: InfoArgs) -> Result<()> {
+    use crate::config;
 
-            matches!(
-                trimmed.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
+    // Build a minimal AppConfig with the requested bundles + tools_dir
+    let env_tools_dir = std::env::var("AHMA_TOOLS_DIR").ok().map(PathBuf::from);
+    let raw_tools_dir = args.tools_dir.or(env_tools_dir);
+    let tools_dir = resolution::normalize_tools_dir(raw_tools_dir);
+
+    let mini_cfg = AppConfig {
+        tool_bundles: args.tool_bundles,
+        tools_dir: tools_dir.clone(),
+        ..AppConfig::default()
+    };
+
+    let configs = config::load_tool_configs(&mini_cfg, tools_dir.as_deref()).await?;
+
+    // Optionally filter to a single tool
+    let mut tools: Vec<(&String, &config::ToolConfig)> = configs.iter().collect();
+    if let Some(ref filter) = args.filter {
+        tools.retain(|(name, _)| name.as_str() == filter.as_str());
+        if tools.is_empty() {
+            anyhow::bail!(
+                "Tool '{}' not found. Run without a filter to see all available tools.",
+                filter
+            );
+        }
+    }
+    tools.sort_by_key(|(name, _)| (*name).clone());
+
+    match args.format {
+        list_tools::OutputFormat::Text => print_tool_info_text(&tools),
+        list_tools::OutputFormat::Json => print_tool_info_json(&tools)?,
+    }
+
+    Ok(())
+}
+
+fn print_tool_info_text(tools: &[(&String, &crate::config::ToolConfig)]) {
+    println!("Local Tool Configurations");
+    println!("=========================");
+    println!();
+    println!("Total tools: {}", tools.len());
+    println!();
+
+    for (name, config) in tools {
+        println!("Tool: {}", name);
+        println!("  Description: {}", config.description);
+        println!("  Command:     {}", config.command);
+        println!("  Enabled:     {}", config.enabled);
+        if let Some(timeout) = config.timeout_seconds {
+            println!("  Timeout:     {}s", timeout);
+        }
+        if let Some(sync) = config.synchronous {
+            println!("  Synchronous: {}", sync);
+        }
+
+        // Subcommands
+        if let Some(ref subs) = config.subcommand {
+            println!("  Subcommands:");
+            for sub in subs {
+                let status = if sub.enabled { "" } else { " (disabled)" };
+                println!("    - {}{}: {}", sub.name, status, sub.description);
+
+                if let Some(ref opts) = sub.options {
+                    for opt in opts {
+                        let req = if opt.required.unwrap_or(false) {
+                            "required"
+                        } else {
+                            "optional"
+                        };
+                        print!("        --{} ({}, {})", opt.name, opt.option_type, req);
+                        if let Some(ref desc) = opt.description {
+                            print!(": {}", desc);
+                        }
+                        println!();
+                    }
+                }
+                if let Some(ref pos) = sub.positional_args {
+                    for arg in pos {
+                        let req = if arg.required.unwrap_or(false) {
+                            "required"
+                        } else {
+                            "optional"
+                        };
+                        print!("        <{}> ({}, {})", arg.name, arg.option_type, req);
+                        if let Some(ref desc) = arg.description {
+                            print!(": {}", desc);
+                        }
+                        println!();
+                    }
+                }
+            }
+        }
+
+        // Hints
+        let h = &config.hints;
+        let has_hints = h.build.is_some()
+            || h.test.is_some()
+            || h.dependencies.is_some()
+            || h.clean.is_some()
+            || h.run.is_some()
+            || h.custom.as_ref().is_some_and(|c| !c.is_empty());
+        if has_hints {
+            println!("  Hints:");
+            if let Some(ref v) = h.build {
+                println!("    build: {}", v);
+            }
+            if let Some(ref v) = h.test {
+                println!("    test: {}", v);
+            }
+            if let Some(ref v) = h.dependencies {
+                println!("    dependencies: {}", v);
+            }
+            if let Some(ref v) = h.clean {
+                println!("    clean: {}", v);
+            }
+            if let Some(ref v) = h.run {
+                println!("    run: {}", v);
+            }
+            if let Some(ref custom) = h.custom {
+                for (k, v) in custom {
+                    println!("    {}: {}", k, v);
+                }
+            }
+        }
+
+        if let Some(ref ac) = config.availability_check {
+            print!("  Availability check:");
+            if let Some(ref cmd) = ac.command {
+                print!(" {}", cmd);
+            }
+            if !ac.args.is_empty() {
+                print!(" {}", ac.args.join(" "));
+            }
+            println!();
+        }
+
+        if let Some(ref inst) = config.install_instructions {
+            println!("  Install: {}", inst);
+        }
+
+        println!();
+    }
+}
+
+fn print_tool_info_json(tools: &[(&String, &crate::config::ToolConfig)]) -> Result<()> {
+    let output: Vec<_> = tools
+        .iter()
+        .map(|(name, config)| {
+            serde_json::json!({
+                "name": name,
+                "description": config.description,
+                "command": config.command,
+                "enabled": config.enabled,
+                "timeout_seconds": config.timeout_seconds,
+                "synchronous": config.synchronous,
+                "subcommands": config.subcommand.as_ref().map(|subs| {
+                    subs.iter().map(|s| {
+                        serde_json::json!({
+                            "name": s.name,
+                            "description": s.description,
+                            "enabled": s.enabled,
+                            "options": s.options.as_ref().map(|opts| {
+                                opts.iter().map(|o| serde_json::json!({
+                                    "name": o.name,
+                                    "type": o.option_type,
+                                    "required": o.required.unwrap_or(false),
+                                    "description": o.description,
+                                })).collect::<Vec<_>>()
+                            }),
+                            "positional_args": s.positional_args.as_ref().map(|args| {
+                                args.iter().map(|a| serde_json::json!({
+                                    "name": a.name,
+                                    "type": a.option_type,
+                                    "required": a.required.unwrap_or(false),
+                                    "description": a.description,
+                                })).collect::<Vec<_>>()
+                            }),
+                        })
+                    }).collect::<Vec<_>>()
+                }),
+                "install_instructions": config.install_instructions,
+            })
         })
-        .unwrap_or(false)
+        .collect();
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+/// Read a boolean env var ("1","true","yes","on" → true; anything else → false).
+///
+/// Public for use in tests.
+pub fn env_flag_enabled(name: &str) -> bool {
+    AppConfig::env_flag(name)
 }
 
 #[cfg(test)]
@@ -635,11 +1176,46 @@ mod tests {
 
     // ─── resolve_sandbox_policy ──────────────────────────────────────────────
 
+    fn make_cfg() -> AppConfig {
+        AppConfig {
+            tools_dir: None,
+            explicit_tools_dir: false,
+            tool_bundles: vec![],
+            timeout_secs: 360,
+            force_sync: false,
+            hot_reload_tools: false,
+            skip_availability_probes: false,
+            progressive_disclosure: true,
+            no_sandbox: false,
+            sandbox_scopes: vec![],
+            defer_sandbox: false,
+            working_dirs: vec![],
+            tmp_access: false,
+            no_temp_files: false,
+            log_monitor: false,
+            monitor_rate_limit_secs: 60,
+            http_host: "127.0.0.1".to_string(),
+            http_port: 3000,
+            no_quic: false,
+            disable_http1_1: false,
+            handshake_timeout_secs: 45,
+            list_server: None,
+            mcp_config: PathBuf::from("mcp.json"),
+            list_http: None,
+            list_format: list_tools::OutputFormat::Text,
+            run_tool: None,
+            run_tool_args: vec![],
+        }
+    }
+
     #[test]
     fn test_resolve_sandbox_policy_no_sandbox_flag() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
+        let cfg = AppConfig {
+            no_sandbox: true,
+            ..make_cfg()
+        };
+        let policy = resolve_sandbox_policy(&cfg);
         assert!(policy.no_sandbox);
         assert_eq!(policy.mode, sandbox::SandboxMode::Test);
     }
@@ -647,11 +1223,9 @@ mod tests {
     #[test]
     fn test_resolve_sandbox_policy_strict_by_default() {
         init_test();
-        unsafe {
-            std::env::remove_var("AHMA_DISABLE_SANDBOX");
-        };
-        let cli = Cli::try_parse_from(["ahma_mcp"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
+        unsafe { std::env::remove_var("AHMA_DISABLE_SANDBOX") };
+        let cfg = make_cfg();
+        let policy = resolve_sandbox_policy(&cfg);
         assert!(!policy.no_sandbox);
         assert_eq!(policy.mode, sandbox::SandboxMode::Strict);
     }
@@ -659,8 +1233,11 @@ mod tests {
     #[test]
     fn test_resolve_sandbox_policy_tmp_flag() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--tmp"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
+        let cfg = AppConfig {
+            tmp_access: true,
+            ..make_cfg()
+        };
+        let policy = resolve_sandbox_policy(&cfg);
         assert!(policy.tmp_access);
     }
 
@@ -668,9 +1245,12 @@ mod tests {
     fn test_resolve_sandbox_policy_ahma_tmp_access_env() {
         init_test();
         unsafe { std::env::set_var("AHMA_TMP_ACCESS", "1") };
-        let cli = Cli::try_parse_from(["ahma_mcp"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
+        let cfg = AppConfig {
+            tmp_access: AppConfig::env_flag("AHMA_TMP_ACCESS"),
+            ..make_cfg()
+        };
         unsafe { std::env::remove_var("AHMA_TMP_ACCESS") };
+        let policy = resolve_sandbox_policy(&cfg);
         assert!(policy.tmp_access);
     }
 
@@ -681,14 +1261,12 @@ mod tests {
         init_test();
         let tmp = tempdir().unwrap();
         let path = tmp.path().to_path_buf();
-        let cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--sandbox-scope",
-            path.to_str().unwrap(),
-        ])
-        .unwrap();
-        let scopes = resolve_sandbox_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![path.clone()],
+            ..make_cfg()
+        };
+        let scopes = resolve_sandbox_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         let scopes = scopes.unwrap();
         assert_eq!(scopes.len(), 1);
@@ -698,14 +1276,12 @@ mod tests {
     #[test]
     fn test_canonicalize_paths_invalid_fails() {
         init_test();
-        let cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--sandbox-scope",
-            "/nonexistent/path/that/does/not/exist",
-        ])
-        .unwrap();
-        let result = resolve_sandbox_scopes(&cli);
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![PathBuf::from("/nonexistent/path/that/does/not/exist")],
+            ..make_cfg()
+        };
+        let result = resolve_sandbox_scopes(&cfg);
         assert!(result.is_err());
     }
 
@@ -715,14 +1291,12 @@ mod tests {
     fn test_resolve_sandbox_scopes_explicit() {
         init_test();
         let tmp = tempdir().unwrap();
-        let cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--sandbox-scope",
-            tmp.path().to_str().unwrap(),
-        ])
-        .unwrap();
-        let scopes = resolve_sandbox_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![tmp.path().to_path_buf()],
+            ..make_cfg()
+        };
+        let scopes = resolve_sandbox_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         assert_eq!(scopes.unwrap().len(), 1);
     }
@@ -732,10 +1306,13 @@ mod tests {
         init_test();
         let tmp = tempdir().unwrap();
         let path = tmp.path().to_path_buf();
-        unsafe { std::env::set_var("AHMA_SANDBOX_SCOPE", path.as_os_str()) };
-        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
-        let result = resolve_sandbox_scopes(&cli);
-        unsafe { std::env::remove_var("AHMA_SANDBOX_SCOPE") };
+        // Simulate what build_app_config does: read env at config-build time
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![path],
+            ..make_cfg()
+        };
+        let result = resolve_sandbox_scopes(&cfg);
         assert!(result.is_ok());
         let scopes = result.unwrap();
         assert!(scopes.is_some());
@@ -745,9 +1322,12 @@ mod tests {
     #[test]
     fn test_resolve_sandbox_scopes_cwd_fallback() {
         init_test();
-        unsafe { std::env::remove_var("AHMA_SANDBOX_SCOPE") };
-        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
-        let scopes = resolve_sandbox_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![],
+            ..make_cfg()
+        };
+        let scopes = resolve_sandbox_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         assert_eq!(scopes.unwrap().len(), 1);
     }
@@ -758,15 +1338,13 @@ mod tests {
     fn test_resolve_deferred_scopes_with_working_dirs() {
         init_test();
         let tmp = tempdir().unwrap();
-        let cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--defer-sandbox",
-            "--working-directories",
-            tmp.path().to_str().unwrap(),
-        ])
-        .unwrap();
-        let scopes = resolve_deferred_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            defer_sandbox: true,
+            working_dirs: vec![tmp.path().to_path_buf()],
+            ..make_cfg()
+        };
+        let scopes = resolve_deferred_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         let scopes = scopes.unwrap();
         assert_eq!(scopes.len(), 1);
@@ -776,9 +1354,12 @@ mod tests {
     #[test]
     fn test_resolve_deferred_scopes_without_working_dirs() {
         init_test();
-        let cli =
-            Cli::try_parse_from(["ahma_mcp", "--disable-sandbox", "--defer-sandbox"]).unwrap();
-        let scopes = resolve_deferred_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            defer_sandbox: true,
+            ..make_cfg()
+        };
+        let scopes = resolve_deferred_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         assert!(scopes.unwrap().is_empty());
     }
@@ -787,15 +1368,13 @@ mod tests {
     fn test_resolve_sandbox_scopes_defer_takes_precedence() {
         init_test();
         let tmp = tempdir().unwrap();
-        let cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--defer-sandbox",
-            "--working-directories",
-            tmp.path().to_str().unwrap(),
-        ])
-        .unwrap();
-        let scopes = resolve_sandbox_scopes(&cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            defer_sandbox: true,
+            working_dirs: vec![tmp.path().to_path_buf()],
+            ..make_cfg()
+        };
+        let scopes = resolve_sandbox_scopes(&cfg).unwrap();
         assert!(scopes.is_some());
         assert_eq!(scopes.unwrap().len(), 1);
     }
@@ -847,9 +1426,12 @@ mod tests {
     #[test]
     fn test_create_sandbox_instance_none() {
         init_test();
-        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
-        let sandbox = create_sandbox_instance(None, &policy, &cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            ..make_cfg()
+        };
+        let policy = resolve_sandbox_policy(&cfg);
+        let sandbox = create_sandbox_instance(None, &policy, &cfg).unwrap();
         assert!(sandbox.is_none());
     }
 
@@ -858,9 +1440,12 @@ mod tests {
         init_test();
         let tmp = tempdir().unwrap();
         let scopes = Some(vec![tmp.path().to_path_buf()]);
-        let cli = Cli::try_parse_from(["ahma_mcp", "--disable-sandbox"]).unwrap();
-        let policy = resolve_sandbox_policy(&cli);
-        let sandbox = create_sandbox_instance(scopes, &policy, &cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            ..make_cfg()
+        };
+        let policy = resolve_sandbox_policy(&cfg);
+        let sandbox = create_sandbox_instance(scopes, &policy, &cfg).unwrap();
         assert!(sandbox.is_some());
     }
 
@@ -924,14 +1509,12 @@ mod tests {
     fn test_initialize_sandbox_no_sandbox() {
         init_test();
         let tmp = tempdir().unwrap();
-        let mut cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--sandbox-scope",
-            tmp.path().to_str().unwrap(),
-        ])
-        .unwrap();
-        let sandbox = initialize_sandbox(&mut cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            sandbox_scopes: vec![tmp.path().to_path_buf()],
+            ..make_cfg()
+        };
+        let sandbox = initialize_sandbox(&cfg).unwrap();
         assert!(sandbox.is_some());
     }
 
@@ -939,15 +1522,13 @@ mod tests {
     fn test_initialize_sandbox_defer_with_working_dirs() {
         init_test();
         let tmp = tempdir().unwrap();
-        let mut cli = Cli::try_parse_from([
-            "ahma_mcp",
-            "--disable-sandbox",
-            "--defer-sandbox",
-            "--working-directories",
-            tmp.path().to_str().unwrap(),
-        ])
-        .unwrap();
-        let sandbox = initialize_sandbox(&mut cli).unwrap();
+        let cfg = AppConfig {
+            no_sandbox: true,
+            defer_sandbox: true,
+            working_dirs: vec![tmp.path().to_path_buf()],
+            ..make_cfg()
+        };
+        let sandbox = initialize_sandbox(&cfg).unwrap();
         assert!(sandbox.is_some());
     }
 
@@ -965,27 +1546,121 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ─── Cli struct / parsing ────────────────────────────────────────────────
+    // ─── CLI subcommand parsing ───────────────────────────────────────────────
 
     #[test]
-    fn test_cli_parse_defaults() {
-        let cli = Cli::try_parse_from(["ahma_mcp"]).unwrap();
-        assert_eq!(cli.mode, "stdio");
-        assert_eq!(cli.http_port, 3000);
-        assert_eq!(cli.timeout, 360);
-        assert!(cli.tool_name.is_none());
+    fn test_cli_parse_serve_stdio() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "serve", "stdio"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Subcommands::Serve(ServeArgs {
+                transport: ServeTransport::Stdio,
+                ..
+            })
+        ));
     }
 
     #[test]
-    fn test_cli_parse_validate_option() {
-        let cli = Cli::try_parse_from(["ahma_mcp", "--validate"]).unwrap();
-        assert_eq!(cli.validate, Some(".ahma".to_string()));
+    fn test_cli_parse_serve_http_defaults() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "serve", "http"]).unwrap();
+        if let Subcommands::Serve(ServeArgs {
+            transport: ServeTransport::Http(h),
+            ..
+        }) = cli.command
+        {
+            assert_eq!(h.host, "127.0.0.1");
+            assert_eq!(h.port, 3000);
+            assert!(!h.no_quic);
+        } else {
+            panic!("expected serve http");
+        }
     }
 
     #[test]
-    fn test_cli_parse_tool_name() {
-        let cli = Cli::try_parse_from(["ahma_mcp", "cargo_build", "--", "--release"]).unwrap();
-        assert_eq!(cli.tool_name, Some("cargo_build".to_string()));
-        assert_eq!(cli.tool_args, vec!["--release"]);
+    fn test_cli_parse_serve_http_custom_port() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "serve", "http", "--port", "8080"]).unwrap();
+        if let Subcommands::Serve(ServeArgs {
+            transport: ServeTransport::Http(h),
+            ..
+        }) = cli.command
+        {
+            assert_eq!(h.port, 8080);
+        } else {
+            panic!("expected serve http");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_run_tool() {
+        let cli =
+            Cli::try_parse_from(["ahma-mcp", "tool", "run", "cargo_build", "--", "--release"])
+                .unwrap();
+        if let Subcommands::Tool(ToolArgs {
+            command: ToolCommand::Run(r),
+        }) = cli.command
+        {
+            assert_eq!(r.tool, "cargo_build");
+            assert_eq!(r.tool_args, vec!["--release"]);
+        } else {
+            panic!("expected tool run subcommand");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_tool_validate_default() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "tool", "validate"]).unwrap();
+        if let Subcommands::Tool(ToolArgs {
+            command: ToolCommand::Validate(v),
+        }) = cli.command
+        {
+            assert!(v.target.is_none());
+        } else {
+            panic!("expected tool validate");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_tool_validate_with_target() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "tool", "validate", ".ahma"]).unwrap();
+        if let Subcommands::Tool(ToolArgs {
+            command: ToolCommand::Validate(v),
+        }) = cli.command
+        {
+            assert_eq!(v.target, Some(".ahma".to_string()));
+        } else {
+            panic!("expected tool validate with target");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_tool_list() {
+        let cli = Cli::try_parse_from(["ahma-mcp", "tool", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Subcommands::Tool(ToolArgs {
+                command: ToolCommand::List(_)
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_serve_with_tool_bundle() {
+        let cli =
+            Cli::try_parse_from(["ahma-mcp", "serve", "stdio", "--tools", "rust,python"]).unwrap();
+        if let Subcommands::Serve(s) = cli.command {
+            assert!(s.tool_bundles.contains(&"rust".to_string()));
+            assert!(s.tool_bundles.contains(&"python".to_string()));
+        } else {
+            panic!("expected serve stdio");
+        }
+    }
+
+    // ─── AppConfig::env_flag ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_app_config_env_flag_via_helper() {
+        unsafe { std::env::set_var("AHMA_TEST_CFG_FLAG", "yes") };
+        assert!(AppConfig::env_flag("AHMA_TEST_CFG_FLAG"));
+        unsafe { std::env::remove_var("AHMA_TEST_CFG_FLAG") };
     }
 }

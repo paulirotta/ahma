@@ -98,12 +98,17 @@ fn test_resolve_cli_subcommand_errors() {
 
 #[test]
 fn test_cli_argument_parsing() {
-    // We can simulate parsing by creating a Cli struct.
-    // Testing `Cli::try_parse_from` via clap
-    let args = vec!["ahma_mcp", "--mode", "http", "--http-port", "8080"];
+    use ahma_mcp::shell::cli::{ServeTransport, Subcommands};
+
+    // Test `Cli::try_parse_from` with the new subcommand API.
+    let args = vec!["ahma_mcp", "serve", "http", "--port", "8080"];
     let cli = Cli::try_parse_from(args).unwrap();
 
-    assert_eq!(cli.mode, "http");
-    assert_eq!(cli.http_port, 8080);
-    assert!(!cli.sync);
+    let Subcommands::Serve(serve_args) = cli.command else {
+        panic!("Expected serve subcommand");
+    };
+    let ServeTransport::Http(http_args) = serve_args.transport else {
+        panic!("Expected http transport");
+    };
+    assert_eq!(http_args.port, 8080);
 }

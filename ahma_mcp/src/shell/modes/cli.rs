@@ -3,7 +3,7 @@
 //! Runs the ahma_mcp server in CLI mode, which executes a single tool and prints
 //! the result to stdout.
 
-use crate::shell::cli::Cli;
+use crate::shell::cli::AppConfig;
 use crate::{
     adapter::Adapter,
     config::{SubcommandConfig, load_tool_configs},
@@ -31,32 +31,32 @@ struct ParsedCliArgs {
 /// Run in CLI mode (execute a single tool and print result).
 ///
 /// # Arguments
-/// * `cli` - Command-line arguments.
+/// * `config` - Immutable application configuration.
 /// * `sandbox` - Sandbox configuration.
 ///
 /// # Errors
 /// Returns an error if the tool execution fails.
-pub async fn run_cli_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
-    let tool_name = cli.tool_name.clone().unwrap();
+pub async fn run_cli_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
+    let tool_name = config.run_tool.clone().unwrap();
 
-    let (adapter, configs) = initialize_cli_runtime(&cli, sandbox).await?;
+    let (adapter, configs) = initialize_cli_runtime(&config, sandbox).await?;
 
     if configs.is_empty() && tool_name != "sandboxed_shell" {
         tracing::error!("No external tool configurations found");
         anyhow::bail!("No tool '{}' found", tool_name);
     }
 
-    let (config_key, config) = find_matching_tool(configs.as_ref(), &tool_name)?;
+    let (tool_config_key, tool_config) = find_matching_tool(configs.as_ref(), &tool_name)?;
 
-    let resolution = resolve_cli_invocation(config_key, config, &tool_name)?;
+    let resolution = resolve_cli_invocation(tool_config_key, tool_config, &tool_name)?;
     let (args_map, working_dir_str) =
-        build_cli_arguments(&cli, resolution.subcommand_config.as_ref());
+        build_cli_arguments(&config, resolution.subcommand_config.as_ref());
 
-    if config.command == "sequence" && resolution.subcommand_config.sequence.is_some() {
+    if tool_config.command == "sequence" && resolution.subcommand_config.sequence.is_some() {
         run_cli_sequence(
             &adapter,
             configs.as_ref(),
-            config,
+            tool_config,
             resolution.subcommand_config.as_ref(),
             &working_dir_str,
         )
@@ -75,6 +75,7 @@ pub async fn run_cli_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result<()
             Some(resolution.subcommand_config.as_ref()),
         )
         .await;
+    let _ = tool_config; // consumed by execute_sync_in_dir via subcommand
 
     match result {
         Ok(output) => {
@@ -89,16 +90,17 @@ pub async fn run_cli_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result<()
 }
 
 async fn initialize_cli_runtime(
-    cli: &Cli,
+    config: &AppConfig,
     sandbox: Arc<sandbox::Sandbox>,
 ) -> Result<(
     Adapter,
     Arc<std::collections::HashMap<String, crate::config::ToolConfig>>,
 )> {
-    let monitor_config = MonitorConfig::with_timeout(std::time::Duration::from_secs(cli.timeout));
+    let monitor_config =
+        MonitorConfig::with_timeout(std::time::Duration::from_secs(config.timeout_secs));
     let operation_monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool_manager = Arc::new(ShellPoolManager::new(ShellPoolConfig {
-        command_timeout: Duration::from_secs(cli.timeout),
+        command_timeout: Duration::from_secs(config.timeout_secs),
         ..Default::default()
     }));
 
@@ -108,16 +110,16 @@ async fn initialize_cli_runtime(
         sandbox.clone(),
     )?;
 
-    let configs = load_cli_configs(cli, shell_pool_manager, sandbox).await?;
+    let configs = load_cli_configs(config, shell_pool_manager, sandbox).await?;
     Ok((adapter, configs))
 }
 
 async fn load_cli_configs(
-    cli: &Cli,
+    config: &AppConfig,
     shell_pool_manager: Arc<ShellPoolManager>,
     sandbox: Arc<sandbox::Sandbox>,
 ) -> Result<Arc<std::collections::HashMap<String, crate::config::ToolConfig>>> {
-    let raw_configs = load_tool_configs(cli, cli.tools_dir.as_deref())
+    let raw_configs = load_tool_configs(config, config.tools_dir.as_deref())
         .await
         .context("Failed to load tool configurations")?;
 
@@ -188,14 +190,14 @@ fn sequence_subcommand_config(config: &crate::config::ToolConfig) -> SubcommandC
 }
 
 fn build_cli_arguments(
-    cli: &Cli,
+    config: &AppConfig,
     subcommand_config: &SubcommandConfig,
 ) -> (serde_json::Map<String, serde_json::Value>, String) {
     let ParsedCliArgs {
         mut raw_args,
         working_directory,
         tool_args_map,
-    } = parse_cli_args(cli);
+    } = parse_cli_args(config);
 
     append_mapped_args(&mut raw_args, &tool_args_map);
     strip_default_subcommand_marker(&mut raw_args);
@@ -207,7 +209,7 @@ fn build_cli_arguments(
     (args_map, working_dir)
 }
 
-fn parse_cli_args(cli: &Cli) -> ParsedCliArgs {
+fn parse_cli_args(config: &AppConfig) -> ParsedCliArgs {
     if let Some(tool_args_map) = tool_args_from_env() {
         return ParsedCliArgs {
             raw_args: Vec::new(),
@@ -216,7 +218,7 @@ fn parse_cli_args(cli: &Cli) -> ParsedCliArgs {
         };
     }
 
-    parse_cli_flag_args(cli)
+    parse_cli_flag_args(config)
 }
 
 fn tool_args_from_env() -> Option<serde_json::Map<String, serde_json::Value>> {
@@ -225,11 +227,11 @@ fn tool_args_from_env() -> Option<serde_json::Map<String, serde_json::Value>> {
     json_value.as_object().cloned()
 }
 
-fn parse_cli_flag_args(cli: &Cli) -> ParsedCliArgs {
+fn parse_cli_flag_args(config: &AppConfig) -> ParsedCliArgs {
     let mut raw_args = Vec::new();
     let mut working_directory = None;
     let mut tool_args_map = serde_json::Map::new();
-    let mut iter = cli.tool_args.clone().into_iter().peekable();
+    let mut iter = config.run_tool_args.clone().into_iter().peekable();
 
     while let Some(arg) = iter.next() {
         if arg == "--" {

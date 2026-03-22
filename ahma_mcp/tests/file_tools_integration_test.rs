@@ -28,7 +28,7 @@ fn build_binary(package: &str, binary: &str) -> PathBuf {
 /// Create a command for a binary with test mode enabled (bypasses sandbox checks)
 fn test_command(binary: &PathBuf) -> Command {
     let mut cmd = Command::new(binary);
-    cmd.arg("--disable-sandbox");
+    cmd.env("AHMA_DISABLE_SANDBOX", "1");
     cmd
 }
 
@@ -46,12 +46,8 @@ mod file_tools_tests {
 
         let output = test_command(&binary)
             .current_dir(temp_dir.path())
-            .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-                "sandboxed_shell",
-                "pwd",
-            ])
+            .env("AHMA_TOOLS_DIR", &tools_dir)
+            .args(["tool", "run", "sandboxed_shell", "pwd"])
             .output()
             .expect("Failed to execute pwd via sandboxed_shell");
 
@@ -88,9 +84,10 @@ mod file_tools_tests {
         // 1. Touch a file
         let output_touch = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("touch {}", test_file),
             ])
@@ -112,9 +109,10 @@ mod file_tools_tests {
         // 2. List the file
         let output_ls = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("ls {}", test_file),
             ])
@@ -155,9 +153,10 @@ mod file_tools_tests {
         // 1. Copy file
         let output_cp = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("cp {} {}", source_file, dest_file),
             ])
@@ -178,9 +177,10 @@ mod file_tools_tests {
         // 2. Move file
         let output_mv = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("mv {} {}", dest_file, moved_file),
             ])
@@ -219,9 +219,10 @@ mod file_tools_tests {
         // Remove file
         let output_rm = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("rm {}", test_file),
             ])
@@ -257,9 +258,10 @@ mod file_tools_tests {
         // 1. Cat file
         let output_cat = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("cat {}", test_file),
             ])
@@ -280,9 +282,10 @@ mod file_tools_tests {
         // 2. Grep file
         let output_grep = test_command(&binary)
             .current_dir(temp_dir.path())
+            .env("AHMA_TOOLS_DIR", &tools_dir)
             .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
+                "tool",
+                "run",
                 "sandboxed_shell",
                 &format!("grep Target {}", test_file),
             ])
@@ -319,12 +322,8 @@ mod sandboxed_shell_tests {
 
         let output = test_command(&binary)
             .current_dir(temp_dir.path())
-            .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-                "sandboxed_shell",
-                "echo 'Hello from shell'",
-            ])
+            .env("AHMA_TOOLS_DIR", &tools_dir)
+            .args(["tool", "run", "sandboxed_shell", "echo 'Hello from shell'"])
             .output()
             .expect("Failed to execute sandboxed_shell");
 
@@ -360,12 +359,8 @@ mod sandboxed_shell_tests {
 
         let output = test_command(&binary)
             .current_dir(temp_dir.path())
-            .args([
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-                "sandboxed_shell",
-                &script,
-            ])
+            .env("AHMA_TOOLS_DIR", &tools_dir)
+            .args(["tool", "run", "sandboxed_shell", &script])
             .output()
             .expect("Failed to execute sandboxed_shell");
 

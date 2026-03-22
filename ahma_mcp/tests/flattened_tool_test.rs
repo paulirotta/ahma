@@ -50,7 +50,7 @@ async fn test_flattened_tool_calling() -> Result<()> {
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
         .working_dir(temp_dir.path())
-        .arg("--disable-progressive-disclosure")
+        .env("AHMA_PROGRESSIVE_DISCLOSURE_OFF", "1")
         .build()
         .await?;
 

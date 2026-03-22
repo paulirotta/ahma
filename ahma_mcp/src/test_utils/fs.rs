@@ -66,7 +66,7 @@ pub async fn create_temp_tools_dir() -> Result<(TempDir, Client)> {
 
     let mut client = Client::new();
     client
-        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &["--disable-sandbox"])
+        .start_process_with_args(Some(tools_dir.to_str().unwrap()), &[])
         .await?;
 
     Ok((temp_dir, client))

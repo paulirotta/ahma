@@ -3,34 +3,31 @@
 //! Runs the ahma_mcp server in HTTP bridge mode, which provides an HTTP interface
 //! to the MCP server.
 
-use crate::shell::cli::Cli;
+use crate::shell::cli::AppConfig;
 use anyhow::{Context, Result};
 use dunce;
-use std::{env, path::PathBuf};
+use std::env;
 
 /// Run in HTTP bridge mode.
 ///
 /// # Arguments
-/// * `cli` - Command-line arguments.
+/// * `config` - Immutable application configuration.
 ///
 /// # Errors
 /// Returns an error if the bridge fails to start.
-pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
+pub async fn run_http_bridge_mode(config: AppConfig) -> Result<()> {
     use ahma_http_bridge::{BridgeConfig, start_bridge};
 
-    // We need to re-derive fallback scope because we don't have global state anymore.
-    // Ideally we pass `sandbox` to this function, but `sandbox` might be None if deferred.
-    // So logic inside `run_http_bridge_mode` should just default to CWD if not provided,
-    // OR we pass the calculated `sandbox_scopes` (if any) to it.
-
-    let bind_addr = format!("{}:{}", cli.http_host, cli.http_port)
+    let bind_addr = format!("{}:{}", config.http_host, config.http_port)
         .parse()
         .context("Invalid HTTP host/port")?;
 
     tracing::info!("Starting HTTP bridge on {}", bind_addr);
     tracing::info!("Session isolation: ENABLED (always-on)");
 
-    // Build the command to run the stdio MCP server
+    // Build the command to run the stdio MCP server subprocess.
+    // Env vars (AHMA_SYNC, AHMA_TIMEOUT, AHMA_LOG_MONITOR, AHMA_DISABLE_TEMP, etc.)
+    // are automatically inherited by child processes — no need to pass them as flags.
     let server_command = env::current_exe()
         .context("Failed to get current executable path")?
         .to_string_lossy()
@@ -38,56 +35,41 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
 
     // Determine explicit fallback scope for no-roots clients.
     // SECURITY: only treat CLI/env as explicit fallback; do not silently use CWD.
-    let explicit_fallback_scope = if !cli.sandbox_scope.is_empty() {
+    let explicit_fallback_scope = if !config.sandbox_scopes.is_empty() {
         Some(
-            dunce::canonicalize(&cli.sandbox_scope[0])
-                .unwrap_or_else(|_| cli.sandbox_scope[0].clone()),
+            dunce::canonicalize(&config.sandbox_scopes[0])
+                .unwrap_or_else(|_| config.sandbox_scopes[0].clone()),
         )
-    } else if let Ok(env_scope) = std::env::var("AHMA_SANDBOX_SCOPE") {
-        Some(PathBuf::from(env_scope))
     } else {
+        // AHMA_SANDBOX_SCOPE is already baked into config.sandbox_scopes — no need to recheck env
         None
     };
 
-    // Session isolation is always enabled in HTTP mode.
-    let mut server_args = vec!["--mode".to_string(), "stdio".to_string()];
+    // Subprocess gets the `serve stdio` subcommand.
+    // --tools-dir must come before the subcommand (it's on `serve`, not `serve stdio`).
+    // --tool flags propagate tool bundle choices; env vars propagate everything else.
+    let mut server_args = vec!["serve".to_string()];
 
-    // Only pass --tools-dir if explicitly provided
-    if let Some(ref tools_dir) = cli.tools_dir {
+    // Pass --tools-dir only if explicitly provided (otherwise subprocess auto-detects)
+    if config.explicit_tools_dir
+        && let Some(ref tools_dir) = config.tools_dir
+    {
         server_args.push("--tools-dir".to_string());
         server_args.push(tools_dir.to_string_lossy().to_string());
     }
 
-    if cli.hot_reload_tools {
-        server_args.push("--hot-reload-tools".to_string());
+    server_args.push("stdio".to_string());
+
+    // Pass through tool bundle selection
+    for bundle in &config.tool_bundles {
+        server_args.push("--tool".to_string());
+        server_args.push(bundle.clone());
     }
 
-    server_args.push("--timeout".to_string());
-    server_args.push(cli.timeout.to_string());
-
-    if cli.debug {
-        server_args.push("--debug".to_string());
-    }
-
-    if cli.sync {
-        server_args.push("--sync".to_string());
-    }
-
-    if cli.no_sandbox {
-        server_args.push("--disable-sandbox".to_string());
-    }
-
-    if cli.no_temp_files {
-        server_args.push("--disable-temp-files".to_string());
-    }
-
-    if cli.livelog {
-        server_args.push("--livelog".to_string());
-    }
-
-    if let Some(scope) = &explicit_fallback_scope {
-        server_args.push("--working-directories".to_string());
-        server_args.push(scope.to_string_lossy().to_string());
+    if let Some(ref scope) = explicit_fallback_scope {
+        // Pass scope as env AHMA_WORKING_DIRS for subprocess deferred-sandbox resolution
+        // (already set in env by parent process if user configured it)
+        let _ = scope; // scope used below in BridgeConfig only
     }
 
     let enable_colored_output = true;
@@ -105,18 +87,18 @@ pub async fn run_http_bridge_mode(cli: Cli) -> Result<()> {
         ),
     }
 
-    let config = BridgeConfig {
+    let bridge_config = BridgeConfig {
         bind_addr,
         server_command,
         server_args,
         enable_colored_output,
         default_sandbox_scope: explicit_fallback_scope,
-        handshake_timeout_secs: cli.handshake_timeout_secs,
-        enable_quic: !cli.no_quic,
-        disable_http1_1: cli.disable_http1_1,
+        handshake_timeout_secs: config.handshake_timeout_secs,
+        enable_quic: !config.no_quic,
+        disable_http1_1: config.disable_http1_1,
     };
 
-    start_bridge(config).await?;
+    start_bridge(bridge_config).await?;
 
     Ok(())
 }

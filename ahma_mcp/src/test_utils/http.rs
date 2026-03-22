@@ -101,23 +101,16 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
     std::fs::create_dir_all(&tools_dir)?;
 
     let mut cmd = Command::new(&binary);
-    cmd.args([
-        "--mode",
-        "http",
-        "--http-port",
-        &port.to_string(),
-        "--tools-dir",
-        &tools_dir.to_string_lossy(),
-        "--sandbox-scope",
-        &temp_dir.path().to_string_lossy(),
-        "--log-to-stderr",
-    ])
-    .env_remove("NEXTEST")
-    .env_remove("NEXTEST_EXECUTION_MODE")
-    .env_remove("CARGO_TARGET_DIR")
-    .env_remove("RUST_TEST_THREADS")
-    .stdout(Stdio::null())
-    .stderr(Stdio::piped());
+    cmd.args(["serve", "http", "--port", &port.to_string()])
+        .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
+        .env("AHMA_SANDBOX_SCOPE", &*temp_dir.path().to_string_lossy())
+        .env("AHMA_LOG_TARGET", "stderr")
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_EXECUTION_MODE")
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("RUST_TEST_THREADS")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     // Detect nested sandbox (mcp_ahma_sandboxed_shell / VS Code / Docker) and use
     // AHMA_DISABLE_SANDBOX so the child can start; app-level path security still applies.

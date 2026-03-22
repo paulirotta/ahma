@@ -101,7 +101,11 @@ If you are an AI agent interacting with this repository:
 
 Ahma enforces **kernel-level filesystem sandboxing** by default — Landlock on Linux, Seatbelt on macOS, Job Objects on Windows. The sandbox scope is set once at startup and cannot be changed. The AI has full access within the workspace, zero access outside it, unconditionally.
 
-See [docs/security-sandbox.md](docs/security-sandbox.md) for platform details, nested sandbox detection (`--disable-sandbox`), temp directory access (`--tmp`), and example `mcp.json` configs.
+See [docs/security-sandbox.md](docs/security-sandbox.md) for platform details, nested sandbox detection, temp directory access, and example `mcp.json` configs.
+
+## Configuration Reference
+
+Sandbox scope, logging, execution behaviour, and HTTP transport options are all configured via environment variables. See **[docs/environment-variables.md](docs/environment-variables.md)** for the full reference, including a quick-reference table of every `AHMA_*` variable.
 
 ## Live Log Monitoring
 

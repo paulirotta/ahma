@@ -77,10 +77,10 @@ async fn test_client_start_process_with_tools_dir() -> Result<()> {
 async fn test_client_start_process_with_sync_flag() -> Result<()> {
     init_test_logging();
 
-    // Start client with --sync flag
+    // Enable synchronous tool execution via env var (--sync flag removed in new CLI)
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .arg("--sync")
+        .env("AHMA_SYNC", "1")
         .build()
         .await?;
 
@@ -97,10 +97,10 @@ async fn test_client_start_process_with_sync_flag() -> Result<()> {
 async fn test_client_start_process_with_debug_flag() -> Result<()> {
     init_test_logging();
 
-    // Create client with --debug flag
+    // Enable debug logging via env var (--debug flag removed in new CLI)
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .arg("--debug")
+        .env("RUST_LOG", "debug")
         .build()
         .await?;
 
@@ -117,10 +117,10 @@ async fn test_client_start_process_with_debug_flag() -> Result<()> {
 async fn test_client_start_process_with_log_to_stderr() -> Result<()> {
     init_test_logging();
 
-    // Create client with --log-to-stderr flag
+    // Route logs to stderr via env var (--log-to-stderr flag removed in new CLI)
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .arg("--log-to-stderr")
+        .env("AHMA_LOG_TARGET", "stderr")
         .build()
         .await?;
 

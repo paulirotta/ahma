@@ -1,7 +1,6 @@
 /// Test to verify that the guard rail system correctly detects hardcoded tool conflicts
 use ahma_mcp::config::load_tool_configs_sync;
 use ahma_mcp::utils::logging::init_test_logging;
-use clap::Parser;
 use tempfile::TempDir;
 
 #[test]
@@ -65,7 +64,7 @@ fn test_guard_rail_detects_hardcoded_tool_conflicts() {
 
     // Try to load tool configurations - this should fail due to guard rail
     let result = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(&tools_dir),
     );
 
@@ -131,7 +130,7 @@ fn test_guard_rail_allows_valid_configurations() {
 
     // Try to load tool configurations - this should succeed
     let result = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(&tools_dir),
     );
 

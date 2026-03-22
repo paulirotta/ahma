@@ -79,22 +79,15 @@ async fn start_http_bridge(
     let no_sandbox = cfg!(windows);
 
     let mut cmd = Command::new(&binary);
-    cmd.args([
-        "--mode",
-        "http",
-        "--http-port",
-        &port.to_string(),
-        "--sync",
-        "--tools-dir",
-        &tools_dir.to_string_lossy(),
-        "--sandbox-scope",
-        &sandbox_scope.to_string_lossy(),
-        "--log-to-stderr",
-    ])
-    .env_remove("NEXTEST")
-    .env_remove("NEXTEST_EXECUTION_MODE")
-    .env_remove("CARGO_TARGET_DIR")
-    .env_remove("RUST_TEST_THREADS");
+    cmd.args(["serve", "http", "--port", &port.to_string()])
+        .env("AHMA_SYNC", "1")
+        .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
+        .env("AHMA_SANDBOX_SCOPE", &*sandbox_scope.to_string_lossy())
+        .env("AHMA_LOG_TARGET", "stderr")
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_EXECUTION_MODE")
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("RUST_TEST_THREADS");
     if no_sandbox {
         cmd.env("AHMA_DISABLE_SANDBOX", "1");
     }

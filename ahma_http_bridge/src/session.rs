@@ -616,12 +616,14 @@ impl SessionManager {
             Stdio::inherit()
         };
 
-        // Add --defer-sandbox so the subprocess waits for roots/list to set sandbox scope
-        let mut args = self.config.server_args.clone();
-        args.push("--defer-sandbox".to_string());
+        // Set AHMA_SANDBOX_DEFER so the subprocess waits for roots/list to set sandbox scope.
+        // Previously this was passed as --defer-sandbox CLI flag; now it uses an env var so
+        // we don't need to care where on the command line it would go.
+        let args = self.config.server_args.clone();
 
         let mut child = Command::new(&self.config.server_command)
             .args(&args)
+            .env("AHMA_SANDBOX_DEFER", "1")
             // SECURITY:
             // Avoid inheriting env vars that can auto-enable permissive test mode in ahma_mcp,
             // which can mask real sandbox-scoping behavior.

@@ -14,7 +14,6 @@ use ahma_mcp::mcp_service::{AhmaMcpService, GuidanceConfig};
 use ahma_mcp::operation_monitor::{MonitorConfig, OperationMonitor};
 use ahma_mcp::shell_pool::{ShellPoolConfig, ShellPoolManager};
 use ahma_mcp::utils::logging::init_test_logging;
-use clap::Parser;
 use rmcp::handler::server::ServerHandler;
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,11 +28,12 @@ async fn create_pd_service() -> AhmaMcpService {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    // Load with --tool rust --tool git flags to get bundled tools
-    let cli =
-        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "git"])
-            .unwrap();
-    let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
+    // Load rust + git bundles
+    let config = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string(), "git".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let tool_configs = load_tool_configs(&config, None).await.unwrap_or_default();
 
     let configs = Arc::new(tool_configs);
     let guidance = Arc::new(None::<GuidanceConfig>);
@@ -62,10 +62,11 @@ async fn create_legacy_service() -> AhmaMcpService {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    let cli =
-        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "git"])
-            .unwrap();
-    let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
+    let config = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string(), "git".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let tool_configs = load_tool_configs(&config, None).await.unwrap_or_default();
 
     let configs = Arc::new(tool_configs);
     let guidance = Arc::new(None::<GuidanceConfig>);
@@ -403,8 +404,11 @@ async fn create_pd_service_with_auto_reveal() -> AhmaMcpService {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
-    let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
+    let config = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string(), "git".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let tool_configs = load_tool_configs(&config, None).await.unwrap_or_default();
     let configs = Arc::new(tool_configs);
     let guidance = Arc::new(None::<GuidanceConfig>);
 
@@ -421,7 +425,7 @@ async fn create_pd_service_with_auto_reveal() -> AhmaMcpService {
     .unwrap();
 
     // Simulate what server.rs does: auto-reveal CLI-flagged bundles
-    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&config);
     service.pre_disclose(&cli_bundles);
 
     service
@@ -458,9 +462,11 @@ async fn test_cli_flagged_bundles_auto_revealed() {
 #[tokio::test]
 async fn test_cli_flagged_bundle_names_reflects_flags() {
     // Verify the helper function correctly maps CLI flags to bundle names
-    let cli =
-        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--simplify"]).unwrap();
-    let names = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+    let config = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string(), "simplify".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let names = ahma_mcp::config::cli_flagged_bundle_names(&config);
 
     assert!(names.contains("rust"), "Should contain rust");
     assert!(names.contains("simplify"), "Should contain simplify");
@@ -473,8 +479,8 @@ async fn test_cli_flagged_bundle_names_reflects_flags() {
 
 #[tokio::test]
 async fn test_cli_flagged_bundle_names_empty_without_flags() {
-    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap();
-    let names = ahma_mcp::config::cli_flagged_bundle_names(&cli);
+    let config = ahma_mcp::shell::cli::AppConfig::default();
+    let names = ahma_mcp::config::cli_flagged_bundle_names(&config);
     assert!(names.is_empty(), "No flags should produce empty set");
 }
 
@@ -494,10 +500,14 @@ async fn test_non_flagged_bundles_remain_hidden_with_auto_reveal() {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    // Load with --rust AND --git but only flag --rust for auto-reveal
-    let cli_load =
-        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
-    let tool_configs = load_tool_configs(&cli_load, None).await.unwrap_or_default();
+    // Load with rust AND git but only flag rust for auto-reveal
+    let config_load = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string(), "git".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let tool_configs = load_tool_configs(&config_load, None)
+        .await
+        .unwrap_or_default();
     let configs = Arc::new(tool_configs);
     let guidance = Arc::new(None::<GuidanceConfig>);
 
@@ -513,9 +523,12 @@ async fn test_non_flagged_bundles_remain_hidden_with_auto_reveal() {
     .await
     .unwrap();
 
-    // Only pre-disclose "rust" (simulating --rust flag only)
-    let cli_reveal = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust"]).unwrap();
-    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&cli_reveal);
+    // Only pre-disclose "rust" (simulating rust flag only)
+    let config_reveal = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string()],
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&config_reveal);
     service.pre_disclose(&cli_bundles);
 
     let tool_names = service.list_tool_names();

@@ -59,17 +59,11 @@ async fn start_deferred_sandbox_server(
     let binary = get_ahma_mcp_binary();
 
     let mut cmd = Command::new(&binary);
-    cmd.args([
-        "--mode",
-        "http",
-        "--http-port",
-        &port.to_string(),
-        "--sync",
-        "--tools-dir",
-        &tools_dir.to_string_lossy(),
-        "--defer-sandbox",
-        "--log-to-stderr",
-    ]);
+    cmd.args(["serve", "http", "--port", &port.to_string()])
+        .env("AHMA_SYNC", "1")
+        .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
+        .env("AHMA_SANDBOX_DEFER", "1")
+        .env("AHMA_LOG_TARGET", "stderr");
 
     SandboxTestEnv::configure(&mut cmd);
     SandboxTestEnv::apply_nested_sandbox_override(&mut cmd);

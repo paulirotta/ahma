@@ -64,7 +64,7 @@ async fn test_client_with_debug_logging() -> Result<()> {
 
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .arg("--debug")
+        .env("RUST_LOG", "debug")
         .build()
         .await?;
 
@@ -87,7 +87,7 @@ async fn test_client_with_stderr_logging() -> Result<()> {
 
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .arg("--log-to-stderr")
+        .env("AHMA_LOG_TARGET", "stderr")
         .build()
         .await?;
 
@@ -109,7 +109,8 @@ async fn test_client_with_debug_and_stderr_logging() -> Result<()> {
 
     let client = ClientBuilder::new()
         .tools_dir(".ahma")
-        .args(["--debug", "--log-to-stderr"])
+        .env("RUST_LOG", "debug")
+        .env("AHMA_LOG_TARGET", "stderr")
         .build()
         .await?;
 

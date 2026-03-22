@@ -248,15 +248,8 @@ impl CallbackSender for McpCallbackSender {
 
         match self.peer.notify_progress(params).await {
             Ok(()) => {
-                // Emit a raw trace to stderr so integration tests can capture the exact
-                // JSON payload and a timestamp for debugging delivery issues.
-                if let Some(json_payload) = json_payload_opt {
-                    use std::time::SystemTime;
-                    eprintln!(
-                        "[MCP_CALLBACK] SEND_PROGRESS: {} | ts: {:?}",
-                        json_payload,
-                        SystemTime::now()
-                    );
+                if let Some(ref json_payload) = json_payload_opt {
+                    tracing::trace!(payload = %json_payload, "Sent MCP progress notification");
                 }
                 tracing::debug!("Successfully sent MCP progress notification");
                 Ok(())

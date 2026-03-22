@@ -64,7 +64,7 @@ async fn test_config_reload_when_hot_reload_enabled() -> Result<()> {
 
     let client = ClientBuilder::new()
         .tools_dir(&tools_dir)
-        .arg("--hot-reload-tools")
+        .env("AHMA_HOT_RELOAD", "1")
         .build()
         .await?;
 

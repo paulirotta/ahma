@@ -2,7 +2,7 @@
 //!
 //! Runs the ahma_mcp server in stdio mode, which is the default mode for MCP integration.
 
-use crate::shell::cli::Cli;
+use crate::shell::cli::AppConfig;
 use crate::{
     adapter::Adapter,
     config::{ServerConfig as MpcServerConfig, load_tool_configs},
@@ -27,25 +27,25 @@ use tracing::info;
 /// Run in server mode (stdio MCP server).
 ///
 /// # Arguments
-/// * `cli` - Command-line arguments.
+/// * `config` - Immutable application configuration.
 /// * `sandbox` - Sandbox configuration.
 ///
 /// # Errors
 /// Returns an error if the server fails to start or encounters a fatal error.
-pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
+pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
     tracing::info!("Starting ahma_mcp v1.0.0");
-    if let Some(ref tools_dir) = cli.tools_dir {
+    if let Some(ref tools_dir) = config.tools_dir {
         tracing::info!("Tools directory: {:?}", tools_dir);
     } else {
         tracing::info!("No tools directory (using built-in internal tools only)");
     }
-    tracing::info!("Command timeout: {}s", cli.timeout);
+    tracing::info!("Command timeout: {}s", config.timeout_secs);
 
     // --- MCP Client Mode ---
-    if fs::try_exists(&cli.mcp_config).await.unwrap_or(false) {
+    if fs::try_exists(&config.mcp_config).await.unwrap_or(false) {
         // Try to load the MCP config, but ignore if it's not a valid ahma_mcp config
         // (e.g., if it's a Cursor/VSCode MCP server config with "type": "stdio")
-        match crate::config::load_mcp_config(&cli.mcp_config).await {
+        match crate::config::load_mcp_config(&config.mcp_config).await {
             Ok(mcp_config) => {
                 if let Some(server_config) = mcp_config.servers.values().next()
                     && let MpcServerConfig::Http(http_config) = server_config
@@ -88,13 +88,14 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     let guidance_config = Some(GuidanceConfig::default());
 
     // Initialize the operation monitor
-    let monitor_config = MonitorConfig::with_timeout(std::time::Duration::from_secs(cli.timeout));
+    let monitor_config =
+        MonitorConfig::with_timeout(std::time::Duration::from_secs(config.timeout_secs));
     let shutdown_timeout = monitor_config.shutdown_timeout;
     let operation_monitor = Arc::new(OperationMonitor::new(monitor_config));
 
     // Initialize the shell pool manager
     let shell_pool_config = ShellPoolConfig {
-        command_timeout: Duration::from_secs(cli.timeout),
+        command_timeout: Duration::from_secs(config.timeout_secs),
         ..Default::default()
     };
     let shell_pool_manager = Arc::new(ShellPoolManager::new(shell_pool_config));
@@ -108,14 +109,14 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     )?);
 
     // Load tool configurations (now async, no spawn_blocking needed)
-    // Always call load_tool_configs so that bundled tools from --rust, --simplify, etc.
-    // are loaded even when no --tools-dir or .ahma/ directory is present.
-    let raw_configs = load_tool_configs(&cli, cli.tools_dir.as_deref())
+    // Always call load_tool_configs so that bundled tools are loaded
+    // even when no tools-dir or .ahma/ directory is present.
+    let raw_configs = load_tool_configs(&config, config.tools_dir.as_deref())
         .await
         .context("Failed to load tool configurations")?;
 
-    let configs = if cli.skip_availability_probes {
-        tracing::info!("Skipping tool availability probes (--skip-availability-probes)");
+    let configs = if config.skip_availability_probes {
+        tracing::info!("Skipping tool availability probes (AHMA_SKIP_PROBES)");
         Arc::new(raw_configs)
     } else {
         let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -183,7 +184,7 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     };
     if configs.is_empty() {
         tracing::error!("No valid tool configurations available after availability checks");
-        if let Some(ref tools_dir) = cli.tools_dir {
+        if let Some(ref tools_dir) = config.tools_dir {
             tracing::error!("Tools directory: {:?}", tools_dir);
         } else {
             tracing::error!("No tools directory specified (using built-in internal tools only)");
@@ -199,8 +200,8 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
     }
 
     // Create and start the MCP service
-    // With async-by-default, we pass force_synchronous=true when --sync flag is used
-    let force_synchronous = cli.sync;
+    // With async-by-default, we pass force_synchronous=true when AHMA_SYNC is set
+    let force_synchronous = config.force_sync;
     let loaded_tools_count = configs.len();
     let service_handler = AhmaMcpService::new(
         adapter.clone(),
@@ -208,26 +209,24 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
         configs,
         Arc::new(guidance_config),
         force_synchronous,
-        cli.defer_sandbox,
-        !cli.no_progressive_disclosure,
+        config.defer_sandbox,
+        config.progressive_disclosure,
     )
     .await?;
 
-    // Auto-reveal bundles that were explicitly requested via CLI flags.
-    // This avoids forcing the LLM to call `activate_tools reveal` for tools
-    // the user already declared they want.
-    let cli_bundles = crate::config::cli_flagged_bundle_names(&cli);
+    // Auto-reveal bundles that were explicitly requested via --tool flags.
+    let cli_bundles = crate::config::cli_flagged_bundle_names(&config);
     service_handler.pre_disclose(&cli_bundles);
 
-    // Apply log monitor rate limit from CLI
+    // Apply log monitor rate limit
     let mut service_handler = service_handler;
-    service_handler.monitor_rate_limit_seconds = cli.monitor_rate_limit;
+    service_handler.monitor_rate_limit_seconds = config.monitor_rate_limit_secs;
 
     // Hot-reload is opt-in because runtime writes can change tool behavior mid-session.
-    if cli.hot_reload_tools
-        && let Some(tools_dir) = cli.tools_dir.clone()
+    if config.hot_reload_tools
+        && let Some(tools_dir) = config.tools_dir.clone()
     {
-        service_handler.start_config_watcher(tools_dir, cli.clone());
+        service_handler.start_config_watcher(tools_dir, config.clone());
     }
 
     let sandbox_mode_label = if sandbox.is_test_mode() {
@@ -258,7 +257,8 @@ pub async fn run_server_mode(cli: Cli, sandbox: Arc<sandbox::Sandbox>) -> Result
         sandbox_mode_label,
         sandbox_scopes,
         sandbox.is_no_temp_files(),
-        cli.tools_dir
+        config
+            .tools_dir
             .as_ref()
             .map_or_else(|| "<none>".to_string(), |dir| dir.display().to_string()),
         loaded_tools_count,

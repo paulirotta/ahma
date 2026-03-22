@@ -1209,26 +1209,18 @@ async fn start_http_bridge_dynamic(
 ) -> (ServerGuard, std::sync::Arc<std::sync::Mutex<String>>) {
     let binary = resolve_binary_path();
     let mut cmd = Command::new(&binary);
-    cmd.args([
-        "--mode",
-        "http",
-        "--http-port",
-        "0",
-        "--sync",
-        "--tools-dir",
-        &tools_dir.to_string_lossy(),
-        "--sandbox-scope",
-        &sandbox_scope.to_string_lossy(),
-        "--log-to-stderr",
+    cmd.args(["serve", "http", "--port", "0"])
+        .env("AHMA_SYNC", "1")
+        .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
+        .env("AHMA_SANDBOX_SCOPE", &*sandbox_scope.to_string_lossy())
+        .env("AHMA_LOG_TARGET", "stderr")
         // Use a generous handshake timeout so slow CI runners (coverage, Windows)
         // complete the SSE roots exchange before the server-side timer fires.
-        "--handshake-timeout-secs",
-        "300",
-    ])
-    .env_remove("NEXTEST")
-    .env_remove("NEXTEST_EXECUTION_MODE")
-    .env_remove("CARGO_TARGET_DIR")
-    .env_remove("RUST_TEST_THREADS");
+        .env("AHMA_HANDSHAKE_TIMEOUT", "300")
+        .env_remove("NEXTEST")
+        .env_remove("NEXTEST_EXECUTION_MODE")
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("RUST_TEST_THREADS");
 
     #[cfg(target_os = "macos")]
     if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {

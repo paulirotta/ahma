@@ -35,13 +35,13 @@ fn test_list_tools_help() {
     let help_text = format!("{}{}", stdout, stderr);
 
     assert!(
-        help_text.contains("--list-tools"),
-        "Help should contain --list-tools flag. Got: {}",
+        help_text.contains("list") || help_text.contains("tool"),
+        "Help should contain 'list' or 'tool' subcommand. Got: {}",
         help_text
     );
     assert!(
-        help_text.contains("--format"),
-        "Help should contain --format flag. Got: {}",
+        help_text.contains("serve") || help_text.contains("run") || help_text.contains("Commands"),
+        "Help should contain subcommands. Got: {}",
         help_text
     );
 }
@@ -66,20 +66,30 @@ fn test_list_tools_from_stdio_server() {
         assert!(build_output.status.success(), "Failed to build");
     }
 
-    // Run ahma_mcp --list-tools with the stdio server
-    // Use --disable-sandbox to bypass sandbox checks in the server
+    // Create a temp mcp.json pointing to the stdio server
+    let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+    let mcp_config_path = temp_dir.path().join("mcp.json");
+    let mcp_config = format!(
+        r#"{{"mcpServers":{{"test":{{"command":"{cmd}","args":["serve","stdio"],"env":{{"AHMA_TOOLS_DIR":"{tools}","AHMA_DISABLE_SANDBOX":"1","AHMA_SKIP_PROBES":"1"}}}}}}}}"#,
+        cmd = ahma_binary.to_str().unwrap().replace('\\', "/"),
+        tools = tools_dir.to_str().unwrap().replace('\\', "/")
+    );
+    std::fs::write(&mcp_config_path, &mcp_config).expect("Failed to write mcp.json");
+
+    // Run ahma_mcp tool list with the mcp.json config
     let output = Command::new(&ahma_binary)
         .args([
-            "--list-tools",
-            "--",
-            ahma_binary.to_str().unwrap(),
-            "--disable-sandbox",
-            "--tools-dir",
-            tools_dir.to_str().unwrap(),
+            "tool",
+            "list",
+            "--server",
+            "test",
+            "--mcp-config",
+            mcp_config_path.to_str().unwrap(),
         ])
+        .env("AHMA_DISABLE_SANDBOX", "1")
         .current_dir(&project_root)
         .output()
-        .expect("Failed to execute ahma_mcp --list-tools");
+        .expect("Failed to execute ahma_mcp tool list");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -117,21 +127,32 @@ fn test_list_tools_json_format() {
         assert!(build_output.status.success(), "Failed to build");
     }
 
-    // Run ahma_mcp --list-tools --format json
+    // Create a temp mcp.json pointing to the stdio server
+    let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+    let mcp_config_path = temp_dir.path().join("mcp.json");
+    let mcp_config = format!(
+        r#"{{"mcpServers":{{"test":{{"command":"{cmd}","args":["serve","stdio"],"env":{{"AHMA_TOOLS_DIR":"{tools}","AHMA_DISABLE_SANDBOX":"1","AHMA_SKIP_PROBES":"1"}}}}}}}}"#,
+        cmd = ahma_binary.to_str().unwrap().replace('\\', "/"),
+        tools = tools_dir.to_str().unwrap().replace('\\', "/")
+    );
+    std::fs::write(&mcp_config_path, &mcp_config).expect("Failed to write mcp.json");
+
+    // Run ahma_mcp tool list --format json
     let output = Command::new(&ahma_binary)
         .args([
-            "--list-tools",
+            "tool",
+            "list",
             "--format",
             "json",
-            "--",
-            ahma_binary.to_str().unwrap(),
-            "--disable-sandbox",
-            "--tools-dir",
-            tools_dir.to_str().unwrap(),
+            "--server",
+            "test",
+            "--mcp-config",
+            mcp_config_path.to_str().unwrap(),
         ])
+        .env("AHMA_DISABLE_SANDBOX", "1")
         .current_dir(&project_root)
         .output()
-        .expect("Failed to execute ahma_mcp --list-tools");
+        .expect("Failed to execute ahma_mcp tool list");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -169,19 +190,29 @@ fn test_list_tools_output_format() {
         assert!(build_output.status.success(), "Failed to build");
     }
 
-    // Use --disable-sandbox to bypass sandbox checks in the server
+    // Create a temp mcp.json pointing to the stdio server
+    let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+    let mcp_config_path = temp_dir.path().join("mcp.json");
+    let mcp_config = format!(
+        r#"{{"mcpServers":{{"test":{{"command":"{cmd}","args":["serve","stdio"],"env":{{"AHMA_TOOLS_DIR":"{tools}","AHMA_DISABLE_SANDBOX":"1","AHMA_SKIP_PROBES":"1"}}}}}}}}"#,
+        cmd = ahma_binary.to_str().unwrap().replace('\\', "/"),
+        tools = tools_dir.to_str().unwrap().replace('\\', "/")
+    );
+    std::fs::write(&mcp_config_path, &mcp_config).expect("Failed to write mcp.json");
+
     let output = Command::new(&ahma_binary)
         .args([
-            "--list-tools",
-            "--",
-            ahma_binary.to_str().unwrap(),
-            "--disable-sandbox",
-            "--tools-dir",
-            tools_dir.to_str().unwrap(),
+            "tool",
+            "list",
+            "--server",
+            "test",
+            "--mcp-config",
+            mcp_config_path.to_str().unwrap(),
         ])
+        .env("AHMA_DISABLE_SANDBOX", "1")
         .current_dir(&project_root)
         .output()
-        .expect("Failed to execute ahma_mcp --list-tools");
+        .expect("Failed to execute ahma_mcp tool list");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

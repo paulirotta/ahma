@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod config_tests {
-    use ahma_mcp::{config::load_tool_configs, utils::logging::init_test_logging};
+    use ahma_mcp::{config::load_tool_configs_sync, utils::logging::init_test_logging};
     use std::path::Path;
 
     #[test]
@@ -8,7 +8,7 @@ mod config_tests {
         init_test_logging();
         println!("Testing configuration loading...");
         let tools_dir = Path::new(".ahma");
-        match load_tool_configs(&ahma_mcp::shell::cli::Cli::try_parse_from(&["ahma_mcp"]).unwrap(), tools_dir) {
+        match load_tool_configs_sync(&ahma_mcp::shell::cli::AppConfig::default(), Some(tools_dir)) {
             Ok(configs) => {
                 println!("Successfully loaded {} configurations:", configs.len());
                 for (name, config) in configs.iter() {

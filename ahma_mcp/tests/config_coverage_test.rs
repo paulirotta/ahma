@@ -7,7 +7,6 @@ use ahma_mcp::config::{
     AvailabilityCheck, CommandOption, ItemsSpec, SequenceStep, SubcommandConfig, ToolConfig,
     ToolHints, load_mcp_config, load_tool_configs_sync,
 };
-use clap::Parser;
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -475,7 +474,7 @@ fn test_items_spec_full() {
 fn test_load_tool_configs_empty_directory() {
     let temp_dir = tempdir().unwrap();
     let _configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -487,7 +486,7 @@ fn test_load_tool_configs_empty_directory() {
 fn test_load_tool_configs_nonexistent_directory() {
     let nonexistent = std::path::PathBuf::from("/nonexistent/path/that/does/not/exist");
     let _configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(&nonexistent),
     )
     .unwrap();
@@ -511,7 +510,7 @@ fn test_load_tool_configs_single_tool() {
     .unwrap();
 
     let configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -538,7 +537,7 @@ fn test_load_tool_configs_multiple_tools() {
     .unwrap();
 
     let configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -559,7 +558,7 @@ fn test_load_tool_configs_includes_disabled_tools() {
     .unwrap();
 
     let configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -588,7 +587,7 @@ fn test_load_tool_configs_skips_non_json_files() {
     .unwrap();
 
     let configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -612,7 +611,7 @@ fn test_load_tool_configs_handles_invalid_json() {
     std::fs::write(temp_dir.path().join("invalid.json"), "{name: broken}").unwrap();
 
     let configs = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .unwrap();
@@ -633,7 +632,7 @@ fn test_load_tool_configs_reserved_name_await_fails() {
     .unwrap();
 
     let result = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     );
     assert!(result.is_err());
@@ -653,7 +652,7 @@ fn test_load_tool_configs_reserved_name_status_fails() {
     .unwrap();
 
     let result = load_tool_configs_sync(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     );
     assert!(result.is_err());
@@ -795,7 +794,7 @@ async fn test_async_load_tool_configs_empty_directory() {
     use ahma_mcp::config::load_tool_configs;
     let temp_dir = tempdir().unwrap();
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -813,7 +812,7 @@ async fn test_async_load_tool_configs_nonexistent_directory() {
     use ahma_mcp::config::load_tool_configs;
     let nonexistent = std::path::PathBuf::from("/nonexistent/tools/dir");
     let _configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(nonexistent.as_path()),
     )
     .await
@@ -838,7 +837,7 @@ async fn test_async_load_tool_configs_single_tool() {
     .unwrap();
 
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -867,7 +866,7 @@ async fn test_async_load_tool_configs_multiple_tools() {
     }
 
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -896,7 +895,7 @@ async fn test_async_load_tool_configs_includes_disabled_tools() {
     .unwrap();
 
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -928,7 +927,7 @@ async fn test_async_load_tool_configs_skips_non_json_files() {
     .unwrap();
 
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -959,7 +958,7 @@ async fn test_async_load_tool_configs_handles_invalid_json() {
     .unwrap();
 
     let configs = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await
@@ -986,7 +985,7 @@ async fn test_async_load_tool_configs_reserved_name_await_fails() {
     .unwrap();
 
     let result = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await;
@@ -1012,7 +1011,7 @@ async fn test_async_load_tool_configs_reserved_name_status_fails() {
     .unwrap();
 
     let result = load_tool_configs(
-        &ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp"]).unwrap(),
+        &ahma_mcp::shell::cli::AppConfig::default(),
         Some(temp_dir.path()),
     )
     .await;

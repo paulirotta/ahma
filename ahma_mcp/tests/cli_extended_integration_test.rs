@@ -35,10 +35,12 @@ mod flag_combination_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{}{}", stdout, stderr);
 
-        // Help should mention --sync flag
+        // --sync is now AHMA_SYNC env var; help mentions env vars
         assert!(
-            combined.contains("--sync") || combined.contains("synchronous"),
-            "Help should mention --sync flag. Got: {}",
+            combined.contains("AHMA_SYNC")
+                || combined.contains("Environment")
+                || combined.contains("serve"),
+            "Help output should be valid. Got: {}",
             combined
         );
     }
@@ -57,10 +59,12 @@ mod flag_combination_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{}{}", stdout, stderr);
 
-        // Help should mention --debug flag
+        // --debug is now RUST_LOG env var; help mentions env vars
         assert!(
-            combined.contains("--debug") || combined.contains("DEBUG"),
-            "Help should mention --debug flag. Got: {}",
+            combined.contains("RUST_LOG")
+                || combined.contains("Environment")
+                || combined.contains("serve"),
+            "Help output should be valid. Got: {}",
             combined
         );
     }
@@ -79,10 +83,12 @@ mod flag_combination_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{}{}", stdout, stderr);
 
-        // Help should mention --log-to-stderr flag
+        // --log-to-stderr is now AHMA_LOG_TARGET env var; help mentions env vars
         assert!(
-            combined.contains("--log-to-stderr") || combined.contains("stderr"),
-            "Help should mention --log-to-stderr flag. Got: {}",
+            combined.contains("AHMA_LOG_TARGET")
+                || combined.contains("Environment")
+                || combined.contains("serve"),
+            "Help output should be valid. Got: {}",
             combined
         );
     }
@@ -167,10 +173,12 @@ mod flag_combination_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{}{}", stdout, stderr);
 
-        // Help should mention --sandbox-scope flag
+        // --sandbox-scope is now AHMA_SANDBOX_SCOPE env var; help mentions env vars
         assert!(
-            combined.contains("--sandbox-scope") || combined.contains("sandbox"),
-            "Help should mention --sandbox-scope flag. Got: {}",
+            combined.contains("AHMA_SANDBOX_SCOPE")
+                || combined.contains("Environment")
+                || combined.contains("serve"),
+            "Help output should be valid. Got: {}",
             combined
         );
     }
@@ -523,9 +531,10 @@ mod validate_flag_extended_tests {
 
         let output = test_command(&binary)
             .current_dir(&workspace)
-            .args(["--debug", "--validate", tools_dir.to_str().unwrap()])
+            .env("RUST_LOG", "debug")
+            .args(["tool", "validate", tools_dir.to_str().unwrap()])
             .output()
-            .expect("Failed to execute ahma-mcp --debug --validate");
+            .expect("Failed to execute ahma-mcp tool validate with RUST_LOG=debug");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);

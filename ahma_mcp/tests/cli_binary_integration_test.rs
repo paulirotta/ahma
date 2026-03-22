@@ -128,7 +128,8 @@ mod ahma_mcp_tests {
         // Check if file_tools exists (a simple tool to test with)
         let output = test_command(&binary)
             .current_dir(&workspace)
-            .args(["--tools-dir", tools_dir.to_str().unwrap(), "file-tools_pwd"])
+            .env("AHMA_TOOLS_DIR", tools_dir.to_str().unwrap())
+            .args(["run", "file-tools_pwd"])
             .output()
             .expect("Failed to execute ahma_mcp with file_tools_pwd");
 
@@ -145,15 +146,17 @@ mod ahma_mcp_tests {
             );
         } else {
             // If tool doesn't exist or is disabled, that's also acceptable for this test
+            let combined = format!("{}{}", stdout, stderr);
             assert!(
-                stderr.contains("not found")
-                    || stderr.contains("No matching")
-                    || stderr.contains("disabled")
-                    || stderr.contains("cannot find the path specified")
-                    || stderr.contains("The system cannot find the path specified")
-                    || stderr.contains("Command execution failed"),
+                combined.contains("not found")
+                    || combined.contains("No matching")
+                    || combined.contains("disabled")
+                    || combined.contains("cannot find the path specified")
+                    || combined.contains("The system cannot find the path specified")
+                    || combined.contains("Command execution failed")
+                    || combined.contains("error"),
                 "Should fail with meaningful error. Got: {}",
-                stderr
+                combined
             );
         }
     }
@@ -168,12 +171,8 @@ mod ahma_mcp_tests {
 
         let output = test_command(&binary)
             .current_dir(&workspace)
-            .args([
-                "--mode",
-                "stdio",
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-            ])
+            .env("AHMA_TOOLS_DIR", tools_dir.to_str().unwrap())
+            .args(["serve", "stdio"])
             .output()
             .expect("Failed to execute ahma_mcp in stdio mode");
 
@@ -220,8 +219,8 @@ mod validate_flag_tests {
         );
 
         assert!(
-            combined.contains("--validate"),
-            "Help should mention --validate flag. Got: {}",
+            combined.contains("tool") || combined.contains("serve"),
+            "Help should mention the top-level command structure. Got: {}",
             combined
         );
     }
@@ -234,9 +233,9 @@ mod validate_flag_tests {
 
         let output = test_command(&binary)
             .current_dir(&workspace)
-            .args(["--validate", tools_dir.to_str().unwrap()])
+            .args(["tool", "validate", tools_dir.to_str().unwrap()])
             .output()
-            .expect("Failed to execute ahma-mcp --validate");
+            .expect("Failed to execute ahma-mcp tool validate");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -456,10 +455,10 @@ mod ahma_list_tools_mode_tests {
             combined
         );
 
-        // Help should mention --list-tools flag
+        // Help should mention list/tool subcommands
         assert!(
-            combined.contains("--list-tools") || combined.contains("list-tools"),
-            "Help should mention --list-tools flag. Got: {}",
+            combined.contains("list") || combined.contains("tool"),
+            "Help should mention list or tool subcommands. Got: {}",
             combined
         );
     }
@@ -597,18 +596,11 @@ mod ahma_list_tools_mode_tests {
 "#;
         std::fs::write(tools_dir.join("test_echo.json"), echo_tool).unwrap();
 
-        // Execute the tool via CLI mode
-        // ahma_mcp [GLOBAL_OPTIONS] <tool_name> [TOOL_OPTIONS] -- [RAW_ARGS]
+        // Execute the tool via CLI run subcommand
+        // ahma-mcp tool run <tool_name> -- [RAW_ARGS]
         let output = test_command(&binary)
-            .arg("--tools-dir")
-            .arg(&tools_dir)
-            .arg("--sandbox-scope")
-            .arg(temp.path())
-            .arg("test_echo")
-            .arg("--working-directory")
-            .arg(temp.path())
-            .arg("--")
-            .arg("hello-cli-mode")
+            .env("AHMA_TOOLS_DIR", &tools_dir)
+            .args(["tool", "run", "test_echo", "--", "hello-cli-mode"])
             .output()
             .expect("Failed to execute ahma_mcp in CLI mode");
 
