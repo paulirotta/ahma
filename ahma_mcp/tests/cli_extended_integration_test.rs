@@ -581,24 +581,30 @@ mod validate_flag_extended_tests {
 mod generate_schema_extended_tests {
     use super::*;
 
-    /// Test schema generation with custom output filename
+    /// Test that passing a flag argument exits cleanly without creating a directory
     #[test]
-    fn test_generate_schema_custom_filename() {
+    fn test_generate_schema_flag_arg_exits_cleanly() {
         let binary = build_binary("generate_tool_schema", "generate-tool-schema");
-        let workspace = workspace_dir();
+        // Use an isolated temp dir as current_dir so no workspace pollution occurs
+        // even if the binary were to misbehave.
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
         let output = Command::new(&binary)
-            .current_dir(&workspace)
+            .current_dir(temp_dir.path())
             .args(["--help"])
             .output()
             .expect("Failed to execute generate_tool_schema --help");
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{}{}", stdout, stderr);
-
-        // Check what options are available
-        println!("generate_tool_schema help: {}", combined);
+        // Should exit 0 (usage printed) and must NOT create a "--help" directory
+        assert!(
+            output.status.success(),
+            "--help should exit 0. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !temp_dir.path().join("--help").exists(),
+            "generate-tool-schema --help must not create a '--help' directory"
+        );
     }
 
     /// Test schema generation produces valid JSON Schema

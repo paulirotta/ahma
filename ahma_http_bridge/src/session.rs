@@ -652,7 +652,7 @@ impl SessionManager {
 
         // Create channels
         let (tx, rx) = mpsc::channel::<String>(100);
-        let (broadcast_tx, _) = broadcast::channel::<(u64, String)>(100);
+        let (broadcast_tx, _) = broadcast::channel::<(u64, String)>(256);
         let pending_requests = Arc::new(DashMap::new());
 
         let handshake_timeout = Duration::from_secs(self.config.handshake_timeout_secs);

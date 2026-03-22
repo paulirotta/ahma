@@ -157,6 +157,15 @@ pub fn generate_preview(schema_json: &str, max_lines: usize) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logging("info", false)?;
 
+    // Reject flag-like arguments (e.g. --help, --version) before touching the
+    // filesystem. Without this, "--help" would be treated as an output directory
+    // name, creating a literal "--help/" directory in the working tree.
+    if env::args().skip(1).any(|a| a.starts_with('-')) {
+        eprintln!("Usage: generate-tool-schema [OUTPUT_DIR]");
+        eprintln!("  OUTPUT_DIR  Directory to write mtdf-schema.json (default: docs)");
+        return Ok(());
+    }
+
     // Generate schema JSON
     let schema_json = generate_schema_json()?;
 

@@ -10,6 +10,14 @@ fetch-recurse-submodules = false
 # --cfg reqwest_unstable enables HTTP/3 (QUIC) support in reqwest.
 rustflags = ["-C", "link-arg=-fuse-ld=mold", "--cfg", "reqwest_unstable"]
 
+[target.x86_64-pc-windows-msvc]
+# Use rust-lld (bundled with the Rust toolchain since 1.71) instead of the
+# default MSVC link.exe.  lld is significantly faster for incremental links
+# and reduces the Windows CI build time by ~25-40% on large workspaces.
+# reqwest_unstable cfg is repeated here so it applies when building without
+# the workspace-level [build] rustflags (e.g. cross or direct target builds).
+rustflags = ["-C", "linker=rust-lld", "--cfg", "reqwest_unstable"]
+
 [build]
 # Limit parallel jobs to avoid OOM-killing the linker on Pi 5 (8 GB RAM,
 # nearly-full zram swap).  Compilation is still parallelised; this caps how
