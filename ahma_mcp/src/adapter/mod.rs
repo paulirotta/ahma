@@ -1125,3 +1125,132 @@ async fn handle_cancellation(
             .await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============= generate_id tests =============
+
+    #[test]
+    fn test_generate_id_increments() {
+        let id1 = generate_id();
+        let id2 = generate_id();
+        assert!(id1.starts_with("op_"));
+        assert!(id2.starts_with("op_"));
+        assert_ne!(id1, id2);
+    }
+
+    // ============= BoundedLineCollector tests =============
+
+    #[test]
+    fn test_bounded_line_collector_empty() {
+        let collector = BoundedLineCollector::default();
+        assert_eq!(collector.rendered_output(), "");
+        assert_eq!(collector.dropped_lines(), 0);
+        assert_eq!(collector.dropped_bytes(), 0);
+    }
+
+    #[test]
+    fn test_bounded_line_collector_basic_push() {
+        let mut collector = BoundedLineCollector::default();
+        collector.push("hello".to_string());
+        collector.push("world".to_string());
+        assert_eq!(collector.rendered_output(), "hello\nworld");
+        assert_eq!(collector.dropped_lines(), 0);
+    }
+
+    #[test]
+    fn test_bounded_line_collector_evicts_when_over_line_limit() {
+        let mut collector = BoundedLineCollector::default();
+        for i in 0..=MAX_STREAM_COLLECTED_LINES {
+            collector.push(format!("line {}", i));
+        }
+        // Should have evicted at least one line
+        assert!(collector.dropped_lines() > 0);
+        assert!(collector.lines.len() <= MAX_STREAM_COLLECTED_LINES);
+    }
+
+    #[test]
+    fn test_bounded_line_collector_evicts_when_over_byte_limit() {
+        let mut collector = BoundedLineCollector::default();
+        // Push lines exceeding byte limit
+        let big_line = "x".repeat(MAX_STREAM_COLLECTED_BYTES / 2 + 1);
+        collector.push(big_line.clone());
+        collector.push(big_line.clone());
+        collector.push("small".to_string());
+        // After exceeding byte budget, evictions happen
+        assert!(collector.dropped_lines() > 0 || collector.dropped_bytes() > 0);
+    }
+
+    #[test]
+    fn test_bounded_line_collector_rendered_output_with_truncation() {
+        let mut collector = BoundedLineCollector::default();
+        // Force eviction by exceeding line limit
+        for i in 0..MAX_STREAM_COLLECTED_LINES + 10 {
+            collector.push(format!("line {}", i));
+        }
+        let output = collector.rendered_output();
+        assert!(output.contains("[output truncated:"));
+        assert!(output.contains("dropped"));
+    }
+
+    // ============= Adapter construction tests =============
+
+    #[test]
+    fn test_adapter_new() {
+        let monitor = Arc::new(OperationMonitor::new(
+            crate::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(30)),
+        ));
+        let shell_pool = Arc::new(ShellPoolManager::new(
+            crate::shell_pool::ShellPoolConfig::default(),
+        ));
+        let sandbox = Arc::new(crate::sandbox::Sandbox::new_test());
+        let adapter = Adapter::new(monitor, shell_pool, sandbox).unwrap();
+        assert!(adapter.retry_config().is_none());
+    }
+
+    #[test]
+    fn test_adapter_with_retry_config() {
+        let monitor = Arc::new(OperationMonitor::new(
+            crate::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(30)),
+        ));
+        let shell_pool = Arc::new(ShellPoolManager::new(
+            crate::shell_pool::ShellPoolConfig::default(),
+        ));
+        let sandbox = Arc::new(crate::sandbox::Sandbox::new_test());
+        let adapter = Adapter::new(monitor, shell_pool, sandbox)
+            .unwrap()
+            .with_retry_config(RetryConfig::default());
+        assert!(adapter.retry_config().is_some());
+    }
+
+    #[test]
+    fn test_adapter_sandbox_accessors() {
+        let monitor = Arc::new(OperationMonitor::new(
+            crate::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(30)),
+        ));
+        let shell_pool = Arc::new(ShellPoolManager::new(
+            crate::shell_pool::ShellPoolConfig::default(),
+        ));
+        let sandbox = Arc::new(crate::sandbox::Sandbox::new_test());
+        let adapter = Adapter::new(monitor, shell_pool, sandbox).unwrap();
+        // Just verify accessors don't panic
+        let _ref = adapter.sandbox();
+        let _arc = adapter.sandbox_arc();
+    }
+
+    #[tokio::test]
+    async fn test_adapter_shutdown_empty() {
+        let monitor = Arc::new(OperationMonitor::new(
+            crate::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(30)),
+        ));
+        let shell_pool = Arc::new(ShellPoolManager::new(
+            crate::shell_pool::ShellPoolConfig::default(),
+        ));
+        let sandbox = Arc::new(crate::sandbox::Sandbox::new_test());
+        let adapter = Adapter::new(monitor, shell_pool, sandbox).unwrap();
+        // Shutdown with no active tasks should complete without error
+        adapter.shutdown().await;
+    }
+}

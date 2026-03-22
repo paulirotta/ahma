@@ -107,11 +107,11 @@ mod mode_flags {
 
         for line in std::io::BufReader::new(stderr).lines() {
             let Ok(line) = line else { break };
-            if let Some(port_str) = line.trim().strip_prefix("AHMA_BOUND_PORT=") {
-                if let Ok(port) = port_str.trim().parse::<u16>() {
-                    bound_port = Some(port);
-                    break;
-                }
+            if let Some(port_str) = line.trim().strip_prefix("AHMA_BOUND_PORT=")
+                && let Ok(port) = port_str.trim().parse::<u16>()
+            {
+                bound_port = Some(port);
+                break;
             }
             if Instant::now() >= deadline {
                 break;
@@ -122,7 +122,7 @@ mod mode_flags {
         let _ = child.wait();
 
         assert!(
-            bound_port.map_or(false, |p| p > 0),
+            bound_port.is_some_and(|p| p > 0),
             "HTTP bridge did not emit AHMA_BOUND_PORT= within 30s \
              — server may have failed to start or args were rejected by clap"
         );

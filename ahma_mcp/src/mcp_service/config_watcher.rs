@@ -121,10 +121,6 @@ impl AhmaMcpService {
     /// client's workspace roots to establish sandbox boundaries.
     pub async fn configure_sandbox_from_roots(&self, peer: &Peer<RoleServer>) {
         let timeout_duration = TestTimeouts::get(TimeoutCategory::Handshake);
-        eprintln!(
-            "DEBUG: ahma_mcp calling peer.list_roots() (timeout: {:?})",
-            timeout_duration
-        );
         tracing::info!(
             timeout = ?timeout_duration,
             "Requesting roots/list from client..."
@@ -138,10 +134,6 @@ impl AhmaMcpService {
                      This may indicate a stdio communication issue.",
                     timeout_duration
                 );
-                eprintln!(
-                    "DEBUG: peer.list_roots() TIMEOUT after {:?}",
-                    timeout_duration
-                );
                 if let Ok(notification) = serde_json::to_string(&serde_json::json!({
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/failed",
@@ -152,15 +144,11 @@ impl AhmaMcpService {
                 return;
             }
         };
-        eprintln!(
-            "DEBUG: peer.list_roots() returned: {:?}",
-            list_result.is_ok()
-        );
+        tracing::debug!("peer.list_roots() returned: ok={}", list_result.is_ok());
 
         match list_result {
             Ok(result) => {
                 let roots = result.roots;
-                eprintln!("DEBUG: ahma_mcp received {} roots", roots.len());
                 tracing::info!("Received {} roots from client: {:?}", roots.len(), roots);
 
                 // Convert McpRoot URIs to PathBufs
@@ -176,19 +164,11 @@ impl AhmaMcpService {
                                         root.uri,
                                         path
                                     );
-                                    eprintln!(
-                                        "DEBUG: Parsed file URI {} to path {:?}",
-                                        root.uri, path
-                                    );
                                     new_scopes.push(path);
                                 }
                                 Err(()) => {
                                     tracing::warn!(
                                         "Failed to convert file URI to path: {}",
-                                        root.uri
-                                    );
-                                    eprintln!(
-                                        "DEBUG: Failed to convert file URI to path: {}",
                                         root.uri
                                     );
                                 }
@@ -208,18 +188,16 @@ impl AhmaMcpService {
                 );
 
                 if !new_scopes.is_empty() {
-                    eprintln!(
-                        "DEBUG: Attempting to update sandbox scopes with {} paths",
+                    tracing::debug!(
+                        "Attempting to update sandbox scopes with {} paths",
                         new_scopes.len()
                     );
                     match self.adapter.sandbox().update_scopes(new_scopes.clone()) {
                         Ok(()) => {
                             tracing::info!("Sandbox scopes updated successfully");
-                            eprintln!("DEBUG: Sandbox scopes updated successfully");
                         }
                         Err(e) => {
                             tracing::error!("Failed to update sandbox from roots: {}", e);
-                            eprintln!("DEBUG: Failed to update sandbox from roots: {}", e);
                             if let Ok(notification) = serde_json::to_string(&serde_json::json!({
                                 "jsonrpc": "2.0",
                                 "method": "notifications/sandbox/failed",
@@ -282,15 +260,15 @@ impl AhmaMcpService {
                 // NOTE: we intentionally write the raw JSON to stdout instead of
                 // using rmcp Peer helpers here to avoid relying on generated
                 // methods for a new notification name.
-                eprintln!("DEBUG: About to send notifications/sandbox/configured");
+                tracing::debug!("About to send notifications/sandbox/configured");
                 if let Ok(notification) = serde_json::to_string(&serde_json::json!({
                     "jsonrpc": "2.0",
                     "method": "notifications/sandbox/configured"
                 })) {
                     let _ = emit_stdout_notification(&notification);
-                    eprintln!("DEBUG: Sent notifications/sandbox/configured");
+                    tracing::debug!("Sent notifications/sandbox/configured");
                 } else {
-                    eprintln!("DEBUG: Failed to serialize notifications/sandbox/configured");
+                    tracing::warn!("Failed to serialize notifications/sandbox/configured");
                 }
             }
             Err(e) => {

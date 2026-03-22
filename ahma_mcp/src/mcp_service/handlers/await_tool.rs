@@ -592,4 +592,150 @@ mod tests {
         let timeout = service.calculate_intelligent_timeout(&[]).await;
         assert!(timeout >= 600.0);
     }
+
+    // ============= format_timeout_error_message tests =============
+
+    #[test]
+    fn test_format_timeout_error_message_basic() {
+        let elapsed = std::time::Duration::from_secs(30);
+        let msg = format_timeout_error_message(elapsed, 60.0, 1, 3, &[], &[]);
+        assert!(msg.contains("timed out"));
+        assert!(msg.contains("1/3"));
+        assert!(msg.contains("60"));
+    }
+
+    #[test]
+    fn test_format_timeout_error_message_with_running_ops() {
+        let ops = vec![make_op("op1", "cargo_build", OperationStatus::InProgress)];
+        let elapsed = std::time::Duration::from_secs(10);
+        let msg = format_timeout_error_message(elapsed, 30.0, 0, 1, &ops, &[]);
+        assert!(msg.contains("op1"));
+        assert!(msg.contains("cargo_build"));
+        assert!(msg.contains("Still running"));
+    }
+
+    #[test]
+    fn test_format_timeout_error_message_with_suggestions() {
+        let elapsed = std::time::Duration::from_secs(5);
+        let suggestions = vec!["• Try again".to_string()];
+        let msg = format_timeout_error_message(elapsed, 10.0, 0, 1, &[], &suggestions);
+        assert!(msg.contains("Try again"));
+    }
+
+    // ============= append_default_remediation_steps tests =============
+
+    #[test]
+    fn test_append_default_remediation_steps_empty_input() {
+        let mut steps = Vec::new();
+        append_default_remediation_steps(&mut steps);
+        assert!(!steps.is_empty());
+        assert!(steps.iter().any(|s| s.contains("status")));
+    }
+
+    #[test]
+    fn test_append_default_remediation_steps_nonempty_input() {
+        let mut steps = vec!["existing step".to_string()];
+        append_default_remediation_steps(&mut steps);
+        // Should NOT add defaults when there are already steps
+        assert_eq!(steps.len(), 1);
+    }
+
+    // ============= command_prefix tests =============
+
+    #[test]
+    fn test_command_prefix_with_underscore() {
+        let op = make_op("op1", "cargo_build", OperationStatus::InProgress);
+        assert_eq!(command_prefix(&op), "cargo");
+    }
+
+    #[test]
+    fn test_command_prefix_no_underscore() {
+        let op = make_op("op1", "echo", OperationStatus::InProgress);
+        assert_eq!(command_prefix(&op), "echo");
+    }
+
+    // ============= has_keyword_match tests =============
+
+    #[test]
+    fn test_has_keyword_match_found() {
+        let ops = vec![make_op("op1", "git_clone", OperationStatus::InProgress)];
+        assert!(has_keyword_match(&ops, &["git", "svn"]));
+    }
+
+    #[test]
+    fn test_has_keyword_match_not_found() {
+        let ops = vec![make_op("op1", "cargo_build", OperationStatus::InProgress)];
+        assert!(!has_keyword_match(&ops, &["git", "svn"]));
+    }
+
+    #[test]
+    fn test_has_keyword_match_empty_ops() {
+        assert!(!has_keyword_match(&[], &["git"]));
+    }
+
+    // ============= push_keyword_suggestions tests =============
+
+    #[test]
+    fn test_push_keyword_suggestions_match() {
+        let ops = vec![make_op("op1", "git_push", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        push_keyword_suggestions(&ops, &["git"], &["• Check git remote"], &mut steps);
+        assert_eq!(steps.len(), 1);
+        assert!(steps[0].contains("git remote"));
+    }
+
+    #[test]
+    fn test_push_keyword_suggestions_no_match() {
+        let ops = vec![make_op("op1", "cargo_build", OperationStatus::InProgress)];
+        let mut steps = Vec::new();
+        push_keyword_suggestions(&ops, &["git"], &["• Check git remote"], &mut steps);
+        assert!(steps.is_empty());
+    }
+
+    // ============= handle_await_no_pending_ops tests =============
+
+    #[tokio::test]
+    async fn test_handle_await_no_pending_ops_no_filters() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let result = service.handle_await_no_pending_ops(&[]).await.unwrap();
+        let text = result.content.first().unwrap().as_text().unwrap();
+        assert!(text.text.contains("No pending operations"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_await_no_pending_ops_with_filters() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let filters = vec!["cargo".to_string()];
+        let result = service.handle_await_no_pending_ops(&filters).await.unwrap();
+        let text = result.content.first().unwrap().as_text().unwrap();
+        assert!(text.text.contains("cargo"));
+    }
+
+    // ============= recently_completed_contents tests =============
+
+    #[tokio::test]
+    async fn test_recently_completed_contents_empty_filters() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let result = service.recently_completed_contents(&[]).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_recently_completed_contents_no_matches() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let filters = vec!["nonexistent_tool".to_string()];
+        let result = service.recently_completed_contents(&filters).await;
+        assert!(result.is_none());
+    }
+
+    // ============= generate_input_schema_for_wait tests =============
+
+    #[tokio::test]
+    async fn test_generate_input_schema_for_wait() {
+        let (service, _tmp) = crate::test_utils::client::setup_test_environment().await;
+        let schema = service.generate_input_schema_for_wait();
+        let properties = schema.get("properties").unwrap().as_object().unwrap();
+        assert!(properties.contains_key("tools"));
+        assert!(properties.contains_key("id"));
+    }
 }

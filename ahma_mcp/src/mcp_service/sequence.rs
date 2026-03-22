@@ -793,4 +793,56 @@ mod tests {
         assert!(message.contains("skipped"));
         assert!(message.contains("Subcommand sequence step"));
     }
+
+    // ============= apply_step_delay tests =============
+
+    #[tokio::test]
+    async fn test_apply_step_delay_skips_last_step() {
+        // Last step (index == total - 1) should not delay
+        let start = std::time::Instant::now();
+        apply_step_delay(1000, 2, 3).await; // index 2 of 3 = last
+        assert!(start.elapsed().as_millis() < 50);
+    }
+
+    #[tokio::test]
+    async fn test_apply_step_delay_skips_zero_delay() {
+        let start = std::time::Instant::now();
+        apply_step_delay(0, 0, 3).await; // zero delay
+        assert!(start.elapsed().as_millis() < 50);
+    }
+
+    #[tokio::test]
+    async fn test_apply_step_delay_applies_delay() {
+        let start = std::time::Instant::now();
+        apply_step_delay(50, 0, 3).await; // 50ms delay, not last step
+        assert!(start.elapsed().as_millis() >= 40); // allow some slack
+    }
+
+    // ============= should_skip_step tests (additional) =============
+
+    #[test]
+    fn test_should_skip_step_no_conditions() {
+        let step = make_test_sequence_step("cargo", "build", None);
+        let kind = SequenceKind::TopLevel;
+        assert!(!should_skip_step_with_context(&kind, &step, "/nonexistent"));
+    }
+
+    #[test]
+    fn test_should_skip_step_both_conditions_exists_wins() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("exists.txt");
+        std::fs::write(&file_path, "").unwrap();
+
+        let mut step = make_test_sequence_step("cargo", "build", None);
+        step.skip_if_file_exists = Some("exists.txt".to_string());
+        step.skip_if_file_missing = Some("also_exists.txt".to_string());
+
+        let kind = SequenceKind::TopLevel;
+        // skip_if_file_exists matches, so should skip
+        assert!(should_skip_step_with_context(
+            &kind,
+            &step,
+            temp.path().to_str().unwrap()
+        ));
+    }
 }

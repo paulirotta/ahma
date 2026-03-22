@@ -422,7 +422,6 @@ impl ServerHandler for AhmaMcpService {
         context: NotificationContext<RoleServer>,
     ) -> impl std::future::Future<Output = ()> + Send + '_ {
         async move {
-            eprintln!("DEBUG: Received roots/list_changed notification in ahma_mcp");
             tracing::info!("Received roots/list_changed notification");
 
             // This notification is sent by the HTTP bridge when SSE connects.
@@ -1683,5 +1682,150 @@ mod tests {
 
         let effective = subcommand_sync.or(tool_sync);
         assert_eq!(effective, Some(false));
+    }
+
+    // ============= resolve_flattened_tool tests =============
+
+    #[test]
+    fn test_resolve_flattened_tool_found() {
+        let mut configs = HashMap::new();
+        configs.insert(
+            "file-tools".to_string(),
+            ToolConfig {
+                name: "file-tools".to_string(),
+                description: "File tools".to_string(),
+                command: "ls".to_string(),
+                subcommand: Some(vec![SubcommandConfig {
+                    name: "read".to_string(),
+                    ..SubcommandConfig::default()
+                }]),
+                ..serde_json::from_value(json!({
+                    "name": "file-tools",
+                    "description": "File tools",
+                    "command": "ls",
+                }))
+                .unwrap()
+            },
+        );
+        let result = AhmaMcpService::resolve_flattened_tool("file-tools_read", &configs);
+        assert!(result.is_some());
+        let (config, sub_path) = result.unwrap();
+        assert_eq!(config.name, "file-tools");
+        assert_eq!(sub_path, "read");
+    }
+
+    #[test]
+    fn test_resolve_flattened_tool_not_found() {
+        let configs = HashMap::new();
+        let result = AhmaMcpService::resolve_flattened_tool("nonexistent_tool", &configs);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_flattened_tool_no_subcommands() {
+        let mut configs = HashMap::new();
+        configs.insert(
+            "simple".to_string(),
+            ToolConfig {
+                name: "simple".to_string(),
+                description: "Simple tool".to_string(),
+                command: "echo".to_string(),
+                subcommand: None,
+                ..serde_json::from_value(json!({
+                    "name": "simple",
+                    "description": "Simple tool",
+                    "command": "echo",
+                }))
+                .unwrap()
+            },
+        );
+        // Won't resolve because config has no subcommands
+        let result = AhmaMcpService::resolve_flattened_tool("simple_sub", &configs);
+        assert!(result.is_none());
+    }
+
+    // ============= is_bundle_tool / is_tool_disclosed tests =============
+
+    #[tokio::test]
+    async fn test_is_bundle_tool_known() {
+        let service = make_service().await;
+        // "cargo" is a known bundle config_tool_name
+        assert!(service.is_bundle_tool("cargo"));
+    }
+
+    #[tokio::test]
+    async fn test_is_bundle_tool_unknown() {
+        let service = make_service().await;
+        assert!(!service.is_bundle_tool("nonexistent_tool"));
+    }
+
+    #[tokio::test]
+    async fn test_is_tool_disclosed_not_disclosed() {
+        let service = make_service().await;
+        let disclosed = HashSet::new();
+        assert!(!service.is_tool_disclosed("cargo", &disclosed));
+    }
+
+    #[tokio::test]
+    async fn test_is_tool_disclosed_after_disclosure() {
+        let service = make_service().await;
+        let mut disclosed = HashSet::new();
+        // Bundle name for "cargo" config_tool_name is "rust"
+        disclosed.insert("rust".to_string());
+        assert!(service.is_tool_disclosed("cargo", &disclosed));
+    }
+
+    // ============= pre_disclose tests =============
+
+    #[tokio::test]
+    async fn test_pre_disclose_empty() {
+        let service = make_service().await;
+        let empty = HashSet::new();
+        service.pre_disclose(&empty);
+        // Should not panic and disclosed set should remain empty
+        let disclosed = service.disclosed_bundles.read().unwrap();
+        assert!(disclosed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_pre_disclose_adds_bundles() {
+        let service = make_service().await;
+        let mut bundles = HashSet::new();
+        bundles.insert("cargo".to_string());
+        bundles.insert("git".to_string());
+        service.pre_disclose(&bundles);
+        let disclosed = service.disclosed_bundles.read().unwrap();
+        assert!(disclosed.contains("cargo"));
+        assert!(disclosed.contains("git"));
+    }
+
+    // ============= list_tool_names tests =============
+
+    #[tokio::test]
+    async fn test_list_tool_names_includes_hardcoded() {
+        let service = make_service().await;
+        let names = service.list_tool_names();
+        assert!(names.contains(&"await".to_string()));
+        assert!(names.contains(&"status".to_string()));
+        assert!(names.contains(&"sandboxed_shell".to_string()));
+    }
+
+    // ============= generate_activate_tools_description tests =============
+
+    #[tokio::test]
+    async fn test_generate_activate_tools_description_no_bundles_loaded() {
+        let service = make_service().await;
+        let desc = service.generate_activate_tools_description();
+        // With empty configs, no bundles are loaded; should return default description
+        assert!(desc.contains("Discover and activate"));
+    }
+
+    // ============= get_info tests =============
+
+    #[tokio::test]
+    async fn test_get_info_returns_server_info() {
+        let service = make_service().await;
+        let info = service.get_info();
+        assert_eq!(info.server_info.name, env!("CARGO_PKG_NAME"));
     }
 }

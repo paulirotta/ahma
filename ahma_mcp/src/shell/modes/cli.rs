@@ -366,3 +366,479 @@ fn print_cli_error(error: &anyhow::Error) {
         eprintln!("Error executing tool: {}", error);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Map, Value, json};
+
+    // ============= parse_cli_flag_args tests =============
+
+    #[test]
+    fn test_parse_cli_flag_args_basic_flags() {
+        let config = AppConfig {
+            run_tool_args: vec![
+                "--key".to_string(),
+                "value".to_string(),
+                "--flag".to_string(),
+            ],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(
+            parsed.tool_args_map.get("key"),
+            Some(&Value::String("value".into()))
+        );
+        assert_eq!(parsed.tool_args_map.get("flag"), Some(&Value::Bool(true)));
+        assert!(parsed.raw_args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_working_directory() {
+        let config = AppConfig {
+            run_tool_args: vec!["--working-directory".to_string(), "/some/path".to_string()],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(parsed.working_directory, Some("/some/path".to_string()));
+        assert!(!parsed.tool_args_map.contains_key("working-directory"));
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_double_dash_terminator() {
+        let config = AppConfig {
+            run_tool_args: vec![
+                "--key".to_string(),
+                "val".to_string(),
+                "--".to_string(),
+                "raw1".to_string(),
+                "raw2".to_string(),
+            ],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(
+            parsed.tool_args_map.get("key"),
+            Some(&Value::String("val".into()))
+        );
+        assert_eq!(parsed.raw_args, vec!["raw1", "raw2"]);
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_positional_args() {
+        let config = AppConfig {
+            run_tool_args: vec!["pos1".to_string(), "pos2".to_string()],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(parsed.raw_args, vec!["pos1", "pos2"]);
+        assert!(parsed.tool_args_map.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_flag_at_end_is_bool() {
+        let config = AppConfig {
+            run_tool_args: vec!["--verbose".to_string()],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(
+            parsed.tool_args_map.get("verbose"),
+            Some(&Value::Bool(true))
+        );
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_flag_before_another_flag_is_bool() {
+        let config = AppConfig {
+            run_tool_args: vec![
+                "--verbose".to_string(),
+                "--output".to_string(),
+                "file.txt".to_string(),
+            ],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert_eq!(
+            parsed.tool_args_map.get("verbose"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            parsed.tool_args_map.get("output"),
+            Some(&Value::String("file.txt".into()))
+        );
+    }
+
+    #[test]
+    fn test_parse_cli_flag_args_empty() {
+        let config = AppConfig {
+            run_tool_args: vec![],
+            ..Default::default()
+        };
+        let parsed = parse_cli_flag_args(&config);
+        assert!(parsed.raw_args.is_empty());
+        assert!(parsed.tool_args_map.is_empty());
+        assert!(parsed.working_directory.is_none());
+    }
+
+    // ============= next_cli_value tests =============
+
+    #[test]
+    fn test_next_cli_value_returns_value() {
+        let args = vec!["hello".to_string()];
+        let mut iter = args.into_iter().peekable();
+        assert_eq!(next_cli_value(&mut iter), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_next_cli_value_skips_flag() {
+        let args = vec!["--next-flag".to_string()];
+        let mut iter = args.into_iter().peekable();
+        assert_eq!(next_cli_value(&mut iter), None);
+    }
+
+    #[test]
+    fn test_next_cli_value_empty() {
+        let args: Vec<String> = vec![];
+        let mut iter = args.into_iter().peekable();
+        assert_eq!(next_cli_value(&mut iter), None);
+    }
+
+    // ============= resolve_working_directory tests =============
+
+    #[test]
+    fn test_resolve_working_directory_explicit() {
+        let map = Map::new();
+        let result = resolve_working_directory(Some("/explicit".to_string()), &map);
+        assert_eq!(result, "/explicit");
+    }
+
+    #[test]
+    fn test_resolve_working_directory_from_args() {
+        let mut map = Map::new();
+        map.insert(
+            "working_directory".to_string(),
+            Value::String("/from/args".into()),
+        );
+        let result = resolve_working_directory(None, &map);
+        assert_eq!(result, "/from/args");
+    }
+
+    #[test]
+    fn test_resolve_working_directory_fallback_cwd() {
+        let map = Map::new();
+        let result = resolve_working_directory(None, &map);
+        // Should fall back to current dir or "."
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_working_directory_from_args_present() {
+        let mut map = Map::new();
+        map.insert(
+            "working_directory".to_string(),
+            Value::String("/test/dir".into()),
+        );
+        assert_eq!(
+            working_directory_from_args(&map),
+            Some("/test/dir".to_string())
+        );
+    }
+
+    #[test]
+    fn test_working_directory_from_args_absent() {
+        let map = Map::new();
+        assert_eq!(working_directory_from_args(&map), None);
+    }
+
+    // ============= is_top_level_sequence tests =============
+
+    #[test]
+    fn test_is_top_level_sequence_true() {
+        let config = crate::config::ToolConfig {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            command: "sequence".to_string(),
+            sequence: Some(vec![]),
+            subcommand: None,
+            input_schema: None,
+            timeout_seconds: None,
+            synchronous: None,
+            hints: Default::default(),
+            enabled: true,
+            guidance_key: None,
+            step_delay_ms: None,
+            availability_check: None,
+            install_instructions: None,
+            monitor_level: None,
+            monitor_stream: None,
+            tool_type: None,
+            livelog: None,
+        };
+        assert!(is_top_level_sequence(&config));
+    }
+
+    #[test]
+    fn test_is_top_level_sequence_false_no_sequence() {
+        let config = crate::config::ToolConfig {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            command: "sequence".to_string(),
+            sequence: None,
+            subcommand: None,
+            input_schema: None,
+            timeout_seconds: None,
+            synchronous: None,
+            hints: Default::default(),
+            enabled: true,
+            guidance_key: None,
+            step_delay_ms: None,
+            availability_check: None,
+            install_instructions: None,
+            monitor_level: None,
+            monitor_stream: None,
+            tool_type: None,
+            livelog: None,
+        };
+        assert!(!is_top_level_sequence(&config));
+    }
+
+    #[test]
+    fn test_is_top_level_sequence_false_wrong_command() {
+        let config = crate::config::ToolConfig {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            command: "cargo".to_string(),
+            sequence: Some(vec![]),
+            subcommand: None,
+            input_schema: None,
+            timeout_seconds: None,
+            synchronous: None,
+            hints: Default::default(),
+            enabled: true,
+            guidance_key: None,
+            step_delay_ms: None,
+            availability_check: None,
+            install_instructions: None,
+            monitor_level: None,
+            monitor_stream: None,
+            tool_type: None,
+            livelog: None,
+        };
+        assert!(!is_top_level_sequence(&config));
+    }
+
+    // ============= sequence_subcommand_config tests =============
+
+    #[test]
+    fn test_sequence_subcommand_config_copies_fields() {
+        let steps = vec![crate::config::SequenceStep {
+            tool: "cargo".to_string(),
+            subcommand: "build".to_string(),
+            description: Some("Build".to_string()),
+            args: Default::default(),
+            skip_if_file_exists: None,
+            skip_if_file_missing: None,
+        }];
+        let config = crate::config::ToolConfig {
+            name: "quality".to_string(),
+            description: "Run quality checks".to_string(),
+            command: "sequence".to_string(),
+            sequence: Some(steps.clone()),
+            timeout_seconds: Some(120),
+            synchronous: Some(true),
+            guidance_key: Some("quality_key".to_string()),
+            step_delay_ms: Some(500),
+            subcommand: None,
+            input_schema: None,
+            hints: Default::default(),
+            enabled: true,
+            availability_check: None,
+            install_instructions: None,
+            monitor_level: None,
+            monitor_stream: None,
+            tool_type: None,
+            livelog: None,
+        };
+        let sub = sequence_subcommand_config(&config);
+        assert_eq!(sub.name, "quality");
+        assert_eq!(sub.description, "Run quality checks");
+        assert_eq!(sub.timeout_seconds, Some(120));
+        assert_eq!(sub.synchronous, Some(true));
+        assert_eq!(sub.guidance_key, Some("quality_key".to_string()));
+        assert_eq!(sub.step_delay_ms, Some(500));
+        assert!(sub.sequence.is_some());
+    }
+
+    // ============= append_mapped_args tests =============
+
+    #[test]
+    fn test_append_mapped_args_with_args_array() {
+        let mut raw_args = vec!["existing".to_string()];
+        let mut map = Map::new();
+        map.insert("args".to_string(), json!(["--release", "--verbose"]));
+        append_mapped_args(&mut raw_args, &map);
+        assert_eq!(raw_args, vec!["existing", "--release", "--verbose"]);
+    }
+
+    #[test]
+    fn test_append_mapped_args_no_args_key() {
+        let mut raw_args = vec!["existing".to_string()];
+        let map = Map::new();
+        append_mapped_args(&mut raw_args, &map);
+        assert_eq!(raw_args, vec!["existing"]);
+    }
+
+    #[test]
+    fn test_append_mapped_args_non_string_values_skipped() {
+        let mut raw_args = vec![];
+        let mut map = Map::new();
+        map.insert("args".to_string(), json!(["valid", 123, "also_valid"]));
+        append_mapped_args(&mut raw_args, &map);
+        assert_eq!(raw_args, vec!["valid", "also_valid"]);
+    }
+
+    // ============= strip_default_subcommand_marker tests =============
+
+    #[test]
+    fn test_strip_default_subcommand_marker_removes_default() {
+        let mut args = vec!["default".to_string(), "--release".to_string()];
+        strip_default_subcommand_marker(&mut args);
+        assert_eq!(args, vec!["--release"]);
+    }
+
+    #[test]
+    fn test_strip_default_subcommand_marker_no_default() {
+        let mut args = vec!["build".to_string(), "--release".to_string()];
+        strip_default_subcommand_marker(&mut args);
+        assert_eq!(args, vec!["build", "--release"]);
+    }
+
+    #[test]
+    fn test_strip_default_subcommand_marker_empty() {
+        let mut args: Vec<String> = vec![];
+        strip_default_subcommand_marker(&mut args);
+        assert!(args.is_empty());
+    }
+
+    // ============= clone_tool_args tests =============
+
+    #[test]
+    fn test_clone_tool_args() {
+        let mut map = Map::new();
+        map.insert("key1".to_string(), Value::String("val1".into()));
+        map.insert("key2".to_string(), Value::Bool(true));
+        let cloned = clone_tool_args(&map);
+        assert_eq!(cloned.len(), 2);
+        assert_eq!(cloned.get("key1"), Some(&Value::String("val1".into())));
+        assert_eq!(cloned.get("key2"), Some(&Value::Bool(true)));
+    }
+
+    // ============= insert_positional_and_keyed_args tests =============
+
+    #[test]
+    fn test_insert_positional_and_keyed_args_with_positionals() {
+        let mut args_map = Map::new();
+        let subcommand_config = SubcommandConfig {
+            name: "test".to_string(),
+            description: "test".to_string(),
+            positional_args: Some(vec![crate::config::CommandOption {
+                name: "path".to_string(),
+                option_type: "string".to_string(),
+                description: None,
+                required: None,
+                format: None,
+                items: None,
+                file_arg: None,
+                file_flag: None,
+                alias: None,
+            }]),
+            ..Default::default()
+        };
+        let raw_args = vec!["/some/path".to_string()];
+        insert_positional_and_keyed_args(&mut args_map, &subcommand_config, &raw_args);
+        assert_eq!(
+            args_map.get("path"),
+            Some(&Value::String("/some/path".into()))
+        );
+    }
+
+    #[test]
+    fn test_insert_positional_and_keyed_args_with_key_equals_value() {
+        let mut args_map = Map::new();
+        let subcommand_config = SubcommandConfig::default();
+        let raw_args = vec!["key=value".to_string()];
+        insert_positional_and_keyed_args(&mut args_map, &subcommand_config, &raw_args);
+        assert_eq!(args_map.get("key"), Some(&Value::String("value".into())));
+    }
+
+    #[test]
+    fn test_insert_positional_and_keyed_args_overflow_no_positionals() {
+        let mut args_map = Map::new();
+        let subcommand_config = SubcommandConfig::default();
+        let raw_args = vec!["extra_arg".to_string()];
+        insert_positional_and_keyed_args(&mut args_map, &subcommand_config, &raw_args);
+        assert_eq!(
+            args_map.get("extra_arg"),
+            Some(&Value::String(String::new()))
+        );
+    }
+
+    // ============= print_cli_error tests =============
+
+    #[test]
+    fn test_print_cli_error_canceled_canceled() {
+        // Just verify it doesn't panic — output goes to stderr
+        let err = anyhow::anyhow!("Canceled: Canceled something");
+        print_cli_error(&err);
+    }
+
+    #[test]
+    fn test_print_cli_error_task_cancelled() {
+        let err = anyhow::anyhow!("task cancelled for reason: timeout");
+        print_cli_error(&err);
+    }
+
+    #[test]
+    fn test_print_cli_error_generic_cancel() {
+        let err = anyhow::anyhow!("The operation was cancelled by the user");
+        print_cli_error(&err);
+    }
+
+    #[test]
+    fn test_print_cli_error_generic_error() {
+        let err = anyhow::anyhow!("Something went wrong");
+        print_cli_error(&err);
+    }
+
+    // ============= build_cli_arguments tests =============
+
+    #[test]
+    fn test_build_cli_arguments_basic() {
+        let config = AppConfig {
+            run_tool_args: vec![
+                "--working-directory".to_string(),
+                "/test/dir".to_string(),
+                "--".to_string(),
+                "--release".to_string(),
+            ],
+            ..Default::default()
+        };
+        let subcommand_config = SubcommandConfig::default();
+        let (args_map, working_dir) = build_cli_arguments(&config, &subcommand_config);
+        assert_eq!(working_dir, "/test/dir");
+        assert!(args_map.contains_key("--release"));
+    }
+
+    // ============= tool_args_from_env tests =============
+
+    #[test]
+    fn test_tool_args_from_env_not_set() {
+        // When AHMA_MCP_ARGS is not set (or not valid JSON), returns None
+        // We just check the function doesn't panic; the env var may or may not be set
+        let result = tool_args_from_env();
+        // If AHMA_MCP_ARGS happens to be set in the environment, it could return Some
+        // The important thing is it doesn't panic
+        let _ = result;
+    }
+}

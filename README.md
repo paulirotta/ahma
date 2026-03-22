@@ -62,6 +62,8 @@ curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install
 irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
 ```
 
+After installing, the script offers an **interactive MCP setup wizard** that configures ahma as a global MCP server for your AI tools. You choose which platforms to configure (VS Code, Claude Code, Cursor, Antigravity), select stdio or HTTP connection mode, and the script creates or updates each tool's global `mcp.json` for you — showing the proposed changes and asking for confirmation before writing anything.
+
 ## Source Installation
 
 **Linux / macOS:**

@@ -9,7 +9,8 @@
 #   - macOS ARM64 (Apple Silicon)
 #
 # Environment variables:
-#   AHMA_PREFER_MUSL=1  - Force musl binary on Linux (more portable, no glibc dependency)
+#   AHMA_PREFER_MUSL=1    - Force musl binary on Linux (more portable, no glibc dependency)
+#   AHMA_FORCE_INSTALL=1  - Reinstall even if ahma-mcp is already present
 
 set -euo pipefail
 
@@ -98,6 +99,32 @@ fi
 
 INSTALL_DIR="$HOME/.local/bin"
 
+# If ahma-mcp is already installed, show current setup and exit (use AHMA_FORCE_INSTALL=1 to override)
+if [ "${AHMA_FORCE_INSTALL:-}" != "1" ]; then
+    EXISTING_BIN=""
+    if command -v ahma-mcp >/dev/null 2>&1; then
+        EXISTING_BIN="$(command -v ahma-mcp)"
+    elif [ -x "$INSTALL_DIR/ahma-mcp" ]; then
+        EXISTING_BIN="$INSTALL_DIR/ahma-mcp"
+    fi
+
+    if [ -n "$EXISTING_BIN" ]; then
+        echo "Ahma is already installed — no changes made."
+        echo ""
+        echo "  Location : $EXISTING_BIN"
+        echo "  Version  : $( "$EXISTING_BIN" --version 2>&1 || true )"
+        if command -v ahma-simplify >/dev/null 2>&1; then
+            echo "  Simplify : $(command -v ahma-simplify) — $( ahma-simplify --version 2>&1 || true )"
+        elif [ -x "$INSTALL_DIR/ahma-simplify" ]; then
+            echo "  Simplify : $INSTALL_DIR/ahma-simplify — $( "$INSTALL_DIR/ahma-simplify" --version 2>&1 || true )"
+        fi
+        echo ""
+        echo "To reinstall or upgrade, run:"
+        echo "  AHMA_FORCE_INSTALL=1 curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash"
+        exit 0
+    fi
+fi
+
 echo "Installing Ahma for ${PLATFORM}..."
 
 # Create install directory
@@ -165,3 +192,282 @@ echo "Success! Installed ahma-mcp and ahma-simplify to ${INSTALL_DIR}"
 echo ""
 echo "Please ensure ${INSTALL_DIR} is in your PATH:"
 echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP Server Setup Wizard
+# Configures the global mcp.json for VS Code, Claude Code, Cursor, Antigravity
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Test whether comma-separated list $1 contains the exact number $2
+_ahma_list_has() {
+    echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -q "^${2}$"
+}
+
+# Write a complete new MCP config file for the given parameters.
+# Args: servers_key  transport  platform_type("standard"|"antigravity")
+# Output: formatted JSON on stdout
+_ahma_new_file_json() {
+    local SKEY="$1"
+    local TRANS="$2"
+    local PTYPE="$3"
+
+    if [ "$TRANS" = "http" ]; then
+        cat <<EOF
+{
+    "$SKEY": {
+        "Ahma": {
+            "type": "http",
+            "url": "http://localhost:3000/mcp"
+        }
+    }
+}
+EOF
+    elif [ "$PTYPE" = "antigravity" ]; then
+        cat <<EOF
+{
+    "$SKEY": {
+        "Ahma": {
+            "command": "bash",
+            "args": [
+                "-c",
+                "AHMA_SANDBOX_SCOPE=\$HOME AHMA_TMP_ACCESS=1 AHMA_LOG_MONITOR=1 ahma-mcp serve stdio --tools rust,simplify"
+            ]
+        }
+    }
+}
+EOF
+    else
+        cat <<EOF
+{
+    "$SKEY": {
+        "Ahma": {
+            "type": "stdio",
+            "command": "ahma-mcp",
+            "args": [
+                "serve",
+                "stdio",
+                "--tools",
+                "rust,simplify"
+            ],
+            "env": {
+                "AHMA_TMP_ACCESS": "1",
+                "AHMA_LOG_MONITOR": "1"
+            }
+        }
+    }
+}
+EOF
+    fi
+}
+
+# Configure a single platform's global MCP config file.
+# Reads globals: AHMA_TRANSPORT, AHMA_PY_SCRIPT
+# Writes global: AHMA_CONFIGURED_TOOLS (appends "|display_name")
+# Args: display_name  config_path  servers_key  platform_type
+_ahma_configure_platform() {
+    local DISPLAY="$1"
+    local CPATH="$2"
+    local SKEY="$3"
+    local PTYPE="$4"
+
+    # Compact entry JSON (passed to Python for merging into existing files)
+    local ENTRY
+    if [ "$AHMA_TRANSPORT" = "http" ]; then
+        ENTRY='{"type":"http","url":"http://localhost:3000/mcp"}'
+    elif [ "$PTYPE" = "antigravity" ]; then
+        ENTRY='{"command":"bash","args":["-c","AHMA_SANDBOX_SCOPE=$HOME AHMA_TMP_ACCESS=1 AHMA_LOG_MONITOR=1 ahma-mcp serve stdio --tools rust,simplify"]}'
+    else
+        ENTRY='{"type":"stdio","command":"ahma-mcp","args":["serve","stdio","--tools","rust,simplify"],"env":{"AHMA_TMP_ACCESS":"1","AHMA_LOG_MONITOR":"1"}}'
+    fi
+
+    echo ""
+    echo "  ─── ${DISPLAY} ───────────────────────────────────────"
+    echo "  Config: ${CPATH}"
+
+    local CONFIRM
+    if [ ! -f "$CPATH" ]; then
+        # New file — generate content without python3
+        local PROPOSED
+        PROPOSED=$(_ahma_new_file_json "$SKEY" "$AHMA_TRANSPORT" "$PTYPE")
+
+        echo ""
+        echo "  File does not exist. Proposed new file:"
+        echo ""
+        echo "$PROPOSED" | sed 's/^/    /'
+        echo ""
+        printf "  Create this file? [Y/n]: "
+        IFS= read -r CONFIRM < /dev/tty
+        case "$CONFIRM" in
+            [Nn]*) echo "  Skipped."; return 0 ;;
+        esac
+        mkdir -p "$(dirname "$CPATH")"
+        printf '%s\n' "$PROPOSED" > "$CPATH"
+        echo "  ✓ Created."
+        AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|${DISPLAY}"
+
+    else
+        # Existing file — use python3 to merge
+        if ! command -v python3 >/dev/null 2>&1; then
+            echo ""
+            echo "  File exists but python3 is not available for automatic merging."
+            echo "  Please add the following entry manually under \"${SKEY}\" in:"
+            echo "  ${CPATH}"
+            echo ""
+            echo "    \"Ahma\": ${ENTRY}"
+            return 0
+        fi
+
+        local PROPOSED
+        PROPOSED=$(python3 "$AHMA_PY_SCRIPT" "$CPATH" "$SKEY" "$ENTRY" 2>/dev/null)
+
+        if [ -z "$PROPOSED" ]; then
+            echo ""
+            echo "  Could not parse existing file. Please add the entry manually:"
+            echo "  ${CPATH} → under \"${SKEY}\":"
+            echo "    \"Ahma\": ${ENTRY}"
+            return 0
+        fi
+
+        echo ""
+        echo "  Proposed file after adding Ahma entry:"
+        echo ""
+        echo "$PROPOSED" | sed 's/^/    /'
+        echo ""
+        printf "  Update this file? [Y/n]: "
+        IFS= read -r CONFIRM < /dev/tty
+        case "$CONFIRM" in
+            [Nn]*) echo "  Skipped."; return 0 ;;
+        esac
+        printf '%s\n' "$PROPOSED" > "$CPATH"
+        echo "  ✓ Updated."
+        AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|${DISPLAY}"
+    fi
+}
+
+setup_mcp() {
+    set +e  # Wizard exit codes must not abort the script
+
+    # Skip if there is no terminal to interact with (e.g. CI, non-interactive pipe)
+    if [ ! -e /dev/tty ]; then
+        echo ""
+        echo "Tip: Run 'ahma-mcp serve stdio --help' to learn about MCP server modes."
+        echo "     See https://github.com/paulirotta/ahma for mcp.json setup examples."
+        return 0
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  MCP Server Setup"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    printf "Configure ahma-mcp as a global MCP server for your AI tools? [Y/n]: "
+    local CHOICE
+    IFS= read -r CHOICE < /dev/tty
+    case "$CHOICE" in
+        [Nn]*) return 0 ;;
+    esac
+
+    # ── Step 1: Platform selection ──────────────────────────────────────────
+    echo ""
+    echo "Select platforms to configure (comma-separated numbers, or Enter for all):"
+    echo "  1) VS Code       (${HOME}/.vscode/mcp.json)"
+    echo "  2) Claude Code   (${HOME}/.claude/mcp.json)"
+    echo "  3) Cursor        (${HOME}/.cursor/mcp.json)"
+    echo "  4) Antigravity   (${HOME}/.antigravity/mcp.json)"
+    echo ""
+    printf "  Selection [default: 1,2,3,4 — all]: "
+    local PLATFORMS
+    IFS= read -r PLATFORMS < /dev/tty
+    [ -z "$PLATFORMS" ] && PLATFORMS="1,2,3,4"
+
+    # ── Step 2: Transport selection ─────────────────────────────────────────
+    echo ""
+    echo "Choose how your AI tools connect to ahma-mcp:"
+    echo ""
+    echo "  1) stdio  (recommended for most users)"
+    echo "     Each AI tool starts its own private ahma-mcp instance automatically"
+    echo "     when you open a project. No extra steps needed — it just works."
+    echo ""
+    echo "  2) http   (one shared server, better visibility)"
+    echo "     You run 'ahma-mcp serve http --tools rust,simplify' in a terminal"
+    echo "     before opening your AI tools. All tools connect to one running"
+    echo "     instance, so you can watch what ahma is doing in real time."
+    echo "     Best if you use multiple AI tools simultaneously."
+    echo ""
+    printf "  Mode [1=stdio or 2=http, default 1]: "
+    local TSELECT
+    IFS= read -r TSELECT < /dev/tty
+    case "$TSELECT" in
+        2) AHMA_TRANSPORT="http" ;;
+        *) AHMA_TRANSPORT="stdio" ;;
+    esac
+
+    # ── Python helper for merging into existing JSON files ──────────────────
+    AHMA_PY_SCRIPT=$(mktemp /tmp/ahma_mcp_XXXXXX.py)
+    cat > "$AHMA_PY_SCRIPT" << 'PYEOF'
+#!/usr/bin/env python3
+"""Merge an Ahma entry into an MCP config JSON file.
+Usage: script.py <config_path> <servers_key> <entry_json>
+  config_path:  path to existing JSON file to merge into
+  servers_key:  'servers' (VS Code) or 'mcpServers' (Cursor, Claude, Antigravity)
+  entry_json:   compact JSON string for the value under "Ahma"
+"""
+import sys, json
+
+config_path = sys.argv[1]
+servers_key = sys.argv[2]
+entry_str   = sys.argv[3]
+
+try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+except (FileNotFoundError, ValueError):
+    config = {}
+
+entry = json.loads(entry_str)
+
+if servers_key not in config or not isinstance(config.get(servers_key), dict):
+    config[servers_key] = {}
+
+config[servers_key]['Ahma'] = entry
+print(json.dumps(config, indent=4))
+PYEOF
+
+    # ── Configure each selected platform ───────────────────────────────────
+    AHMA_CONFIGURED_TOOLS=""
+
+    if _ahma_list_has "$PLATFORMS" 1; then
+        _ahma_configure_platform "VS Code"     "${HOME}/.vscode/mcp.json"     "servers"    "standard"
+    fi
+    if _ahma_list_has "$PLATFORMS" 2; then
+        _ahma_configure_platform "Claude Code" "${HOME}/.claude/mcp.json"     "mcpServers" "standard"
+    fi
+    if _ahma_list_has "$PLATFORMS" 3; then
+        _ahma_configure_platform "Cursor"      "${HOME}/.cursor/mcp.json"     "mcpServers" "standard"
+    fi
+    if _ahma_list_has "$PLATFORMS" 4; then
+        _ahma_configure_platform "Antigravity" "${HOME}/.antigravity/mcp.json" "mcpServers" "antigravity"
+    fi
+
+    rm -f "$AHMA_PY_SCRIPT"
+
+    # ── Summary ─────────────────────────────────────────────────────────────
+    echo ""
+    if [ -n "$AHMA_CONFIGURED_TOOLS" ]; then
+        echo "✓ MCP setup complete! Restart these tools for changes to take effect:"
+        echo "$AHMA_CONFIGURED_TOOLS" | tr '|' '\n' | while IFS= read -r TOOL; do
+            [ -n "$TOOL" ] && echo "    - ${TOOL}"
+        done
+        if [ "$AHMA_TRANSPORT" = "http" ]; then
+            echo ""
+            echo "  Before opening your AI tools, start the ahma HTTP server:"
+            echo "    ahma-mcp serve http --tools rust,simplify"
+        fi
+    else
+        echo "No MCP configurations were changed."
+    fi
+    echo ""
+}
+
+# Run the MCP setup wizard
+setup_mcp
