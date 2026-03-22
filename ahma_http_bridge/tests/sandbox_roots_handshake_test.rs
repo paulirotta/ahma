@@ -55,9 +55,14 @@ fn get_ahma_mcp_binary() -> PathBuf {
 /// Start an HTTP bridge server with deferred sandbox (for roots/list testing)
 async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGuard {
     let binary = get_ahma_mcp_binary();
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace dir")
+        .to_path_buf();
 
     let mut cmd = Command::new(&binary);
     cmd.args(["serve", "http", "--port", "0"])
+        .current_dir(&workspace)
         .env("AHMA_SYNC", "1")
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_DEFER", "1") // Key: sandbox is deferred until roots/list

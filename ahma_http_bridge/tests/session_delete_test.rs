@@ -70,6 +70,10 @@ async fn start_http_bridge(
     sandbox_scope: &std::path::Path,
 ) -> std::process::Child {
     let binary = get_ahma_mcp_binary();
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace dir")
+        .to_path_buf();
 
     // Detect nested sandbox (ahma_mcp_sandboxed_shell / VS Code / Docker) and disable
     // OS-level sandboxing so the binary can start; app-level path checks still apply.
@@ -80,6 +84,7 @@ async fn start_http_bridge(
 
     let mut cmd = Command::new(&binary);
     cmd.args(["serve", "http", "--port", &port.to_string()])
+        .current_dir(&workspace)
         .env("AHMA_SYNC", "1")
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_SCOPE", &*sandbox_scope.to_string_lossy())

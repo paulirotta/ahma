@@ -63,7 +63,7 @@ pub struct AppConfig {
     // ── Sandbox ─────────────────────────────────────────────────────────────
     /// Disable the kernel sandbox entirely (AHMA_DISABLE_SANDBOX=1).
     pub no_sandbox: bool,
-    /// Explicit sandbox scope directories (from AHMA_SANDBOX_SCOPE, colon-separated).
+    /// Explicit sandbox scope directories (from AHMA_SANDBOX_SCOPE).
     pub sandbox_scopes: Vec<PathBuf>,
     /// Defer sandbox lock until client provides roots/list (AHMA_SANDBOX_DEFER=1).
     pub defer_sandbox: bool,
@@ -160,27 +160,23 @@ impl AppConfig {
             .unwrap_or(default)
     }
 
-    /// Parse `AHMA_SANDBOX_SCOPE` as a colon-separated list of paths.
+    /// Parse `AHMA_SANDBOX_SCOPE` using the platform path-list separator.
     fn env_sandbox_scopes() -> Vec<PathBuf> {
-        std::env::var("AHMA_SANDBOX_SCOPE")
-            .ok()
-            .map(|s| {
-                s.split(':')
-                    .filter(|p| !p.is_empty())
-                    .map(PathBuf::from)
+        std::env::var_os("AHMA_SANDBOX_SCOPE")
+            .map(|paths| {
+                std::env::split_paths(&paths)
+                    .filter(|path| !path.as_os_str().is_empty())
                     .collect()
             })
             .unwrap_or_default()
     }
 
-    /// Parse `AHMA_WORKING_DIRS` as a colon-separated list of paths.
+    /// Parse `AHMA_WORKING_DIRS` using the platform path-list separator.
     fn env_working_dirs() -> Vec<PathBuf> {
-        std::env::var("AHMA_WORKING_DIRS")
-            .ok()
-            .map(|s| {
-                s.split(':')
-                    .filter(|p| !p.is_empty())
-                    .map(PathBuf::from)
+        std::env::var_os("AHMA_WORKING_DIRS")
+            .map(|paths| {
+                std::env::split_paths(&paths)
+                    .filter(|path| !path.as_os_str().is_empty())
                     .collect()
             })
             .unwrap_or_default()
@@ -1172,6 +1168,33 @@ mod tests {
             unsafe { std::env::remove_var("AHMA_TEST_FLAG_FALSE") };
             assert!(!result, "env_flag_enabled({:?}) should be false", val);
         }
+    }
+
+    #[test]
+    fn test_env_sandbox_scopes_single_path() {
+        let temp = tempdir().expect("Failed to create temp dir");
+        unsafe { std::env::set_var("AHMA_SANDBOX_SCOPE", temp.path()) };
+        let scopes = AppConfig::env_sandbox_scopes();
+        unsafe { std::env::remove_var("AHMA_SANDBOX_SCOPE") };
+
+        assert_eq!(scopes, vec![temp.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn test_env_working_dirs_multiple_paths() {
+        let temp_a = tempdir().expect("Failed to create first temp dir");
+        let temp_b = tempdir().expect("Failed to create second temp dir");
+        let joined =
+            std::env::join_paths([temp_a.path(), temp_b.path()]).expect("Failed to join path list");
+
+        unsafe { std::env::set_var("AHMA_WORKING_DIRS", joined) };
+        let dirs = AppConfig::env_working_dirs();
+        unsafe { std::env::remove_var("AHMA_WORKING_DIRS") };
+
+        assert_eq!(
+            dirs,
+            vec![temp_a.path().to_path_buf(), temp_b.path().to_path_buf()]
+        );
     }
 
     // ─── resolve_sandbox_policy ──────────────────────────────────────────────

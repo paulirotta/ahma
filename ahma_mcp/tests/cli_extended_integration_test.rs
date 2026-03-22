@@ -585,8 +585,10 @@ mod generate_schema_extended_tests {
     #[test]
     fn test_generate_schema_custom_filename() {
         let binary = build_binary("generate_tool_schema", "generate-tool-schema");
+        let workspace = workspace_dir();
 
         let output = Command::new(&binary)
+            .current_dir(&workspace)
             .args(["--help"])
             .output()
             .expect("Failed to execute generate_tool_schema --help");

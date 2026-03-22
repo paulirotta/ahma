@@ -15,16 +15,22 @@ fn get_ahma_mcp_binary() -> PathBuf {
 #[test]
 fn test_list_tools_help() {
     let binary = get_ahma_mcp_binary();
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace dir")
+        .to_path_buf();
 
     // Use pre-built binary if available, otherwise fall back to cargo run
     let output = if binary.exists() {
         Command::new(&binary)
+            .current_dir(&project_root)
             .args(["--help"])
             .output()
             .expect("Failed to execute command")
     } else {
         eprintln!("Warning: Pre-built binary not found, falling back to cargo run");
         Command::new("cargo")
+            .current_dir(&project_root)
             .args(["run", "-p", "ahma_mcp", "--", "--help"])
             .output()
             .expect("Failed to execute command")

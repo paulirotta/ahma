@@ -26,6 +26,7 @@ async fn test_freeform_argument_passing_ls() -> Result<()> {
     cmd.env("AHMA_TOOLS_DIR", temp_dir.path().join(".ahma"))
         .env("AHMA_DISABLE_SANDBOX", "1")
         .env("AHMA_SKIP_PROBES", "1")
+        .current_dir(temp_dir.path())
         .args(["tool", "run", "ls_ls"]);
     cmd.env(
         "AHMA_MCP_ARGS",
@@ -85,6 +86,7 @@ edition = "2021"
     cmd.env("AHMA_TOOLS_DIR", temp_dir.path().join(".ahma"))
         .env("AHMA_DISABLE_SANDBOX", "1")
         .env("AHMA_SKIP_PROBES", "1")
+        .current_dir(temp_dir.path())
         .args(["tool", "run", "cargo_clippy"]);
     cmd.env(
         "AHMA_MCP_ARGS",

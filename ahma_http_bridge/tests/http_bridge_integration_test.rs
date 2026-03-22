@@ -137,6 +137,22 @@ fn post_roots_configured_grace_timeout() -> Duration {
     TestTimeouts::scale_secs(5)
 }
 
+async fn open_roots_sse_stream(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+) -> reqwest::Response {
+    let url = format!("{}/mcp", base_url);
+    client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", session_id)
+        .send()
+        .await
+        .expect("Failed to open SSE stream")
+}
+
 fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
     let lf = buffer.find("\n\n").map(|idx| (idx, 2));
     let crlf = buffer.find("\r\n\r\n").map(|idx| (idx, 4));
@@ -332,38 +348,6 @@ async fn process_sse_roots_handshake(
     }
 }
 
-/// Wait for a `roots/list` request over SSE and respond with the provided roots.
-async fn answer_roots_list_over_sse(
-    client: &Client,
-    base_url: &str,
-    session_id: &str,
-    roots: &[PathBuf],
-) {
-    let url = format!("{}/mcp", base_url);
-    let resp = client
-        .get(&url)
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", session_id)
-        .send()
-        .await
-        .expect("Failed to open SSE stream");
-
-    let roots_json: Vec<Value> = roots
-        .iter()
-        .map(|p| {
-            // Use percent_encode_path_for_file_uri for cross-platform file URI formatting
-            // (Windows needs file:///C:/... format, not file://C:\...)
-            json!({
-                "uri": format!("file://{}", percent_encode_path_for_file_uri(p)),
-                "name": p.file_name().and_then(|n| n.to_str()).unwrap_or("root")
-            })
-        })
-        .collect();
-
-    process_sse_roots_handshake(resp, client, base_url, session_id, roots_json).await;
-}
-
 fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
     // Produce an RFC 8089-compatible file URI *path component* from a
     // filesystem path.  This string is meant to be appended directly after
@@ -426,31 +410,6 @@ fn percent_encode_path_for_file_uri(path: &std::path::Path) -> String {
         }
     }
     out
-}
-
-/// Wait for a `roots/list` request over SSE and respond with provided URI strings.
-async fn answer_roots_list_over_sse_with_uris(
-    client: &Client,
-    base_url: &str,
-    session_id: &str,
-    root_uris: &[String],
-) {
-    let url = format!("{}/mcp", base_url);
-    let resp = client
-        .get(&url)
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", session_id)
-        .send()
-        .await
-        .expect("Failed to open SSE stream");
-
-    let roots_json: Vec<Value> = root_uris
-        .iter()
-        .map(|uri| json!({"uri": uri, "name": "root"}))
-        .collect();
-
-    process_sse_roots_handshake(resp, client, base_url, session_id, roots_json).await;
 }
 
 /// REGRESSION TEST (DO NOT WEAKEN): Cross-repo working_directory must succeed.
@@ -540,12 +499,24 @@ async fn test_tool_call_with_different_working_directory() {
 
     // Open SSE and answer roots/list with the client workspace root.
     // This is what binds the per-session sandbox scope.
+    let sse_root = different_project_path.clone();
+    let sse_resp = open_roots_sse_stream(&client, &base_url, &session_id).await;
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
-    let sse_root = different_project_path.clone();
+    let roots_json = vec![json!({
+        "uri": format!("file://{}", percent_encode_path_for_file_uri(&sse_root)),
+        "name": sse_root.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+    })];
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse(&sse_client, &sse_base_url, &sse_session_id, &[sse_root]).await;
+        process_sse_roots_handshake(
+            sse_resp,
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            roots_json,
+        )
+        .await;
     });
 
     send_mcp_request(
@@ -666,12 +637,24 @@ async fn test_basic_tool_call_within_sandbox() {
     // Open SSE and answer roots/list with the sandbox scope.
     // In always-on session isolation, the subprocess runs with --defer-sandbox and
     // tool execution is blocked until roots/list has been answered.
+    let sse_root = sandbox_scope.clone();
+    let sse_resp = open_roots_sse_stream(&client, &base_url, &session_id_for_requests).await;
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id_for_requests.clone();
-    let sse_root = sandbox_scope.clone();
+    let roots_json = vec![json!({
+        "uri": format!("file://{}", percent_encode_path_for_file_uri(&sse_root)),
+        "name": sse_root.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+    })];
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse(&sse_client, &sse_base_url, &sse_session_id, &[sse_root]).await;
+        process_sse_roots_handshake(
+            sse_resp,
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            roots_json,
+        )
+        .await;
     });
 
     let _ = send_mcp_request(
@@ -880,16 +863,18 @@ async fn test_roots_uri_parsing_file_localhost() {
     let encoded_path = percent_encode_path_for_file_uri(&client_root);
     let uri = format!("file://localhost{}", encoded_path);
 
+    let sse_resp = open_roots_sse_stream(&client, &base_url, &session_id).await;
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
-    let sse_uri = uri.clone();
+    let roots_json = vec![json!({"uri": uri.clone(), "name": "root"})];
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse_with_uris(
+        process_sse_roots_handshake(
+            sse_resp,
             &sse_client,
             &sse_base_url,
             &sse_session_id,
-            &[sse_uri],
+            roots_json,
         )
         .await;
     });
@@ -978,12 +963,24 @@ async fn test_rejects_working_directory_path_traversal_outside_root() {
         .expect("Initialize should succeed");
     let session_id = session_id.expect("Session isolation must return mcp-session-id header");
 
+    let sse_root = client_root.clone();
+    let sse_resp = open_roots_sse_stream(&client, &base_url, &session_id).await;
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
-    let sse_root = client_root.clone();
+    let roots_json = vec![json!({
+        "uri": format!("file://{}", percent_encode_path_for_file_uri(&sse_root)),
+        "name": sse_root.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+    })];
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse(&sse_client, &sse_base_url, &sse_session_id, &[sse_root]).await;
+        process_sse_roots_handshake(
+            sse_resp,
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            roots_json,
+        )
+        .await;
     });
 
     let initialized = json!({
@@ -1086,12 +1083,24 @@ async fn test_symlink_escape_attempt_is_blocked() {
         .expect("Initialize should succeed");
     let session_id = session_id.expect("Session isolation must return mcp-session-id header");
 
+    let sse_root = client_root.clone();
+    let sse_resp = open_roots_sse_stream(&client, &base_url, &session_id).await;
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
-    let sse_root = client_root.clone();
+    let roots_json = vec![json!({
+        "uri": format!("file://{}", percent_encode_path_for_file_uri(&sse_root)),
+        "name": sse_root.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+    })];
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_over_sse(&sse_client, &sse_base_url, &sse_session_id, &[sse_root]).await;
+        process_sse_roots_handshake(
+            sse_resp,
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            roots_json,
+        )
+        .await;
     });
 
     let initialized = json!({
@@ -1208,8 +1217,13 @@ async fn start_http_bridge_dynamic(
     sandbox_scope: &std::path::Path,
 ) -> (ServerGuard, std::sync::Arc<std::sync::Mutex<String>>) {
     let binary = resolve_binary_path();
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace dir")
+        .to_path_buf();
     let mut cmd = Command::new(&binary);
     cmd.args(["serve", "http", "--port", "0"])
+        .current_dir(&workspace)
         .env("AHMA_SYNC", "1")
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_SCOPE", &*sandbox_scope.to_string_lossy())

@@ -277,8 +277,10 @@ mod no_sandbox_flag {
     fn test_no_sandbox_env_var() {
         let binary = build_binary();
         let _temp = TempDir::new().unwrap();
+        let workspace = workspace_dir();
 
         let output = Command::new(&binary)
+            .current_dir(&workspace)
             .env("AHMA_DISABLE_SANDBOX", "1")
             .args(["--help"])
             .output()
