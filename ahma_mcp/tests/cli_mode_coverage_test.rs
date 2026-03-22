@@ -2,10 +2,21 @@
 //!
 //! These tests specifically target the low-coverage areas in cli.rs (42% coverage).
 //! They cover:
-//! - All --mode combinations (stdio, http, list-tools)
-//! - Flag permutations (--sync, --disable-sandbox, --defer-sandbox, --debug, --log-to-stderr)
+//! - All subcommand combinations (serve stdio, serve http, tool list)
+//! - Flag permutations (AHMA_SYNC, AHMA_DISABLE_SANDBOX, AHMA_SANDBOX_DEFER, RUST_LOG)
 //! - Error paths for invalid configurations
 //! - Sandbox scope initialization paths
+//!
+//! ## Anti-pattern to avoid: spawn + yield_now/sleep + kill
+//!
+//! Never start a long-running server, yield briefly, kill it, then assert on output
+//! with an `|| combined.is_empty()` escape hatch.  That race passes vacuously on
+//! slow runners (nothing written yet) while failing on fast ones (clap error written).
+//!
+//! **Correct pattern for server startup tests**: read the server's machine-readable
+//! startup sentinel (`AHMA_BOUND_PORT=<port>`) from stderr in a loop with a real
+//! deadline.  The sentinel is emitted immediately after the server binds, so the
+//! test is deterministic regardless of scheduler timing.
 
 use ahma_mcp::test_utils::cli::{build_binary_cached, test_command};
 use ahma_mcp::test_utils::fs::get_workspace_dir as workspace_dir;
@@ -23,47 +34,58 @@ fn build_binary() -> std::path::PathBuf {
 mod mode_flags {
     use super::*;
 
+    /// Verifies that `serve stdio` is a valid subcommand.
+    ///
+    /// Running with `--help` terminates deterministically (exit 0) without
+    /// needing to pipe stdin or race against stdin-EOF detection.
     #[test]
     fn test_mode_stdio_explicit() {
         let binary = build_binary();
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
-        // Explicitly set --mode stdio
         let output = test_command(&binary)
             .current_dir(&workspace)
             .args([
-                "--mode",
-                "stdio",
+                "serve",
                 "--tools-dir",
                 tools_dir.to_str().unwrap(),
+                "stdio",
+                "--help",
             ])
             .output()
-            .expect("Failed to execute with --mode stdio");
+            .expect("Failed to execute serve stdio --help");
 
-        // stdio mode waits for input, so it should fail gracefully in test
-        let stderr = String::from_utf8_lossy(&output.stderr);
-
-        // Should either mention MCP or fail because stdin is not a terminal
         assert!(
-            stderr.contains("MCP")
-                || stderr.contains("terminal")
-                || stderr.contains("stdio")
-                || stderr.contains("Running")
-                || !output.status.success(),
-            "Mode stdio should be recognized. Got: {}",
-            stderr
+            output.status.success(),
+            "serve stdio --help should exit 0. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("stdio") || stdout.contains("Usage"),
+            "Help text should describe the stdio transport. Got: {}",
+            stdout
         );
     }
 
+    /// Verifies that `serve http` starts and binds a port.
+    ///
+    /// Reads stderr line-by-line until the bridge emits `AHMA_BOUND_PORT=<port>`,
+    /// which is written via `eprintln!` immediately after binding (independent of
+    /// `RUST_LOG` level).  No timing luck required: we block until we see the
+    /// sentinel or a 30-second deadline expires.
     #[test]
     fn test_mode_http_explicit() {
+        use std::io::BufRead as _;
+        use std::time::{Duration, Instant};
+
         let binary = build_binary();
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
-        // Use a timeout to prevent blocking
-        let output = std::process::Command::new(&binary)
+        let mut child = std::process::Command::new(&binary)
             .current_dir(&workspace)
             .env("AHMA_DISABLE_SANDBOX", "1")
             .args([
@@ -72,66 +94,62 @@ mod mode_flags {
                 tools_dir.to_str().unwrap(),
                 "http",
                 "--port",
-                "0", // Use port 0 for auto-assign
+                "0", // OS assigns a free port; sentinel carries the actual value
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn();
+            .spawn()
+            .expect("Failed to spawn HTTP mode");
 
-        match output {
-            Ok(mut child) => {
-                // Yield to allow the process to start without sleeping
-                std::thread::yield_now();
-                // Kill the process
-                let _ = child.kill();
-                let output = child.wait_with_output().expect("Failed to read output");
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let combined = format!("{}{}", stdout, stderr);
+        let stderr = child.stderr.take().expect("stderr should be piped");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut bound_port: Option<u16> = None;
 
-                // Should mention HTTP or server starting, or output AHMA_BOUND_PORT
-                assert!(
-                    combined.contains("HTTP")
-                        || combined.contains("http")
-                        || combined.contains("server")
-                        || combined.contains("listening")
-                        || combined.contains("AHMA_BOUND_PORT")
-                        || combined.is_empty(), // May not have written yet
-                    "Mode http should be recognized. Got: {}",
-                    combined
-                );
+        for line in std::io::BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if let Some(port_str) = line.trim().strip_prefix("AHMA_BOUND_PORT=") {
+                if let Ok(port) = port_str.trim().parse::<u16>() {
+                    bound_port = Some(port);
+                    break;
+                }
             }
-            Err(e) => {
-                panic!("Failed to spawn HTTP mode: {}", e);
+            if Instant::now() >= deadline {
+                break;
             }
         }
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(
+            bound_port.map_or(false, |p| p > 0),
+            "HTTP bridge did not emit AHMA_BOUND_PORT= within 30s \
+             — server may have failed to start or args were rejected by clap"
+        );
     }
 
+    /// Verifies that an unknown transport subcommand is rejected by clap.
     #[test]
     fn test_mode_invalid_rejected() {
         let binary = build_binary();
-        let workspace = workspace_dir();
-        let tools_dir = workspace.join(".ahma");
 
         let output = test_command(&binary)
-            .current_dir(&workspace)
-            .args([
-                "--mode",
-                "invalid_mode",
-                "--tools-dir",
-                tools_dir.to_str().unwrap(),
-            ])
+            .args(["serve", "invalid_mode"])
             .output()
-            .expect("Failed to execute with invalid mode");
+            .expect("Failed to execute serve invalid_mode");
 
-        assert!(!output.status.success(), "Invalid mode should be rejected");
+        assert!(
+            !output.status.success(),
+            "Unknown transport subcommand should be rejected"
+        );
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             stderr.contains("invalid")
-                || stderr.contains("possible values")
-                || stderr.contains("error"),
-            "Error should mention invalid mode. Got: {}",
+                || stderr.contains("error")
+                || stderr.contains("unrecognized")
+                || stderr.contains("Usage"),
+            "Error should describe the invalid subcommand. Got: {}",
             stderr
         );
     }
