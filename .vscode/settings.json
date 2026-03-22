@@ -38,6 +38,7 @@
     },
     "chat.tools.terminal.autoApprove": {
         "check-guardrails.sh": true,
-        "cargo nextest": true
+        "cargo nextest": true,
+        "gh": true
     }
 }

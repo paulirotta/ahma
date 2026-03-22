@@ -22,14 +22,26 @@ use std::time::Duration;
 /// Build a reqwest client that speaks HTTP/3 (QUIC).
 ///
 /// `cert_der` is the self-signed DER certificate the test server emitted.
+///
+/// On Windows, reqwest's `add_root_certificate()` does not propagate to the
+/// quinn/QUIC TLS verifier, causing `UnknownIssuer` errors for self-signed
+/// certs. We work around this by also accepting invalid certs on Windows —
+/// acceptable here because these are localhost integration tests.
 fn build_http3_client(cert_der: &[u8]) -> reqwest::Client {
     let cert = Certificate::from_der(cert_der).expect("parse DER cert");
-    reqwest::Client::builder()
+    #[allow(unused_mut)]
+    let mut builder = reqwest::Client::builder()
         .http3_prior_knowledge()
         .add_root_certificate(cert)
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("HTTP/3 reqwest client")
+        .timeout(Duration::from_secs(30));
+
+    // Workaround: reqwest HTTP/3 path ignores custom root certs on Windows
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    builder.build().expect("HTTP/3 reqwest client")
 }
 
 // ─── HTTP/3 QUIC tests (skip if QUIC did not start) ──────────────────────────
