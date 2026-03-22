@@ -1,3 +1,4 @@
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::http::{HttpMcpTestClient, spawn_http_bridge};
 use anyhow::Context;
 use serde_json::json;
@@ -34,8 +35,9 @@ async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> a
         .start_sse_events(vec![client_root_dir.path().to_path_buf()])
         .await?;
 
-    // Give roots/list a moment to complete and sandbox to lock.
-    sleep(Duration::from_millis(200)).await;
+    // Wait for sandbox to lock (platform-aware retry: Windows CI is 3-5x slower).
+    let sandbox_deadline =
+        tokio::time::Instant::now() + TestTimeouts::get(TimeoutCategory::SandboxReady);
 
     // tools/call WITHOUT _meta.progressToken
     let tool_call = json!({
@@ -50,7 +52,21 @@ async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> a
             }
         }
     });
-    let (tool_resp, _) = client.send_request(&tool_call).await?;
+    let tool_resp = loop {
+        let (resp, _) = client.send_request(&tool_call).await?;
+        let is_sandbox_init = resp
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_i64())
+            == Some(-32001);
+        if !is_sandbox_init {
+            break resp;
+        }
+        if tokio::time::Instant::now() > sandbox_deadline {
+            anyhow::bail!("sandbox did not become ready in time");
+        }
+        sleep(TestTimeouts::poll_interval()).await;
+    };
     assert!(tool_resp.get("error").is_none(), "tools/call must succeed");
 
     // Assert: no notifications/progress arrive within a short window.
@@ -85,7 +101,9 @@ async fn test_http_progress_token_is_echoed_in_progress_notifications() -> anyho
         .start_sse_events(vec![client_root_dir.path().to_path_buf()])
         .await?;
 
-    sleep(Duration::from_millis(200)).await;
+    // Wait for sandbox to lock (platform-aware retry: Windows CI is 3-5x slower).
+    let sandbox_deadline =
+        tokio::time::Instant::now() + TestTimeouts::get(TimeoutCategory::SandboxReady);
 
     let token = "tok_http_1";
     let tool_call = json!({
@@ -101,7 +119,21 @@ async fn test_http_progress_token_is_echoed_in_progress_notifications() -> anyho
             }
         }
     });
-    let (tool_resp, _) = client.send_request(&tool_call).await?;
+    let tool_resp = loop {
+        let (resp, _) = client.send_request(&tool_call).await?;
+        let is_sandbox_init = resp
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_i64())
+            == Some(-32001);
+        if !is_sandbox_init {
+            break resp;
+        }
+        if tokio::time::Instant::now() > sandbox_deadline {
+            anyhow::bail!("sandbox did not become ready in time");
+        }
+        sleep(TestTimeouts::poll_interval()).await;
+    };
     assert!(tool_resp.get("error").is_none(), "tools/call must succeed");
 
     // Expect at least one notifications/progress with matching token.
