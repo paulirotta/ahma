@@ -65,14 +65,14 @@ mod mode_flags {
         // Use a timeout to prevent blocking
         let output = std::process::Command::new(&binary)
             .current_dir(&workspace)
+            .env("AHMA_DISABLE_SANDBOX", "1")
             .args([
-                "--mode",
-                "http",
-                "--http-port",
-                "0", // Use port 0 for auto-assign
-                "--disable-sandbox",
+                "serve",
                 "--tools-dir",
                 tools_dir.to_str().unwrap(),
+                "http",
+                "--port",
+                "0", // Use port 0 for auto-assign
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

@@ -1,8 +1,8 @@
+use ahma_common::timeouts::TestTimeouts;
 use ahma_mcp::test_utils;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
 
 #[test]
 fn test_sandbox_lifecycle_notifications() {
@@ -61,7 +61,7 @@ fn test_sandbox_lifecycle_notifications() {
     stdin.write_all(b"\n").unwrap();
 
     // Short sleep to allow server to process initialize
-    thread::sleep(Duration::from_millis(200));
+    thread::sleep(TestTimeouts::scale_millis(200));
 
     // Send initialized notification to complete handshake
     let initialized_notif = r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#;
@@ -69,7 +69,7 @@ fn test_sandbox_lifecycle_notifications() {
     stdin.write_all(b"\n").unwrap();
 
     // Short sleep to allow server to process initialized
-    thread::sleep(Duration::from_millis(200));
+    thread::sleep(TestTimeouts::scale_millis(200));
 
     // Close stdin to signal end of session (clean shutdown)
     drop(stdin);
