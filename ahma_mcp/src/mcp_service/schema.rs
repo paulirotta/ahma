@@ -241,17 +241,6 @@ pub fn generate_schema_for_tool_config(
     }
 }
 
-/// Generates the JSON schema for a specific subcommand of a tool.
-pub fn generate_schema_for_subcommand(
-    tool_config: &ToolConfig,
-    sub_config: &SubcommandConfig,
-) -> Arc<Map<String, Value>> {
-    Arc::new(generate_single_command_schema(
-        tool_config,
-        &("".to_string(), sub_config),
-    ))
-}
-
 fn add_working_directory_property(properties: &mut Map<String, Value>) {
     properties.insert(
         "working_directory".to_string(),
@@ -285,6 +274,14 @@ fn generate_single_command_schema(
     }
 
     build_schema_object(properties, required)
+}
+
+/// Public wrapper for generating a single-subcommand schema (used by tool flattening).
+pub fn generate_single_command_schema_pub(
+    tool_config: &ToolConfig,
+    leaf_subcommand: &(String, &SubcommandConfig),
+) -> Map<String, Value> {
+    generate_single_command_schema(tool_config, leaf_subcommand)
 }
 
 /// Processes a single subcommand entry for multi-command schema generation.

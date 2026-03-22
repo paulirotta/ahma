@@ -156,22 +156,103 @@ impl AhmaMcpService {
         );
     }
 
-    /// Creates an MCP Tool from a ToolConfig.
-    fn create_tool_from_config(&self, tool_config: &ToolConfig) -> Tool {
-        let tool_name = tool_config.name.clone();
+    /// Creates MCP Tools from a ToolConfig.
+    ///
+    /// If the tool has subcommands, returns one flattened Tool per leaf subcommand
+    /// (e.g., `"file-tools_hello"`, `"file-tools_world"`). If there are no
+    /// subcommands (or only a single `"default"` one), returns a single Tool
+    /// with the original config name.
+    fn create_tools_from_config(&self, tool_config: &ToolConfig) -> Vec<Tool> {
+        let base_name = &tool_config.name;
 
+        let mut leaf_subcommands = Vec::new();
+        if let Some(subcommands) = &tool_config.subcommand {
+            schema::collect_leaf_subcommands(subcommands, "", &mut leaf_subcommands);
+        }
+
+        // Single tool without subcommands, or a single "default" subcommand
+        let is_single_default = match leaf_subcommands.as_slice() {
+            [] => true,
+            [(name, _)] if name == "default" => true,
+            _ => false,
+        };
+
+        if is_single_default {
+            let description = self.tool_description(tool_config, base_name);
+            let input_schema =
+                schema::generate_schema_for_tool_config(tool_config, self.guidance.as_ref());
+            return vec![
+                Tool::new(base_name.clone(), description, input_schema)
+                    .with_title(base_name.clone()),
+            ];
+        }
+
+        // Multiple subcommands → flatten into one Tool per leaf
+        leaf_subcommands
+            .iter()
+            .map(|(sub_path, sub_config)| {
+                let flat_name = format!("{}_{}", base_name, sub_path);
+                let sub_description = if sub_config.description.is_empty() {
+                    tool_config.description.clone()
+                } else {
+                    sub_config.description.clone()
+                };
+                let description =
+                    self.tool_description_text(tool_config, &flat_name, &sub_description);
+                let input_schema = Arc::new(schema::generate_single_command_schema_pub(
+                    tool_config,
+                    &(sub_path.clone(), *sub_config),
+                ));
+                Tool::new(flat_name.clone(), description, input_schema).with_title(flat_name)
+            })
+            .collect()
+    }
+
+    /// Resolves guidance-augmented description for a tool config by key.
+    fn tool_description(&self, tool_config: &ToolConfig, key: &str) -> String {
         let mut description = tool_config.description.clone();
         if let Some(guidance_config) = self.guidance.as_ref() {
-            let key = tool_config.guidance_key.as_ref().unwrap_or(&tool_name);
-            if let Some(guidance_text) = guidance_config.guidance_blocks.get(key) {
+            let default_key = key.to_string();
+            let gk = tool_config.guidance_key.as_ref().unwrap_or(&default_key);
+            if let Some(guidance_text) = guidance_config.guidance_blocks.get(gk) {
                 description = format!("{}\n\n{}", guidance_text, description);
             }
         }
+        description
+    }
 
-        let input_schema =
-            schema::generate_schema_for_tool_config(tool_config, self.guidance.as_ref());
+    /// Builds a guidance-augmented description from explicit text.
+    fn tool_description_text(&self, tool_config: &ToolConfig, key: &str, base: &str) -> String {
+        let mut description = base.to_string();
+        if let Some(guidance_config) = self.guidance.as_ref() {
+            let default_key = key.to_string();
+            let gk = tool_config.guidance_key.as_ref().unwrap_or(&default_key);
+            if let Some(guidance_text) = guidance_config.guidance_blocks.get(gk) {
+                description = format!("{}\n\n{}", guidance_text, description);
+            }
+        }
+        description
+    }
 
-        Tool::new(tool_name, description, input_schema).with_title(tool_config.name.clone())
+    /// Resolves a flattened tool name (e.g., `"file-tools_hello"`) to a parent
+    /// config and the subcommand path portion. Tries every possible split position
+    /// of `_` from left to right so that tool names containing underscores still
+    /// work correctly (the config key match is authoritative).
+    fn resolve_flattened_tool<'a>(
+        tool_name: &str,
+        configs: &'a HashMap<String, ToolConfig>,
+    ) -> Option<(&'a ToolConfig, String)> {
+        // Try splitting at each '_' from left to right
+        for (idx, _) in tool_name.match_indices('_') {
+            let parent = &tool_name[..idx];
+            let sub_path = &tool_name[idx + 1..];
+            if !sub_path.is_empty()
+                && let Some(config) = configs.get(parent).filter(|c| c.subcommand.is_some())
+            {
+                return Some((config, sub_path.to_string()));
+            }
+        }
+        None
     }
 
     /// Sends a `notifications/tools/list_changed` notification to the connected client.
@@ -532,8 +613,8 @@ impl ServerHandler for AhmaMcpService {
                         continue;
                     }
 
-                    let tool = self.create_tool_from_config(config);
-                    tools.push(tool);
+                    let tools_from_config = self.create_tools_from_config(config);
+                    tools.extend(tools_from_config);
                 }
             }
 
@@ -588,19 +669,24 @@ impl ServerHandler for AhmaMcpService {
             }
 
             // Find tool configuration
-            // Acquire read lock for configs, clone the config, and drop the lock immediately
-            let config = {
+            // Acquire read lock for configs, clone the config, and drop the lock immediately.
+            // If the tool name contains '_', it may be a flattened subcommand name
+            // (e.g. "file-tools_hello" → parent "file-tools", subcommand "hello").
+            let (config, flattened_subcommand) = {
                 let configs_lock = self.configs.read().unwrap();
-                match configs_lock.get(tool_name) {
-                    Some(config) => config.clone(),
-                    None => {
-                        let error_message = format!("Tool '{}' not found.", tool_name);
-                        tracing::error!("{}", error_message);
-                        return Err(McpError::invalid_params(
-                            error_message,
-                            Some(serde_json::json!({ "tool_name": tool_name })),
-                        ));
-                    }
+                if let Some(config) = configs_lock.get(tool_name) {
+                    (config.clone(), None)
+                } else if let Some((parent, sub_path)) =
+                    Self::resolve_flattened_tool(tool_name, &configs_lock)
+                {
+                    (parent.clone(), Some(sub_path))
+                } else {
+                    let error_message = format!("Tool '{}' not found.", tool_name);
+                    tracing::error!("{}", error_message);
+                    return Err(McpError::invalid_params(
+                        error_message,
+                        Some(serde_json::json!({ "tool_name": tool_name })),
+                    ));
                 }
             };
 
@@ -663,9 +749,12 @@ impl ServerHandler for AhmaMcpService {
             }
 
             let mut arguments = params.arguments.clone().unwrap_or_default();
-            let subcommand_name = arguments
-                .remove("subcommand")
-                .and_then(|v| v.as_str().map(|s| s.to_string()));
+            // Use flattened subcommand path if resolved, otherwise use the "subcommand" argument
+            let subcommand_name = flattened_subcommand.or_else(|| {
+                arguments
+                    .remove("subcommand")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            });
 
             // Find the subcommand config and construct the command parts
             let (subcommand_config, command_parts) =
@@ -1527,8 +1616,9 @@ mod tests {
             livelog: None,
         };
 
-        let tool = service.create_tool_from_config(&tool_config);
-        let desc = tool.description.unwrap_or_default();
+        let tools = service.create_tools_from_config(&tool_config);
+        assert_eq!(tools.len(), 1);
+        let desc = tools[0].description.clone().unwrap_or_default();
         assert!(desc.starts_with("GUIDE\n\nDESC"));
     }
 

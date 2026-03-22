@@ -29,8 +29,10 @@ async fn create_pd_service() -> AhmaMcpService {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    // Load with --rust --git flags to get bundled tools
-    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
+    // Load with --tool rust --tool git flags to get bundled tools
+    let cli =
+        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "git"])
+            .unwrap();
     let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
 
     let configs = Arc::new(tool_configs);
@@ -60,7 +62,9 @@ async fn create_legacy_service() -> AhmaMcpService {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    let cli = ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--rust", "--git"]).unwrap();
+    let cli =
+        ahma_mcp::shell::cli::Cli::try_parse_from(["ahma_mcp", "--tool", "rust", "--tool", "git"])
+            .unwrap();
     let tool_configs = load_tool_configs(&cli, None).await.unwrap_or_default();
 
     let configs = Arc::new(tool_configs);

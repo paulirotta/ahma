@@ -402,6 +402,34 @@ pub struct Cli {
     #[arg(long = "tool", value_name = "NAME", help_heading = "Tool Management")]
     pub tools: Vec<String>,
 
+    /// Enable Rust/Cargo tools (compile, test, lint, format)
+    #[arg(long, help_heading = "Tool Management")]
+    pub rust: bool,
+
+    /// Enable file utility tools (ls, cp, mv, rm, grep, find, diff)
+    #[arg(long, help_heading = "Tool Management")]
+    pub fileutils: bool,
+
+    /// Enable GitHub CLI tools (PRs, Actions, workflows)
+    #[arg(long, help_heading = "Tool Management")]
+    pub github: bool,
+
+    /// Enable Git version control tools (status, add, commit, push, log)
+    #[arg(long, help_heading = "Tool Management")]
+    pub git: bool,
+
+    /// Enable Kotlin/Gradle tools (build, test, lint)
+    #[arg(long, help_heading = "Tool Management")]
+    pub kotlin: bool,
+
+    /// Enable Python tools (scripts, inline code, modules)
+    #[arg(long, help_heading = "Tool Management")]
+    pub python: bool,
+
+    /// Enable code complexity analysis tools
+    #[arg(long, help_heading = "Tool Management")]
+    pub simplify: bool,
+
     /// Default timeout for tool execution in seconds
     #[arg(long, default_value_t = 360, help_heading = "Tool Management")]
     pub timeout: u64,

@@ -386,11 +386,41 @@ fn is_reserved_tool_name(name: &str) -> bool {
 }
 
 fn builtin_tool_configs(cli: &crate::shell::cli::Cli) -> Vec<(String, &'static str)> {
-    cli.tools
-        .iter()
+    let mut bundle_names = cli.tools.clone();
+
+    // Add individual bundle flags
+    if cli.rust {
+        bundle_names.push("rust".to_string());
+    }
+    if cli.fileutils {
+        bundle_names.push("fileutils".to_string());
+    }
+    if cli.github {
+        bundle_names.push("github".to_string());
+    }
+    if cli.git {
+        bundle_names.push("git".to_string());
+    }
+    if cli.kotlin {
+        bundle_names.push("kotlin".to_string());
+    }
+    if cli.python {
+        bundle_names.push("python".to_string());
+    }
+    if cli.simplify {
+        bundle_names.push("simplify".to_string());
+    }
+
+    // Deduplicate bundle names
+    let unique_names: std::collections::HashSet<_> = bundle_names.into_iter().collect();
+    let mut sorted_names: Vec<_> = unique_names.into_iter().collect();
+    sorted_names.sort();
+
+    sorted_names
+        .into_iter()
         .filter_map(|bundle_string| {
             let bundle_name = bundle_string.as_str();
-            builtin_tool_definition(bundle_name).map(|json| (bundle_string.clone(), json))
+            builtin_tool_definition(bundle_name).map(|json| (bundle_string, json))
         })
         .collect()
 }
@@ -647,10 +677,34 @@ pub fn cli_flagged_bundle_names(cli: &crate::shell::cli::Cli) -> std::collection
     use crate::mcp_service::bundle_registry::BUNDLES;
     let mut names = std::collections::HashSet::new();
 
+    // Collect from --tool NAME arguments
     for name in &cli.tools {
         if BUNDLES.iter().any(|b| b.name == name) {
             names.insert(name.to_string());
         }
+    }
+
+    // Collect from individual bundle flags
+    if cli.rust {
+        names.insert("rust".to_string());
+    }
+    if cli.fileutils {
+        names.insert("fileutils".to_string());
+    }
+    if cli.github {
+        names.insert("github".to_string());
+    }
+    if cli.git {
+        names.insert("git".to_string());
+    }
+    if cli.kotlin {
+        names.insert("kotlin".to_string());
+    }
+    if cli.python {
+        names.insert("python".to_string());
+    }
+    if cli.simplify {
+        names.insert("simplify".to_string());
     }
 
     names

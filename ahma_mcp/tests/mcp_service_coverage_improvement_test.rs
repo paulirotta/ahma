@@ -345,52 +345,57 @@ async fn test_schema_generation_multiple_subcommands() {
         .unwrap();
 
     let tools = client.list_all_tools().await.unwrap();
-    let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_multi_sub");
+
+    // Subcommands are flattened into individual tools: <parent>_<subcommand>
+    let build_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_multi_sub_build");
+    let test_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_multi_sub_test");
+    let run_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_multi_sub_run");
+
+    assert!(
+        build_tool.is_some(),
+        "test_multi_sub_build should be registered"
+    );
     assert!(
         test_tool.is_some(),
-        "test_multi_sub tool should be registered"
-    );
-
-    let tool = test_tool.unwrap();
-    let schema = tool.input_schema.as_ref();
-    let properties = schema.get("properties").unwrap().as_object().unwrap();
-
-    // Verify subcommand enum exists
-    let subcommand_prop = properties.get("subcommand").unwrap();
-    assert_eq!(subcommand_prop["type"], "string");
-    let enum_values = subcommand_prop["enum"].as_array().unwrap();
-    let enum_strings: Vec<&str> = enum_values.iter().map(|v| v.as_str().unwrap()).collect();
-    assert!(enum_strings.contains(&"build"));
-    assert!(enum_strings.contains(&"test"));
-    assert!(enum_strings.contains(&"run"));
-
-    // Verify all options from all subcommands are merged into properties
-    assert!(
-        properties.contains_key("release"),
-        "release option should be in properties"
+        "test_multi_sub_test should be registered"
     );
     assert!(
-        properties.contains_key("verbose"),
-        "verbose option should be in properties"
-    );
-    assert!(
-        properties.contains_key("args"),
-        "args option should be in properties"
+        run_tool.is_some(),
+        "test_multi_sub_run should be registered"
     );
 
-    // Verify oneOf is present for conditional requirements
+    // Verify build tool has release option
+    let build_schema = build_tool.unwrap().input_schema.as_ref();
+    let build_props = build_schema.get("properties").unwrap().as_object().unwrap();
     assert!(
-        schema.get("oneOf").is_some(),
-        "Schema should have oneOf for subcommand-specific requirements"
+        build_props.contains_key("release"),
+        "release should be in build tool"
     );
 
-    // Verify subcommand is required
-    let required = schema.get("required").unwrap().as_array().unwrap();
-    let required_strings: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
+    // Verify test tool has verbose option (required)
+    let test_schema = test_tool.unwrap().input_schema.as_ref();
+    let test_props = test_schema.get("properties").unwrap().as_object().unwrap();
     assert!(
-        required_strings.contains(&"subcommand"),
-        "subcommand should be required"
+        test_props.contains_key("verbose"),
+        "verbose should be in test tool"
     );
+    let test_required = test_schema.get("required").unwrap().as_array().unwrap();
+    let test_required_strs: Vec<&str> = test_required.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(
+        test_required_strs.contains(&"verbose"),
+        "verbose should be required in test tool"
+    );
+
+    // Verify run tool has args option
+    let run_schema = run_tool.unwrap().input_schema.as_ref();
+    let run_props = run_schema.get("properties").unwrap().as_object().unwrap();
+    assert!(run_props.contains_key("args"), "args should be in run tool");
 }
 
 /// Test nested subcommands schema generation
@@ -444,36 +449,46 @@ async fn test_schema_generation_nested_subcommands() {
         .unwrap();
 
     let tools = client.list_all_tools().await.unwrap();
-    let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_nested");
-    assert!(test_tool.is_some(), "test_nested tool should be registered");
 
-    let tool = test_tool.unwrap();
-    let schema = tool.input_schema.as_ref();
-    let properties = schema.get("properties").unwrap().as_object().unwrap();
+    // Nested subcommands flatten to <parent>_<sub>_<child> tools
+    let child1_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_nested_parent_child1");
+    let child2_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_nested_parent_child2");
 
-    // Verify nested subcommand paths in enum
-    let subcommand_prop = properties.get("subcommand").unwrap();
-    let enum_values = subcommand_prop["enum"].as_array().unwrap();
-    let enum_strings: Vec<&str> = enum_values.iter().map(|v| v.as_str().unwrap()).collect();
-
-    // Nested subcommands should have underscore-separated paths
     assert!(
-        enum_strings.contains(&"parent_child1"),
-        "Should have parent_child1 subcommand"
+        child1_tool.is_some(),
+        "test_nested_parent_child1 should be registered"
     );
     assert!(
-        enum_strings.contains(&"parent_child2"),
-        "Should have parent_child2 subcommand"
+        child2_tool.is_some(),
+        "test_nested_parent_child2 should be registered"
     );
 
-    // Verify options from nested subcommands are in schema
+    // Verify opt1 is in child1 schema
+    let child1_schema = child1_tool.unwrap().input_schema.as_ref();
+    let child1_props = child1_schema
+        .get("properties")
+        .unwrap()
+        .as_object()
+        .unwrap();
     assert!(
-        properties.contains_key("opt1"),
-        "opt1 from child1 should be in properties"
+        child1_props.contains_key("opt1"),
+        "opt1 should be in test_nested_parent_child1"
     );
+
+    // Verify opt2 is in child2 schema
+    let child2_schema = child2_tool.unwrap().input_schema.as_ref();
+    let child2_props = child2_schema
+        .get("properties")
+        .unwrap()
+        .as_object()
+        .unwrap();
     assert!(
-        properties.contains_key("opt2"),
-        "opt2 from child2 should be in properties"
+        child2_props.contains_key("opt2"),
+        "opt2 should be in test_nested_parent_child2"
     );
 }
 
@@ -571,29 +586,22 @@ async fn test_disabled_subcommands_skipped() {
         .unwrap();
 
     let tools = client.list_all_tools().await.unwrap();
-    let test_tool = tools
+
+    // Subcommands are flattened into individual tools: <parent>_<subcommand>
+    let enabled_tool = tools
         .iter()
-        .find(|t| t.name.as_ref() == "test_disabled_sub");
-    assert!(
-        test_tool.is_some(),
-        "test_disabled_sub tool should be registered"
-    );
-
-    let tool = test_tool.unwrap();
-    let schema = tool.input_schema.as_ref();
-    let properties = schema.get("properties").unwrap().as_object().unwrap();
-
-    let subcommand_prop = properties.get("subcommand").unwrap();
-    let enum_values = subcommand_prop["enum"].as_array().unwrap();
-    let enum_strings: Vec<&str> = enum_values.iter().map(|v| v.as_str().unwrap()).collect();
+        .find(|t| t.name.as_ref() == "test_disabled_sub_enabled_sub");
+    let disabled_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "test_disabled_sub_disabled_sub");
 
     assert!(
-        enum_strings.contains(&"enabled_sub"),
-        "enabled_sub should be in enum"
+        enabled_tool.is_some(),
+        "test_disabled_sub_enabled_sub tool should be registered"
     );
     assert!(
-        !enum_strings.contains(&"disabled_sub"),
-        "disabled_sub should NOT be in enum"
+        disabled_tool.is_none(),
+        "test_disabled_sub_disabled_sub tool should NOT be registered"
     );
 }
 

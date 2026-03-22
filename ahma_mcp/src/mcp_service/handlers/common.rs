@@ -72,13 +72,6 @@ pub fn mcp_invalid_params(message: impl Into<String>) -> McpError {
     McpError::invalid_params(message.into(), None)
 }
 
-/// Builds an invalid-params MCP error for a missing tool.
-pub fn mcp_tool_not_found(tool_name: &str) -> McpError {
-    let message = format!("Tool '{}' not found.", tool_name);
-    tracing::error!("{}", message);
-    McpError::invalid_params(message, Some(serde_json::json!({ "tool_name": tool_name })))
-}
-
 /// Reads an optional string argument from JSON args.
 pub fn opt_str(args: &Map<String, Value>, key: &str) -> Option<String> {
     args.get(key)
