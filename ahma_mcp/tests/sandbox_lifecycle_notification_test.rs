@@ -31,6 +31,7 @@ fn test_sandbox_lifecycle_notifications() {
     // AHMA_SKIP_PROBES=1: no tools need availability probing; skip the startup delay.
     let child = Command::new(&binary)
         .args(["serve", "stdio"])
+        .current_dir(temp_dir.path())
         .env("AHMA_SANDBOX_SCOPE", temp_dir.path())
         .env("AHMA_TOOLS_DIR", &tools_dir)
         .env("AHMA_DISABLE_SANDBOX", "1")
@@ -101,11 +102,20 @@ fn test_sandbox_lifecycle_notifications() {
 
     // Wait for the server's initialize response before proceeding — deterministic
     // under any CI load instead of a blind fixed-duration sleep.
-    init_ok_rx
-        .recv_timeout(TestTimeouts::get(
-            ahma_common::timeouts::TimeoutCategory::Handshake,
-        ))
-        .expect("Timed out waiting for initialize response from server");
+    let init_result = init_ok_rx.recv_timeout(TestTimeouts::get(
+        ahma_common::timeouts::TimeoutCategory::Handshake,
+    ));
+    if init_result.is_err() {
+        if let Some(child) = guard.0.as_mut() {
+            let _ = child.kill();
+        }
+        let stderr_log = stderr_handle.join().unwrap_or_default();
+        let (stdout_log, _) = handle.join().unwrap_or_default();
+        panic!(
+            "Timed out waiting for initialize response from server.\n\nSTDOUT LOG:\n{}\n\nSTDERR LOG:\n{}",
+            stdout_log, stderr_log
+        );
+    }
 
     // Send initialized notification to complete the MCP handshake.
     let initialized_notif = r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#;
@@ -119,11 +129,20 @@ fn test_sandbox_lifecycle_notifications() {
     stdin.write_all(b"\n").unwrap();
 
     // Wait for the tools/list response.
-    tools_ok_rx
-        .recv_timeout(TestTimeouts::get(
-            ahma_common::timeouts::TimeoutCategory::ToolCall,
-        ))
-        .expect("Timed out waiting for tools/list response from server");
+    let tools_result = tools_ok_rx.recv_timeout(TestTimeouts::get(
+        ahma_common::timeouts::TimeoutCategory::Handshake,
+    ));
+    if tools_result.is_err() {
+        if let Some(child) = guard.0.as_mut() {
+            let _ = child.kill();
+        }
+        let stderr_log = stderr_handle.join().unwrap_or_default();
+        let (stdout_log, _) = handle.join().unwrap_or_default();
+        panic!(
+            "Timed out waiting for tools/list response from server.\n\nSTDOUT LOG:\n{}\n\nSTDERR LOG:\n{}",
+            stdout_log, stderr_log
+        );
+    }
 
     // Close stdin to signal end of session (clean shutdown).
     drop(stdin);
