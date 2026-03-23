@@ -323,7 +323,10 @@ _ahma_configure_platform() {
         esac
         mkdir -p "$(dirname "$CPATH")"
         printf '%s\n' "$PROPOSED" > "$CPATH"
-        echo "  ✓ Created."
+        echo "  ✓ Created ${CPATH}:"
+        echo ""
+        echo "$PROPOSED" | sed 's/^/    /'
+        echo ""
         AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|${DISPLAY}"
 
     else
@@ -360,7 +363,10 @@ _ahma_configure_platform() {
             [Nn]*) echo "  Skipped."; return 0 ;;
         esac
         printf '%s\n' "$PROPOSED" > "$CPATH"
-        echo "  ✓ Updated."
+        echo "  ✓ Updated ${CPATH}:"
+        echo ""
+        echo "$PROPOSED" | sed 's/^/    /'
+        echo ""
         AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|${DISPLAY}"
     fi
 }
@@ -399,7 +405,9 @@ setup_mcp() {
     printf "  Selection [default: 1,2,3,4 — all]: "
     local PLATFORMS
     IFS= read -r PLATFORMS < /dev/tty
-    [ -z "$PLATFORMS" ] && PLATFORMS="1,2,3,4"
+    case "$PLATFORMS" in
+        ""|all|ALL|All) PLATFORMS="1,2,3,4" ;;
+    esac
 
     # ── Step 2: Transport selection ─────────────────────────────────────────
     echo ""
