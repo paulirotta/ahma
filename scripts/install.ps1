@@ -10,7 +10,6 @@
 #
 # Environment variables:
 #   AHMA_INSTALL_DIR     - Override install directory (default: $HOME\.local\bin)
-#   AHMA_FORCE_INSTALL=1 - Reinstall even if ahma-mcp is already present
 
 #Requires -Version 5
 
@@ -32,31 +31,6 @@ $installDir = if ($env:AHMA_INSTALL_DIR) {
     Join-Path $HOME ".local\bin"
 }
 
-# If ahma-mcp is already installed, show current setup and exit (set AHMA_FORCE_INSTALL=1 to override)
-if (-not $env:AHMA_FORCE_INSTALL) {
-    $existingCmd    = Get-Command ahma-mcp -ErrorAction SilentlyContinue
-    $existingInDir  = Join-Path $installDir 'ahma-mcp.exe'
-    $existingBin    = if ($existingCmd) { $existingCmd.Source } elseif (Test-Path $existingInDir) { $existingInDir } else { $null }
-
-    if ($existingBin) {
-        Write-Host 'Ahma is already installed — no changes made.'
-        Write-Host ''
-        Write-Host "  Location : $existingBin"
-        Write-Host "  Version  : $(& $existingBin --version 2>&1)"
-        $simplifyBin = Join-Path ([System.IO.Path]::GetDirectoryName($existingBin)) 'ahma-simplify.exe'
-        if (Test-Path $simplifyBin) {
-            Write-Host "  Simplify : $simplifyBin — $(& $simplifyBin --version 2>&1)"
-        }
-        Write-Host ''
-        Write-Host 'To reinstall or upgrade, set AHMA_FORCE_INSTALL=1 and re-run:'
-        Write-Host '  $env:AHMA_FORCE_INSTALL=1; irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex'
-        exit 0
-    }
-}
-
-Write-Host "Installing Ahma for $platform to $installDir ..."
-New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-
 # ── Fetch latest release metadata ─────────────────────────────────────────────
 $releasesUrl = "https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
 Write-Host "Fetching latest release info..."
@@ -67,6 +41,40 @@ try {
     Write-Error "Failed to fetch release info from $releasesUrl : $_"
     exit 1
 }
+
+$latestVer = ($releaseJson.tag_name -replace '^v', '')
+
+# ── Check for existing installation and compare versions ──────────────────────
+$existingCmd   = Get-Command ahma-mcp -ErrorAction SilentlyContinue
+$existingInDir = Join-Path $installDir 'ahma-mcp.exe'
+$existingBin   = if ($existingCmd) { $existingCmd.Source } elseif (Test-Path $existingInDir) { $existingInDir } else { $null }
+
+if ($existingBin) {
+    $installedVerRaw = (& $existingBin --version 2>&1) -join ''
+    $installedVer = ($installedVerRaw -split '\s+' | Select-Object -Last 1).Trim()
+
+    if ($installedVer -ne $latestVer -and $latestVer) {
+        Write-Host "Upgrading ahma-mcp from $installedVer to $latestVer ..."
+    } else {
+        Write-Host "Ahma $installedVer is already installed and up to date."
+        Write-Host ''
+        Write-Host "  Location : $existingBin"
+        $simplifyBin = Join-Path ([System.IO.Path]::GetDirectoryName($existingBin)) 'ahma-simplify.exe'
+        if (Test-Path $simplifyBin) {
+            Write-Host "  Simplify : $simplifyBin — $(& $simplifyBin --version 2>&1)"
+        }
+        Write-Host ''
+        $confirm = Read-Host "Reinstall anyway? [y/N]"
+        if ($confirm -notmatch '^[Yy]') {
+            Write-Host 'No changes made.'
+            exit 0
+        }
+        Write-Host 'Reinstalling...'
+    }
+}
+
+Write-Host "Installing Ahma for $platform to $installDir ..."
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 $assetName = "ahma-release-$platform.zip"
 $asset = $releaseJson.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1

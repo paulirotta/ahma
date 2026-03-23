@@ -10,7 +10,6 @@
 #
 # Environment variables:
 #   AHMA_PREFER_MUSL=1    - Force musl binary on Linux (more portable, no glibc dependency)
-#   AHMA_FORCE_INSTALL=1  - Reinstall even if ahma-mcp is already present
 
 set -euo pipefail
 
@@ -98,50 +97,72 @@ else
 fi
 
 INSTALL_DIR="$HOME/.local/bin"
+RELEASE_JSON=""
 
-# If ahma-mcp is already installed, show current setup and exit (use AHMA_FORCE_INSTALL=1 to override)
-if [ "${AHMA_FORCE_INSTALL:-}" != "1" ]; then
-    EXISTING_BIN=""
-    if command -v ahma-mcp >/dev/null 2>&1; then
-        EXISTING_BIN="$(command -v ahma-mcp)"
-    elif [ -x "$INSTALL_DIR/ahma-mcp" ]; then
-        EXISTING_BIN="$INSTALL_DIR/ahma-mcp"
+# Fetch latest release data from GitHub (cached in RELEASE_JSON to avoid duplicate calls)
+fetch_release_json() {
+    if [ -n "$RELEASE_JSON" ]; then
+        return
     fi
+    RELEASES_URL="https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
+    if command -v curl >/dev/null 2>&1; then
+        RELEASE_JSON=$(curl -s "$RELEASES_URL")
+    elif command -v wget >/dev/null 2>&1; then
+        RELEASE_JSON=$(wget -qO- "$RELEASES_URL")
+    else
+        echo "Error: Neither curl nor wget is available."
+        exit 1
+    fi
+}
 
-    if [ -n "$EXISTING_BIN" ]; then
-        echo "Ahma is already installed — no changes made."
+# Check for existing installation and compare versions
+EXISTING_BIN=""
+if command -v ahma-mcp >/dev/null 2>&1; then
+    EXISTING_BIN="$(command -v ahma-mcp)"
+elif [ -x "$INSTALL_DIR/ahma-mcp" ]; then
+    EXISTING_BIN="$INSTALL_DIR/ahma-mcp"
+fi
+
+if [ -n "$EXISTING_BIN" ]; then
+    INSTALLED_VER=$("$EXISTING_BIN" --version 2>&1 | awk '{print $2}' || true)
+
+    echo "Fetching latest release info..."
+    fetch_release_json
+    LATEST_VER=$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
+
+    if [ "$INSTALLED_VER" != "$LATEST_VER" ] && [ -n "$LATEST_VER" ]; then
+        echo "Upgrading ahma-mcp from ${INSTALLED_VER} to ${LATEST_VER}..."
+    else
+        echo "Ahma ${INSTALLED_VER} is already installed and up to date."
         echo ""
         echo "  Location : $EXISTING_BIN"
-        echo "  Version  : $( "$EXISTING_BIN" --version 2>&1 || true )"
         if command -v ahma-simplify >/dev/null 2>&1; then
             echo "  Simplify : $(command -v ahma-simplify) — $( ahma-simplify --version 2>&1 || true )"
         elif [ -x "$INSTALL_DIR/ahma-simplify" ]; then
             echo "  Simplify : $INSTALL_DIR/ahma-simplify — $( "$INSTALL_DIR/ahma-simplify" --version 2>&1 || true )"
         fi
         echo ""
-        echo "To reinstall or upgrade, run:"
-        echo "  AHMA_FORCE_INSTALL=1 curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash"
-        exit 0
+        if [ -e /dev/tty ]; then
+            printf "Reinstall anyway? [y/N]: "
+            IFS= read -r CONFIRM < /dev/tty
+            case "$CONFIRM" in
+                [Yy]*) echo "Reinstalling..." ;;
+                *) echo "No changes made."; exit 0 ;;
+            esac
+        else
+            echo "No changes made (non-interactive — same version already installed)."
+            exit 0
+        fi
     fi
+else
+    echo "Fetching latest release info..."
+    fetch_release_json
 fi
 
 echo "Installing Ahma for ${PLATFORM}..."
 
 # Create install directory
 mkdir -p "$INSTALL_DIR"
-
-# Fetch latest release data
-echo "Fetching latest release info..."
-RELEASES_URL="https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
-
-if command -v curl >/dev/null 2>&1; then
-    RELEASE_JSON=$(curl -s "$RELEASES_URL")
-elif command -v wget >/dev/null 2>&1; then
-    RELEASE_JSON=$(wget -qO- "$RELEASES_URL")
-else
-    echo "Error: Neither curl nor wget is available."
-    exit 1
-fi
 
 # Extract download URL for the platform-specific tarball
 # Expected asset name format: ahma-release-{platform}.tar.gz
