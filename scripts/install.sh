@@ -221,7 +221,11 @@ echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
 
 # Test whether comma-separated list $1 contains the exact number $2
 _ahma_list_has() {
-    echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -q "^${2}$"
+    # Accept flexible formats: "1,2,4" or "124" or "1 2 4" or mixed "1, 2,4" etc.
+    # Normalize: remove all non-digit characters except newlines, then split into individual digits
+    local normalized
+    normalized=$(echo "$1" | tr -cd '0-9\n' | grep -o .)
+    echo "$normalized" | grep -q "^${2}$"
 }
 
 # Write a complete new MCP config file for the given parameters.
@@ -394,11 +398,19 @@ setup_mcp() {
         [Nn]*) return 0 ;;
     esac
 
+    # ── Compute platform-specific VS Code user config path ─────────────────
+    local VSCODE_MCP_PATH
+    if [ "$OS" = "darwin" ]; then
+        VSCODE_MCP_PATH="${HOME}/Library/Application Support/Code/User/mcp.json"
+    else
+        VSCODE_MCP_PATH="${HOME}/.config/Code/User/mcp.json"
+    fi
+
     # ── Step 1: Platform selection ──────────────────────────────────────────
     echo ""
     echo "Select platforms to configure (comma-separated numbers, or Enter for all):"
-    echo "  1) VS Code       (${HOME}/.vscode/mcp.json)"
-    echo "  2) Claude Code   (${HOME}/.claude/mcp.json)"
+    echo "  1) VS Code       (${VSCODE_MCP_PATH})"
+    echo "  2) Claude Code   (${HOME}/.claude.json)"
     echo "  3) Cursor        (${HOME}/.cursor/mcp.json)"
     echo "  4) Antigravity   (${HOME}/.antigravity/mcp.json)"
     echo ""
@@ -466,10 +478,10 @@ PYEOF
     AHMA_CONFIGURED_TOOLS=""
 
     if _ahma_list_has "$PLATFORMS" 1; then
-        _ahma_configure_platform "VS Code"     "${HOME}/.vscode/mcp.json"     "servers"    "standard"
+        _ahma_configure_platform "VS Code"     "${VSCODE_MCP_PATH}"           "servers"    "standard"
     fi
     if _ahma_list_has "$PLATFORMS" 2; then
-        _ahma_configure_platform "Claude Code" "${HOME}/.claude/mcp.json"     "mcpServers" "standard"
+        _ahma_configure_platform "Claude Code" "${HOME}/.claude.json"          "mcpServers" "standard"
     fi
     if _ahma_list_has "$PLATFORMS" 3; then
         _ahma_configure_platform "Cursor"      "${HOME}/.cursor/mcp.json"     "mcpServers" "standard"

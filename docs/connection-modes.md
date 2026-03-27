@@ -18,7 +18,13 @@ ahma-mcp --mode stdio
 
 ### mcp.json examples
 
-**VS Code** (`~/.vscode/mcp.json` or `.vscode/mcp.json`):
+**VS Code** (user profile `mcp.json` or `.vscode/mcp.json`):
+
+> The user-level `mcp.json` lives in your VS Code profile folder:
+> macOS `~/Library/Application Support/Code/User/mcp.json`,
+> Linux `~/.config/Code/User/mcp.json`,
+> Windows `%APPDATA%\Code\User\mcp.json`.
+> Or run `MCP: Open User Configuration` from the Command Palette.
 
 ```json
 {
@@ -59,7 +65,7 @@ Alternatively, in a terminal run `ahma-mcp --mode http` for visibility of all ac
 }
 ```
 
-**Claude Code** (`~/.claude/mcp.json`):
+**Claude Code** (`~/.claude.json`):
 
 ```json
 {

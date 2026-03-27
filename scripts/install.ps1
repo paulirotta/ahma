@@ -252,14 +252,16 @@ function Invoke-AhmaMcpSetup {
     # ── Platform selection ──────────────────────────────────────────────────
     Write-Host ""
     Write-Host "Select platforms to configure (comma-separated numbers, or Enter for all):"
-    Write-Host "  1) VS Code      ($HOME\.vscode\mcp.json)"
-    Write-Host "  2) Claude Code  ($HOME\.claude\mcp.json)"
+    Write-Host "  1) VS Code      ($env:APPDATA\Code\User\mcp.json)"
+    Write-Host "  2) Claude Code  ($HOME\.claude.json)"
     Write-Host "  3) Cursor       ($HOME\.cursor\mcp.json)"
     Write-Host "  4) Antigravity  ($HOME\.antigravity\mcp.json)"
     Write-Host ""
     $platformsInput = Read-Host "  Selection [default: 1,2,3,4 -- all]"
     if ([string]::IsNullOrWhiteSpace($platformsInput)) { $platformsInput = '1,2,3,4' }
-    $selectedNums = $platformsInput -split ',' | ForEach-Object { $_.Trim() }
+    # Accept flexible formats: "1,2,4" or "124" or "1 2 4" or mixed "1, 2,4" etc.
+    # Extract all individual digits from the input
+    $selectedNums = [regex]::Matches($platformsInput, '\d') | ForEach-Object { $_.Value }
 
     # ── Transport selection ─────────────────────────────────────────────────
     Write-Host ""
@@ -282,10 +284,10 @@ function Invoke-AhmaMcpSetup {
     $configuredTools = [ref]''
 
     $platforms = @(
-        @{ Num = '1'; Display = 'VS Code';     Path = "$HOME\.vscode\mcp.json";      Key = 'servers';    Type = 'standard'    },
-        @{ Num = '2'; Display = 'Claude Code'; Path = "$HOME\.claude\mcp.json";      Key = 'mcpServers'; Type = 'standard'    },
-        @{ Num = '3'; Display = 'Cursor';      Path = "$HOME\.cursor\mcp.json";      Key = 'mcpServers'; Type = 'standard'    },
-        @{ Num = '4'; Display = 'Antigravity'; Path = "$HOME\.antigravity\mcp.json"; Key = 'mcpServers'; Type = 'antigravity' }
+        @{ Num = '1'; Display = 'VS Code';     Path = "$env:APPDATA\Code\User\mcp.json"; Key = 'servers';    Type = 'standard'    },
+        @{ Num = '2'; Display = 'Claude Code'; Path = "$HOME\.claude.json";               Key = 'mcpServers'; Type = 'standard'    },
+        @{ Num = '3'; Display = 'Cursor';      Path = "$HOME\.cursor\mcp.json";           Key = 'mcpServers'; Type = 'standard'    },
+        @{ Num = '4'; Display = 'Antigravity'; Path = "$HOME\.antigravity\mcp.json";      Key = 'mcpServers'; Type = 'antigravity' }
     )
 
     foreach ($p in $platforms) {

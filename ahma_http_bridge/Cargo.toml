@@ -49,7 +49,7 @@ rustls-pki-types = "1"
 tracing-opentelemetry = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
 
 [features]
 opentelemetry = [
