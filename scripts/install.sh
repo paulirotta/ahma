@@ -255,7 +255,7 @@ EOF
             "command": "bash",
             "args": [
                 "-c",
-                "AHMA_SANDBOX_SCOPE=\$HOME AHMA_TMP_ACCESS=1 AHMA_LOG_MONITOR=1 ahma-mcp serve stdio --tools rust,simplify"
+                "AHMA_SANDBOX_SCOPE=\$HOME ahma-mcp serve stdio --tools rust,simplify --tmp --log-monitor"
             ]
         }
     }
@@ -272,12 +272,10 @@ EOF
                 "serve",
                 "stdio",
                 "--tools",
-                "rust,simplify"
-            ],
-            "env": {
-                "AHMA_TMP_ACCESS": "1",
-                "AHMA_LOG_MONITOR": "1"
-            }
+                "rust,simplify",
+                "--tmp",
+                "--log-monitor"
+            ]
         }
     }
 }
@@ -300,9 +298,9 @@ _ahma_configure_platform() {
     if [ "$AHMA_TRANSPORT" = "http" ]; then
         ENTRY='{"type":"http","url":"http://localhost:3000/mcp"}'
     elif [ "$PTYPE" = "antigravity" ]; then
-        ENTRY='{"command":"bash","args":["-c","AHMA_SANDBOX_SCOPE=$HOME AHMA_TMP_ACCESS=1 AHMA_LOG_MONITOR=1 ahma-mcp serve stdio --tools rust,simplify"]}'
+        ENTRY='{"command":"bash","args":["-c","AHMA_SANDBOX_SCOPE=$HOME ahma-mcp serve stdio --tools rust,simplify --tmp --log-monitor"]}'
     else
-        ENTRY='{"type":"stdio","command":"ahma-mcp","args":["serve","stdio","--tools","rust,simplify"],"env":{"AHMA_TMP_ACCESS":"1","AHMA_LOG_MONITOR":"1"}}'
+        ENTRY='{"type":"stdio","command":"ahma-mcp","args":["serve","stdio","--tools","rust,simplify","--tmp","--log-monitor"]}'
     fi
 
     echo ""
@@ -421,6 +419,14 @@ setup_mcp() {
         ""|all|ALL|All) PLATFORMS="1,2,3,4" ;;
     esac
 
+    # Confirm platform selection
+    echo ""
+    echo "✓ Selected platforms:"
+    [ "$(_ahma_list_has "$PLATFORMS" 1 && echo y)" = "y" ] && echo "    • VS Code"
+    [ "$(_ahma_list_has "$PLATFORMS" 2 && echo y)" = "y" ] && echo "    • Claude Code"
+    [ "$(_ahma_list_has "$PLATFORMS" 3 && echo y)" = "y" ] && echo "    • Cursor"
+    [ "$(_ahma_list_has "$PLATFORMS" 4 && echo y)" = "y" ] && echo "    • Antigravity"
+
     # ── Step 2: Transport selection ─────────────────────────────────────────
     echo ""
     echo "Choose how your AI tools connect to ahma-mcp:"
@@ -442,6 +448,14 @@ setup_mcp() {
         2) AHMA_TRANSPORT="http" ;;
         *) AHMA_TRANSPORT="stdio" ;;
     esac
+
+    # Confirm transport selection
+    echo ""
+    if [ "$AHMA_TRANSPORT" = "http" ]; then
+        echo "✓ Transport mode: http (one shared server)"
+    else
+        echo "✓ Transport mode: stdio (recommended for most users)"
+    fi
 
     # ── Python helper for merging into existing JSON files ──────────────────
     AHMA_PY_SCRIPT=$(mktemp /tmp/ahma_mcp_XXXXXX.py)

@@ -319,10 +319,27 @@ fn write_emergencies(report: &mut String, files: &[FileSimplicity], limit: usize
 }
 
 fn identify_culprit(f: &FileSimplicity) -> &'static str {
-    if f.cognitive > 20.0 {
-        "High Cognitive Complexity"
+    // Use per-function max complexity when available to distinguish files where
+    // the total is driven by many simple functions vs. a few genuinely complex ones.
+    let max_fn_cognitive = f
+        .hotspots
+        .iter()
+        .map(|h| h.cognitive)
+        .fold(0.0_f64, f64::max);
+    let max_fn_cyclomatic = f
+        .hotspots
+        .iter()
+        .map(|h| h.cyclomatic)
+        .fold(0.0_f64, f64::max);
+
+    if max_fn_cognitive >= 10.0 {
+        "High Cognitive Complexity (concentrated)"
+    } else if f.cognitive > 20.0 {
+        "Elevated Cognitive Complexity (distributed across many functions)"
+    } else if max_fn_cyclomatic >= 15.0 {
+        "High Cyclomatic Complexity (concentrated)"
     } else if f.cyclomatic > 20.0 {
-        "High Cyclomatic Complexity"
+        "Elevated Cyclomatic Complexity (distributed across many functions)"
     } else if f.sloc > 500.0 {
         "Mega-file"
     } else if f.mi < 50.0 {
@@ -332,8 +349,8 @@ fn identify_culprit(f: &FileSimplicity) -> &'static str {
     }
 }
 
-/// Generates a structured AI prompt instructing the parent AI to simplify a
-/// specific issue from the complexity report.
+/// Generates a structured AI prompt instructing the parent AI to evaluate and
+/// optionally simplify a specific issue from the complexity report.
 ///
 /// `files` must already be sorted by score ascending (worst first).
 /// `issue_number` is 1-indexed (1 = most complex file).
@@ -353,34 +370,50 @@ pub fn generate_ai_fix_prompt(
     let rel_path = get_relative_path(Path::new(&file.path), base_dir);
     let rel_str = rel_path.to_string_lossy();
     let culprit = identify_culprit(file);
+    let is_test_file = file.path.contains("/tests/")
+        || file.path.contains("_test.rs")
+        || file.path.ends_with("test.rs");
+    let test_context = if is_test_file {
+        "\nNOTE: This is a test file. Repetitive setup/assert patterns and many small test \
+        functions are expected and desirable — they exist to provide comprehensive coverage. \
+        Only recommend extracting shared helpers if the same boilerplate block appears 3+ \
+        times verbatim AND extraction genuinely reduces duplication without obscuring intent."
+    } else {
+        ""
+    };
 
     Some(format!(
         "\
-=== SIMPLIFY CODE: ISSUE #{issue_number} ===
+=== EVALUATE COMPLEXITY: ISSUE #{issue_number} ===
 
 TARGET: {rel_str}
-SIMPLICITY: {score:.0}% | ISSUE: {culprit}
-METRICS: Cognitive={cog}, Cyclomatic={cyc}, SLOC={sloc}, MI={mi:.1}
+SIMPLICITY: {score:.0}% | FLAGGED REASON: {culprit}
+METRICS: Cognitive={cog}, Cyclomatic={cyc}, SLOC={sloc}, MI={mi:.1}{test_context}
 
-Create concurrent subagents to refactor, one per file:
+STEP 1 - READ the target file and the hotspot functions listed in the report above.
 
-STEP 1 - READ the simplicity report above and the target file. The report
-         identifies specific hotspot functions causing complexity.
+STEP 2 - EVALUATE critically: Is this code genuinely hard to understand and maintain?
+   Ask yourself:
+   - Do the hotspot functions have deep nesting, tangled control flow, or non-obvious logic?
+   - Or are they long because they enumerate cases (match arms, config fields, test assertions)?
+   - Would splitting them force a reader to jump between more locations to understand one thing?
+   - Is the cyclomatic complexity spread across many small functions (file-level sum) or
+     concentrated in a few large ones (genuine complexity)?
+   If the code is already clear and the metrics are driven by volume or enumeration rather
+   than genuine algorithmic complexity, state that and STOP — no changes are needed.
 
-STEP 2 - PLAN (briefly): Which hotspot functions will you refactor, and how?
-
-STEP 3 - IMPLEMENT focused changes:
-   - Target ONLY the hotspot functions listed in the report
-   - Make minimal changes to achieve measurable improvement
+STEP 3 - If and only if genuine complexity was found: IMPLEMENT focused changes.
+   - Target ONLY the hotspot functions identified as genuinely complex
+   - Prefer early returns and guard clauses to reduce nesting depth
+   - Extract helpers only when the extracted piece has a clear, self-contained responsibility
+   - Do NOT split a function solely because it exceeds a line-count threshold; locality
+     (keeping related logic together) is often more valuable than smaller function count
    - Do NOT refactor surrounding code unless directly needed
-   - Prefer early returns, guard clauses, and extracting helpers
-   - Break functions longer than ~40 lines into focused units
 
 STEP 4 - VERIFY by running the project's test suite.
 
-STEP 5 - Summarize the changes and the numerical improvements in simplicity metrics after the refactoring.
-
-Execute all steps now. Do not stop at planning.",
+STEP 5 - Report: either (a) the changes made and the measurable metric improvements,
+         or (b) a concise explanation of why no changes were warranted.",
         issue_number = issue_number,
         rel_str = rel_str,
         score = file.score,
@@ -389,6 +422,7 @@ Execute all steps now. Do not stop at planning.",
         cyc = file.cyclomatic,
         sloc = file.sloc,
         mi = file.mi,
+        test_context = test_context,
     ))
 }
 
@@ -791,7 +825,9 @@ mod tests {
         assert!(prompt.contains("ISSUE #1"));
         assert!(prompt.contains("src/complex.rs"));
         assert!(prompt.contains("25%"));
-        assert!(prompt.contains("High Cognitive Complexity"));
+        // With no per-function hotspot data, elevated file-level cognitive fires
+        // the "distributed" culprit label.
+        assert!(prompt.contains("Cognitive Complexity"));
         assert!(prompt.contains("Cognitive=45"));
         assert!(prompt.contains("Cyclomatic=30"));
         assert!(prompt.contains("SLOC=800"));
@@ -829,7 +865,9 @@ mod tests {
 
         assert!(prompt.contains("ISSUE #2"));
         assert!(prompt.contains("src/second.rs"));
-        assert!(prompt.contains("High Cyclomatic Complexity"));
+        // With no per-function hotspot data, elevated file-level cyclomatic fires
+        // the "distributed" culprit label.
+        assert!(prompt.contains("Cyclomatic Complexity"));
     }
 
     #[test]
@@ -900,11 +938,63 @@ mod tests {
 
     #[test]
     fn test_identify_culprit_all_variants() {
+        // Files with no hotspot data → file-level totals drive the distributed labels.
         let high_cog = test_file("a.rs", Language::Rust, 30.0, 25.0, 10.0, 100.0, 50.0);
-        assert_eq!(identify_culprit(&high_cog), "High Cognitive Complexity");
+        assert_eq!(
+            identify_culprit(&high_cog),
+            "Elevated Cognitive Complexity (distributed across many functions)"
+        );
 
         let high_cyc = test_file("b.rs", Language::Rust, 30.0, 10.0, 25.0, 100.0, 50.0);
-        assert_eq!(identify_culprit(&high_cyc), "High Cyclomatic Complexity");
+        assert_eq!(
+            identify_culprit(&high_cyc),
+            "Elevated Cyclomatic Complexity (distributed across many functions)"
+        );
+
+        // Files with high-complexity hotspots → concentrated labels.
+        let concentrated_cog = test_file_with_hotspots(
+            "a2.rs",
+            Language::Rust,
+            30.0,
+            25.0,
+            10.0,
+            100.0,
+            50.0,
+            vec![FunctionHotspot {
+                name: "complex_fn".to_string(),
+                start_line: 1,
+                end_line: 50,
+                cognitive: 12.0,
+                cyclomatic: 8.0,
+                sloc: 30.0,
+            }],
+        );
+        assert_eq!(
+            identify_culprit(&concentrated_cog),
+            "High Cognitive Complexity (concentrated)"
+        );
+
+        let concentrated_cyc = test_file_with_hotspots(
+            "b2.rs",
+            Language::Rust,
+            30.0,
+            10.0,
+            25.0,
+            100.0,
+            50.0,
+            vec![FunctionHotspot {
+                name: "complex_fn".to_string(),
+                start_line: 1,
+                end_line: 50,
+                cognitive: 0.0,
+                cyclomatic: 18.0,
+                sloc: 30.0,
+            }],
+        );
+        assert_eq!(
+            identify_culprit(&concentrated_cyc),
+            "High Cyclomatic Complexity (concentrated)"
+        );
 
         let mega = test_file("c.rs", Language::Rust, 30.0, 10.0, 10.0, 600.0, 50.0);
         assert_eq!(identify_culprit(&mega), "Mega-file");

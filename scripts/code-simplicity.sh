@@ -15,7 +15,7 @@
 # Examples:
 #   ./scripts/code-simplicity.sh                    # Analyze current directory
 #   ./scripts/code-simplicity.sh /path/to/project   # Analyze specific directory
-#   ./scripts/code-simplicity.sh . --limit 10       # Analyze current dir, show top 10 issues
+#   ./scripts/code-simplicity.sh . --limit 50       # Analyze current dir, show top 50 issues
 #
 # Note: This script can be called from any directory. It will find the ahma
 # repository root (where Cargo.toml is located) to run cargo, but the analysis

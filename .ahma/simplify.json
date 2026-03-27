@@ -34,7 +34,7 @@
                     "name": "limit",
                     "alias": "l",
                     "type": "integer",
-                    "description": "Number of top complexity issues to include in the report (default: 10)"
+                    "description": "Number of top complexity issues to include in the report (default: 50)"
                 },
                 {
                     "name": "html",

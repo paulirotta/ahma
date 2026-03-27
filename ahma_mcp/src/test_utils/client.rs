@@ -208,6 +208,14 @@ impl ClientBuilder {
             // All behaviour flags are now environment variables (no CLI flags).
             cmd.args(["serve", "stdio"]);
 
+            // Clear sandbox-related env vars that may be inherited from a parent ahma process
+            // (e.g., ahma-http-bridge running in HTTP bridge mode with --defer-sandbox).
+            // Inheriting AHMA_SANDBOX_DEFER causes the child to start with empty scopes in
+            // test mode, which bypasses all path validation (security invariant violation).
+            cmd.env_remove("AHMA_SANDBOX_DEFER");
+            cmd.env_remove("AHMA_SANDBOX_SCOPE");
+            cmd.env_remove("AHMA_WORKING_DIRS");
+
             if force_no_sandbox {
                 cmd.env("AHMA_DISABLE_SANDBOX", "1");
             } else {

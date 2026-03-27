@@ -528,6 +528,21 @@ pub enum Subcommands {
   # Serve over stdio and enable the rust + git tool bundles
   ahma-mcp serve stdio --tools rust,git
 
+  # Add temp directory to sandbox scope (for compilers / build tools)
+  ahma-mcp serve stdio --tools rust --tmp
+
+  # Enable live log monitoring with a custom alert rate limit
+  ahma-mcp serve stdio --log-monitor --monitor-rate-limit 30
+
+  # Extend the default tool timeout to 10 minutes
+  ahma-mcp serve stdio --timeout 600
+
+  # Force all tools to run synchronously
+  ahma-mcp serve stdio --sync
+
+  # Disable the kernel sandbox (only in isolated containers)
+  ahma-mcp serve stdio --no-sandbox
+
   # Serve over HTTP on the default address (127.0.0.1:3000)
   ahma-mcp serve http
 
@@ -552,6 +567,44 @@ pub struct ServeArgs {
     /// Override with AHMA_TOOLS_DIR env var.
     #[arg(long)]
     pub tools_dir: Option<PathBuf>,
+
+    /// Add the system temp directory to the sandbox scope.
+    /// Useful for workflows that need scratch space (compilers, build systems).
+    /// Equivalent to AHMA_TMP_ACCESS=1.
+    #[arg(long = "tmp", global = true)]
+    pub tmp: bool,
+
+    /// Enable live log monitoring. Ahma tails the configured log stream through
+    /// an LLM to detect issues in real time and push alerts as MCP progress
+    /// notifications. Equivalent to AHMA_LOG_MONITOR=1.
+    #[arg(long = "log-monitor", global = true)]
+    pub log_monitor: bool,
+
+    /// Minimum seconds between successive log-monitor alerts.
+    /// Prevents alert storms when a persistent issue triggers repeated matches.
+    /// Equivalent to AHMA_MONITOR_RATE_LIMIT. Default: 60.
+    #[arg(long = "monitor-rate-limit", value_name = "SECS", global = true)]
+    pub monitor_rate_limit: Option<u64>,
+
+    /// Disable the kernel sandbox entirely.
+    /// UNSAFE: the AI can read and write anywhere on the filesystem.
+    /// Use only in environments that provide their own containment (Docker, CI containers).
+    /// Equivalent to AHMA_DISABLE_SANDBOX=1.
+    #[arg(long = "no-sandbox", global = true)]
+    pub no_sandbox: bool,
+
+    /// Default tool execution timeout in seconds.
+    /// Individual tools can override this via the timeout_seconds field in their JSON definition.
+    /// Equivalent to AHMA_TIMEOUT. Default: 360.
+    #[arg(long = "timeout", value_name = "SECS", global = true)]
+    pub timeout: Option<u64>,
+
+    /// Force all tools to run synchronously.
+    /// By default, tools are async-first: if a result arrives within 5 seconds it is
+    /// returned inline; otherwise an operation ID is returned and the result is pushed
+    /// as a notification. Equivalent to AHMA_SYNC=1.
+    #[arg(long = "sync", global = true)]
+    pub sync: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -574,10 +627,22 @@ pub enum ServeTransport {
   ahma-mcp serve stdio
 
   # Enable specific tool bundles
-  ahma-mcp serve stdio --tool rust --tool python,git
+  ahma-mcp serve stdio --tools rust --tools python,git
 
   # Use a custom tools directory
-  ahma-mcp serve stdio --tools-dir /path/to/.ahma")]
+  ahma-mcp serve stdio --tools-dir /path/to/.ahma
+
+  # Allow compilers / build tools access to the temp directory
+  ahma-mcp serve stdio --tools rust --tmp
+
+  # Enable live log monitoring with reduced alert rate
+  ahma-mcp serve stdio --log-monitor --monitor-rate-limit 30
+
+  # Extend the default timeout to 10 minutes
+  ahma-mcp serve stdio --timeout 600
+
+  # Disable sandbox in a Docker container with its own isolation
+  ahma-mcp serve stdio --no-sandbox")]
     Stdio,
     /// Serve over HTTP — a persistent multi-session bridge.
     ///
@@ -617,7 +682,10 @@ pub enum ServeTransport {
   ahma-mcp serve http --disable-quic
 
   # Require at least HTTP/2 — reject HTTP/1.1 clients
-  ahma-mcp serve http --disable-http1-1")]
+  ahma-mcp serve http --disable-http1-1
+
+  # Extended timeout, temp access, and log monitoring
+  ahma-mcp serve http --timeout 600 --tmp --log-monitor")]
 pub struct HttpArgs {
     /// Host to bind the HTTP server on.
     #[arg(long, default_value = "127.0.0.1")]
@@ -758,9 +826,21 @@ pub struct InfoArgs {
 
 fn build_app_config(cli: Cli) -> AppConfig {
     // Gather serve-level fields if present
-    let (tool_bundles, cli_tools_dir, http_host, http_port, no_quic, disable_http1_1) = match &cli
-        .command
-    {
+    #[allow(clippy::type_complexity)]
+    let (
+        tool_bundles,
+        cli_tools_dir,
+        http_host,
+        http_port,
+        no_quic,
+        disable_http1_1,
+        cli_tmp,
+        cli_log_monitor,
+        cli_monitor_rate_limit,
+        cli_no_sandbox,
+        cli_timeout,
+        cli_sync,
+    ) = match &cli.command {
         Subcommands::Serve(s) => {
             let (host, port, no_quic, disable_http1_1) = match &s.transport {
                 ServeTransport::Http(h) => (h.host.clone(), h.port, h.no_quic, h.disable_http1_1),
@@ -773,9 +853,28 @@ fn build_app_config(cli: Cli) -> AppConfig {
                 port,
                 no_quic,
                 disable_http1_1,
+                s.tmp,
+                s.log_monitor,
+                s.monitor_rate_limit,
+                s.no_sandbox,
+                s.timeout,
+                s.sync,
             )
         }
-        _ => (vec![], None, "127.0.0.1".to_string(), 3000u16, false, false),
+        _ => (
+            vec![],
+            None,
+            "127.0.0.1".to_string(),
+            3000u16,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            None,
+            false,
+        ),
     };
 
     // Tool list args
@@ -835,19 +934,20 @@ fn build_app_config(cli: Cli) -> AppConfig {
         tools_dir,
         explicit_tools_dir,
         tool_bundles,
-        timeout_secs: AppConfig::env_u64("AHMA_TIMEOUT", 360),
-        force_sync: AppConfig::env_flag("AHMA_SYNC"),
+        timeout_secs: cli_timeout.unwrap_or_else(|| AppConfig::env_u64("AHMA_TIMEOUT", 360)),
+        force_sync: cli_sync || AppConfig::env_flag("AHMA_SYNC"),
         hot_reload_tools: AppConfig::env_flag("AHMA_HOT_RELOAD"),
         skip_availability_probes: AppConfig::env_flag("AHMA_SKIP_PROBES"),
         progressive_disclosure: !AppConfig::env_flag("AHMA_PROGRESSIVE_DISCLOSURE_OFF"),
-        no_sandbox: AppConfig::env_flag("AHMA_DISABLE_SANDBOX"),
+        no_sandbox: cli_no_sandbox || AppConfig::env_flag("AHMA_DISABLE_SANDBOX"),
         sandbox_scopes,
         defer_sandbox: AppConfig::env_flag("AHMA_SANDBOX_DEFER"),
         working_dirs,
-        tmp_access: AppConfig::env_flag("AHMA_TMP_ACCESS"),
+        tmp_access: cli_tmp || AppConfig::env_flag("AHMA_TMP_ACCESS"),
         no_temp_files: AppConfig::env_flag("AHMA_DISABLE_TEMP"),
-        log_monitor: AppConfig::env_flag("AHMA_LOG_MONITOR"),
-        monitor_rate_limit_secs: AppConfig::env_u64("AHMA_MONITOR_RATE_LIMIT", 60),
+        log_monitor: cli_log_monitor || AppConfig::env_flag("AHMA_LOG_MONITOR"),
+        monitor_rate_limit_secs: cli_monitor_rate_limit
+            .unwrap_or_else(|| AppConfig::env_u64("AHMA_MONITOR_RATE_LIMIT", 60)),
         http_host,
         http_port,
         no_quic,

@@ -154,18 +154,14 @@ function Get-AhmaEntryObject {
             args    = @(
                 '-NoProfile',
                 '-Command',
-                '$env:AHMA_SANDBOX_SCOPE = $env:USERPROFILE; $env:AHMA_TMP_ACCESS = ''1''; $env:AHMA_LOG_MONITOR = ''1''; ahma-mcp serve stdio --tools rust,simplify'
+                '$env:AHMA_SANDBOX_SCOPE = $env:USERPROFILE; ahma-mcp serve stdio --tools rust,simplify --tmp --log-monitor'
             )
         }
     } else {
         return [ordered]@{
             type    = 'stdio'
             command = 'ahma-mcp'
-            args    = @('serve', 'stdio', '--tools', 'rust,simplify')
-            env     = [ordered]@{
-                AHMA_TMP_ACCESS  = '1'
-                AHMA_LOG_MONITOR = '1'
-            }
+            args    = @('serve', 'stdio', '--tools', 'rust,simplify', '--tmp', '--log-monitor')
         }
     }
 }
@@ -263,6 +259,14 @@ function Invoke-AhmaMcpSetup {
     # Extract all individual digits from the input
     $selectedNums = [regex]::Matches($platformsInput, '\d') | ForEach-Object { $_.Value }
 
+    # Confirm platform selection
+    Write-Host ""
+    Write-Host "Selected platforms:"
+    if ($selectedNums -contains '1') { Write-Host "    * VS Code" }
+    if ($selectedNums -contains '2') { Write-Host "    * Claude Code" }
+    if ($selectedNums -contains '3') { Write-Host "    * Cursor" }
+    if ($selectedNums -contains '4') { Write-Host "    * Antigravity" }
+
     # ── Transport selection ─────────────────────────────────────────────────
     Write-Host ""
     Write-Host "Choose how your AI tools connect to ahma-mcp:"
@@ -279,6 +283,14 @@ function Invoke-AhmaMcpSetup {
     Write-Host ""
     $tselect = Read-Host "  Mode [1=stdio or 2=http, default 1]"
     $transport = if ($tselect -eq '2') { 'http' } else { 'stdio' }
+
+    # Confirm transport selection
+    Write-Host ""
+    if ($transport -eq 'http') {
+        Write-Host "Transport mode: http (one shared server)"
+    } else {
+        Write-Host "Transport mode: stdio (recommended for most users)"
+    }
 
     # ── Configure each selected platform ───────────────────────────────────
     $configuredTools = [ref]''

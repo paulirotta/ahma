@@ -107,8 +107,12 @@ impl FunctionHotspot {
     }
 
     fn is_nontrivial_function(entry: &SpaceEntry) -> bool {
+        // Thresholds chosen to filter out trivially simple functions (getters, single-match
+        // arms, small helpers) that inflate file-level totals without representing genuine
+        // cognitive burden. A function needs meaningful branching or nesting to qualify.
         is_named_function(entry)
-            && (entry.metrics.cognitive.sum > 0.0 || entry.metrics.cyclomatic.sum > 1.0)
+            && (entry.metrics.cognitive.sum >= 3.0 || entry.metrics.cyclomatic.sum >= 5.0)
+            && entry.metrics.loc.sloc >= 4.0
     }
 }
 
@@ -328,10 +332,12 @@ mod tests {
             make_space_entry("medium_complexity", 60, 80, 10.0, 8.0, 20.0),
         ];
         let hotspots = FunctionHotspot::extract_from_spaces(&spaces);
-        assert_eq!(hotspots.len(), 3);
+        // low_complexity (Cog=2, Cyc=3) falls below the nontrivial threshold
+        // (requires Cog>=3 or Cyc>=5) so only the two genuinely complex
+        // functions are returned, sorted by cognitive complexity descending.
+        assert_eq!(hotspots.len(), 2);
         assert_eq!(hotspots[0].name, "high_complexity");
         assert_eq!(hotspots[1].name, "medium_complexity");
-        assert_eq!(hotspots[2].name, "low_complexity");
     }
 
     #[test]

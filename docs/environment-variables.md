@@ -17,24 +17,26 @@ On Windows, use semicolons (`;`) as separators.
 
 ## Tool Management
 
-| Variable | Default | Description |
-|---|---|---|
-| `AHMA_TOOLS_DIR` | auto-detect `.ahma/` | Path to the directory containing JSON tool definitions. Takes precedence over the `--tools-dir` CLI flag when both are set. |
-| `AHMA_TIMEOUT` | `360` | Default tool execution timeout in seconds. Individual tools can override this via the `timeout_seconds` field in their JSON definition. |
-| `AHMA_SYNC` | off | Force all tools to run synchronously. By default tools are async-first: if a result arrives within 5 seconds it is returned inline; otherwise an operation ID is returned and the result is pushed as a notification. |
-| `AHMA_HOT_RELOAD` | off | Watch the tools directory for JSON changes and reload tool definitions at runtime. **Security warning**: enabling this allows future writes to the tools directory to add or replace tools mid-session. Enable only while authoring tool definitions. |
-| `AHMA_SKIP_PROBES` | off | Skip tool availability probes at startup. Probes detect whether required executables (e.g. `cargo`, `git`) are installed and hide tools whose prerequisites are missing. Skip to reduce startup latency when you know all tools are available. |
-| `AHMA_PROGRESSIVE_DISCLOSURE_OFF` | off | Disable progressive disclosure (expose all tools to the client immediately). By default, less-frequently-used tools are hidden until the client requests them, preserving the AI's context window. |
+| Variable | CLI equivalent | Default | Description |
+|---|---|---|---|
+| `AHMA_TOOLS_DIR` | `--tools-dir` | auto-detect `.ahma/` | Path to the directory containing JSON tool definitions. Takes precedence over the `--tools-dir` CLI flag when both are set. |
+| `AHMA_TIMEOUT` | `--timeout` | `360` | Default tool execution timeout in seconds. Individual tools can override this via the `timeout_seconds` field in their JSON definition. |
+| `AHMA_SYNC` | `--sync` | off | Force all tools to run synchronously. By default tools are async-first: if a result arrives within 5 seconds it is returned inline; otherwise an operation ID is returned and the result is pushed as a notification. |
+| `AHMA_HOT_RELOAD` | — | off | Watch the tools directory for JSON changes and reload tool definitions at runtime. **Security warning**: enabling this allows future writes to the tools directory to add or replace tools mid-session. Enable only while authoring tool definitions. |
+| `AHMA_SKIP_PROBES` | — | off | Skip tool availability probes at startup. Probes detect whether required executables (e.g. `cargo`, `git`) are installed and hide tools whose prerequisites are missing. Skip to reduce startup latency when you know all tools are available. |
+| `AHMA_PROGRESSIVE_DISCLOSURE_OFF` | — | off | Disable progressive disclosure (expose all tools to the client immediately). By default, less-frequently-used tools are hidden until the client requests them, preserving the AI's context window. |
 
 ```bash
 # Use a shared tools directory
 AHMA_TOOLS_DIR=/shared/ahma-tools ahma-mcp serve stdio
 
-# Extend the default timeout for slow builds
+# Extend the default timeout for slow builds (env var or CLI flag)
 AHMA_TIMEOUT=600 ahma-mcp serve stdio
+ahma-mcp serve stdio --timeout 600
 
-# Force synchronous execution (useful when AI workflow requires sequential steps)
+# Force synchronous execution (env var or CLI flag)
 AHMA_SYNC=1 ahma-mcp serve stdio
+ahma-mcp serve stdio --sync
 ```
 
 ---
@@ -44,14 +46,14 @@ AHMA_SYNC=1 ahma-mcp serve stdio
 See [docs/security-sandbox.md](security-sandbox.md) for full platform details, nested sandbox
 detection, and example `mcp.json` configurations.
 
-| Variable | Default | Description |
-|---|---|---|
-| `AHMA_DISABLE_SANDBOX` | off | Disable the kernel sandbox entirely. **UNSAFE** — the AI can read and write anywhere on the filesystem. Use only in environments that provide their own containment (Docker, CI containers) or on hardware where the kernel sandbox is unsupported (e.g. Raspberry Pi with kernel < 5.13). |
-| `AHMA_SANDBOX_SCOPE` | current working directory | Colon-separated list of absolute paths that define the sandbox boundary. The AI can read and write only within these directories. If not set, the sandbox scope is the directory from which `ahma-mcp` was launched. |
-| `AHMA_SANDBOX_DEFER` | off | Defer sandbox lock until the MCP client sends a `roots/list` response. Use when the client supplies workspace roots at connection time and you want those roots to become the sandbox scope automatically. |
-| `AHMA_WORKING_DIRS` | — | Colon-separated fallback working directories used when `AHMA_SANDBOX_DEFER=1` is set but the client does not provide roots. Has no effect when `AHMA_SANDBOX_DEFER` is off. |
-| `AHMA_TMP_ACCESS` | off | Add the system temp directory (`/tmp` or equivalent) to the sandbox scope. Useful for workflows that need scratch space (compilers, build systems). See [security-sandbox.md](security-sandbox.md) for security trade-offs. |
-| `AHMA_DISABLE_TEMP` | off | Block all access to the system temp directory. Takes precedence over `AHMA_TMP_ACCESS`. |
+| Variable | CLI equivalent | Default | Description |
+|---|---|---|---|
+| `AHMA_DISABLE_SANDBOX` | `--no-sandbox` | off | Disable the kernel sandbox entirely. **UNSAFE** — the AI can read and write anywhere on the filesystem. Use only in environments that provide their own containment (Docker, CI containers) or on hardware where the kernel sandbox is unsupported (e.g. Raspberry Pi with kernel < 5.13). |
+| `AHMA_SANDBOX_SCOPE` | — | current working directory | Colon-separated list of absolute paths that define the sandbox boundary. The AI can read and write only within these directories. If not set, the sandbox scope is the directory from which `ahma-mcp` was launched. |
+| `AHMA_SANDBOX_DEFER` | — | off | Defer sandbox lock until the MCP client sends a `roots/list` response. Use when the client supplies workspace roots at connection time and you want those roots to become the sandbox scope automatically. |
+| `AHMA_WORKING_DIRS` | — | — | Colon-separated fallback working directories used when `AHMA_SANDBOX_DEFER=1` is set but the client does not provide roots. Has no effect when `AHMA_SANDBOX_DEFER` is off. |
+| `AHMA_TMP_ACCESS` | `--tmp` | off | Add the system temp directory (`/tmp` or equivalent) to the sandbox scope. Useful for workflows that need scratch space (compilers, build systems). See [security-sandbox.md](security-sandbox.md) for security trade-offs. |
+| `AHMA_DISABLE_TEMP` | — | off | Block all access to the system temp directory. Takes precedence over `AHMA_TMP_ACCESS`. |
 
 ```bash
 # Sandbox scoped to two project directories
@@ -63,27 +65,33 @@ AHMA_SANDBOX_DEFER=1 ahma-mcp serve stdio
 # Defer with a fallback if the client doesn't provide roots
 AHMA_SANDBOX_DEFER=1 AHMA_WORKING_DIRS=/home/user/projects ahma-mcp serve stdio
 
-# Disable sandbox in a Docker container that provides its own isolation
+# Disable sandbox in a Docker container that provides its own isolation (env var or CLI flag)
 AHMA_DISABLE_SANDBOX=1 ahma-mcp serve stdio
+ahma-mcp serve stdio --no-sandbox
+
+# Allow build tools to write to the temp directory (env var or CLI flag)
+AHMA_TMP_ACCESS=1 ahma-mcp serve stdio
+ahma-mcp serve stdio --tmp
 ```
 
 ---
 
 ## Logging
 
-| Variable | Default | Description |
-|---|---|---|
-| `RUST_LOG` | `info` | Standard Rust log filter. Controls verbosity for all crates. Common values: `debug`, `info`, `warn`, `error`. Crate-specific filters (e.g. `ahma_mcp=debug,rmcp=warn`) are also supported. |
-| `AHMA_LOG_TARGET` | file (rolling) | Set to `stderr` to route all log output to stderr instead of the default rotating log file under `./log/`. Useful for Docker, CI, or any environment where stdout/stderr is captured. |
-| `AHMA_LOG_MONITOR` | off | Enable live log monitoring. Ahma tails the configured log stream through an LLM to detect issues in real time and push alerts as MCP progress notifications. See [docs/live-log-monitoring.md](live-log-monitoring.md) for setup. |
-| `AHMA_MONITOR_RATE_LIMIT` | `60` | Minimum seconds between successive log-monitor alerts. Prevents alert storms when a persistent issue triggers repeated pattern matches. |
+| Variable | CLI equivalent | Default | Description |
+|---|---|---|---|
+| `RUST_LOG` | — | `info` | Standard Rust log filter. Controls verbosity for all crates. Common values: `debug`, `info`, `warn`, `error`. Crate-specific filters (e.g. `ahma_mcp=debug,rmcp=warn`) are also supported. |
+| `AHMA_LOG_TARGET` | — | file (rolling) | Set to `stderr` to route all log output to stderr instead of the default rotating log file under `./log/`. Useful for Docker, CI, or any environment where stdout/stderr is captured. |
+| `AHMA_LOG_MONITOR` | `--log-monitor` | off | Enable live log monitoring. Ahma tails the configured log stream through an LLM to detect issues in real time and push alerts as MCP progress notifications. See [docs/live-log-monitoring.md](live-log-monitoring.md) for setup. |
+| `AHMA_MONITOR_RATE_LIMIT` | `--monitor-rate-limit` | `60` | Minimum seconds between successive log-monitor alerts. Prevents alert storms when a persistent issue triggers repeated pattern matches. |
 
 ```bash
 # Debug logging to stderr (ideal for development)
 RUST_LOG=debug AHMA_LOG_TARGET=stderr ahma-mcp serve stdio
 
-# Enable live log monitoring with reduced rate limiting
+# Enable live log monitoring with reduced rate limiting (env var or CLI flags)
 AHMA_LOG_MONITOR=1 AHMA_MONITOR_RATE_LIMIT=30 ahma-mcp serve stdio
+ahma-mcp serve stdio --log-monitor --monitor-rate-limit 30
 ```
 
 ---

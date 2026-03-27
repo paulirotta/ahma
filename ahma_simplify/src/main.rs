@@ -29,7 +29,7 @@ struct Cli {
     output: PathBuf,
 
     /// Number of issues to show in the report
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 50)]
     limit: usize,
 
     /// Open the report automatically
