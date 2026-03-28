@@ -64,6 +64,43 @@ irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 |
 
 After installing, the script offers an **interactive MCP setup wizard** that configures ahma as a global MCP server for your AI tools. You choose which platforms to configure (VS Code, Claude Code, Cursor, Antigravity), select stdio or HTTP connection mode, and the script creates or updates each tool's global `mcp.json` for you — showing the proposed changes and asking for confirmation before writing anything.
 
+The script then offers to install the **ahma-simplify agent skill** (see below).
+
+## Agent Skills
+
+The `ahma-simplify` skill teaches AI agents how to analyze code complexity, identify the worst
+hotspot functions, fix them with minimal targeted changes, and verify improvement — all using
+the `simplify` MCP tool or `ahma-simplify` CLI.
+
+The skill file (`skills/ahma-simplify/SKILL.md`) follows the universal `.agents/skills/` format
+recognized by **VS Code (GitHub Copilot)**, **Cursor**, and **Claude Code**. One file, all
+platforms.
+
+**The install script installs it automatically** (prompted after the MCP wizard). To install
+manually:
+
+```bash
+# Linux / macOS
+mkdir -p ~/.agents/skills/ahma-simplify
+cp skills/ahma-simplify/SKILL.md ~/.agents/skills/ahma-simplify/SKILL.md
+```
+
+```powershell
+# Windows
+New-Item -ItemType Directory -Force "$HOME\.agents\skills\ahma-simplify"
+Copy-Item skills\ahma-simplify\SKILL.md "$HOME\.agents\skills\ahma-simplify\SKILL.md"
+```
+
+Once installed, agents load the skill automatically when you ask about complexity, maintainability,
+or simplification. In Cursor you can also attach it explicitly with `@ahma-simplify` in chat.
+
+To enable the skill per-project (committed to the repo, so all collaborators benefit):
+
+```bash
+mkdir -p .agents/skills/ahma-simplify
+cp skills/ahma-simplify/SKILL.md .agents/skills/ahma-simplify/SKILL.md
+```
+
 ## Source Installation
 
 **Linux / macOS:**

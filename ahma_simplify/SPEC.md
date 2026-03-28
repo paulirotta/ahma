@@ -60,6 +60,18 @@ It is a workspace member of the [Ahma](../SPEC.md) project.
 - **R7.2**: Displays before/after metrics with relative improvement percentages for simplicity, cognitive, cyclomatic, SLOC, and MI.
 - **R7.3**: Reports a verdict: significant improvement, modest improvement, no change, or regression.
 
+### R8: Agent Skill
+
+- **R8.1**: A canonical skill definition is maintained at `skills/ahma-simplify/SKILL.md` in the repository root.
+- **R8.2**: The skill file uses YAML frontmatter (`name`, `description`, `version`, `user-invocable`) and follows the universal `.agents/skills/` format, compatible with VS Code (GitHub Copilot), Cursor, and Claude Code.
+- **R8.3**: The `description` field contains all trigger phrases an agent needs to auto-load the skill without user instruction.
+- **R8.4**: The skill documents the five-step workflow: analyze → read prompt → apply targeted changes → verify → iterate. Each step references the correct tool argument.
+- **R8.5**: The skill must not exceed 500 lines. Extended content (schema, changelog) is referenced via adjacent files, not inlined.
+- **R8.6**: The install scripts (`scripts/install.sh`, `scripts/install.ps1`) deploy the skill to the global user skill path (`~/.agents/skills/ahma-simplify/SKILL.md`) after the MCP setup wizard, with:
+  - Interactive confirmation before writing
+  - Version check and update-or-skip logic
+  - Per-project symlink/copy instructions shown on success
+
 ## Non-Functional Requirements
 
 - **NF1**: The tool is a synchronous CLI binary (no async runtime needed).
