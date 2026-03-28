@@ -49,6 +49,21 @@ use tower_http::{
 };
 use tracing::{debug, error, info, warn};
 
+/// Whether the bridge should listen on a TCP socket or a Unix domain socket.
+#[derive(Debug, Clone)]
+pub enum ListenerKind {
+    /// Bind a TCP socket on the given address.
+    Tcp(SocketAddr),
+    /// Bind a Unix domain socket (UDS) at the given path.
+    ///
+    /// Use the `@` prefix for Linux abstract sockets: `@name` → `\0name`.
+    /// Filesystem socket files are removed on graceful shutdown.
+    ///
+    /// Not available on Windows; a compile-time `#[cfg(unix)]` gate is applied.
+    #[cfg(unix)]
+    Unix(String),
+}
+
 /// Configuration for the HTTP bridge server.
 ///
 /// Use `Default` to get a baseline configuration or construct manually for full control.
@@ -98,17 +113,26 @@ pub struct BridgeConfig {
 
     /// If `true`, attempt to start an HTTP/3 (QUIC) endpoint alongside HTTP/2.
     /// The QUIC endpoint uses a self-signed certificate. Defaults to `true`.
+    /// Ignored when `listener_kind` is `ListenerKind::Unix` (QUIC is UDP-based).
     pub enable_quic: bool,
 
     /// If `true`, disable HTTP/1.1 on the TCP listener and require HTTP/2+.
     /// Defaults to `false` (HTTP/1.1 and HTTP/2 are both accepted).
     pub disable_http1_1: bool,
+
+    /// The transport the bridge should listen on.
+    ///
+    /// Defaults to `ListenerKind::Tcp(bind_addr)`.  Set to
+    /// `ListenerKind::Unix(path)` to serve MCP Streamable HTTP over a Unix
+    /// domain socket instead of a TCP port.  `bind_addr` is ignored in that case.
+    pub listener_kind: ListenerKind,
 }
 
 impl Default for BridgeConfig {
     fn default() -> Self {
+        let bind_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
         Self {
-            bind_addr: "127.0.0.1:3000".parse().unwrap(),
+            bind_addr,
             server_command: "ahma-mcp".to_string(),
             server_args: vec![],
             enable_colored_output: false,
@@ -116,6 +140,7 @@ impl Default for BridgeConfig {
             handshake_timeout_secs: DEFAULT_HANDSHAKE_TIMEOUT_SECS,
             enable_quic: true,
             disable_http1_1: false,
+            listener_kind: ListenerKind::Tcp(bind_addr),
         }
     }
 }
@@ -209,6 +234,15 @@ const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
 /// }
 /// ```
 pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
+    #[cfg(unix)]
+    if let ListenerKind::Unix(ref socket_path) = config.listener_kind {
+        return start_bridge_unix(config.clone(), socket_path.clone()).await;
+    }
+    start_bridge_tcp(config).await
+}
+
+/// Serve MCP Streamable HTTP over a TCP socket.
+async fn start_bridge_tcp(config: BridgeConfig) -> Result<()> {
     info!("Starting HTTP bridge on {}", config.bind_addr);
 
     // SECURITY: warn when binding to a non-loopback address — the bridge is
@@ -352,6 +386,93 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
                     .await
             {
                 tracing::debug!("HTTP connection closed: {:#}", e);
+            }
+        });
+    }
+}
+
+/// Serve MCP Streamable HTTP over a Unix domain socket.
+///
+/// The socket path may use the `@` prefix for Linux abstract sockets.
+/// Filesystem socket files are removed before binding and on graceful shutdown.
+#[cfg(unix)]
+async fn start_bridge_unix(config: BridgeConfig, raw_socket_path: String) -> Result<()> {
+    // Translate `@name` → `\0name` (Linux abstract namespace).
+    let socket_path = if let Some(name) = raw_socket_path.strip_prefix('@') {
+        format!("\0{name}")
+    } else {
+        raw_socket_path.clone()
+    };
+
+    info!("Starting HTTP bridge on Unix socket: {}", raw_socket_path);
+    info!("Session isolation: ENABLED (always-on)");
+
+    let session_config = SessionManagerConfig {
+        server_command: config.server_command.clone(),
+        server_args: config.server_args.clone(),
+        default_scope: config.default_sandbox_scope.clone(),
+        enable_colored_output: config.enable_colored_output,
+        handshake_timeout_secs: config.handshake_timeout_secs,
+    };
+    let session_manager = Arc::new(SessionManager::new(session_config));
+    let state = Arc::new(BridgeState { session_manager });
+
+    // For Unix sockets, CORS origin matching is less meaningful but we still
+    // build the layer for middleware compatibility.
+    let dummy_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let cors = build_cors_layer(&dummy_addr);
+
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .route(
+            "/mcp",
+            post(handle_mcp_request)
+                .get(handle_sse_stream)
+                .delete(handle_session_delete),
+        )
+        .fallback(handle_not_found)
+        .layer(cors)
+        .with_state(state)
+        .layer(TraceLayer::new_for_http());
+
+    // Remove a stale filesystem socket file from a previous run, if any.
+    // Abstract sockets start with '\0' and have no filesystem entry.
+    if !socket_path.starts_with('\0') {
+        let _ = tokio::fs::remove_file(&socket_path).await;
+    }
+
+    let listener = tokio::net::UnixListener::bind(&socket_path)
+        .map_err(|e| BridgeError::HttpServer(format!("Failed to bind Unix socket: {}", e)))?;
+
+    info!("HTTP bridge listening on Unix socket: {}", raw_socket_path);
+    info!("MCP endpoint (POST): http+unix://{}/mcp", raw_socket_path);
+
+    // Print machine-readable bound socket path for test infrastructure.
+    eprintln!("AHMA_UNIX_SOCKET_PATH={}", raw_socket_path);
+
+    loop {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .map_err(|e| BridgeError::HttpServer(format!("Unix accept error: {}", e)))?;
+        let svc = app.clone();
+        tokio::spawn(async move {
+            let io = hyper_util::rt::TokioIo::new(stream);
+            let hyper_svc =
+                hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    let mut svc = svc.clone();
+                    async move {
+                        use tower::Service;
+                        let req = req.map(axum::body::Body::new);
+                        svc.call(req).await
+                    }
+                });
+            if let Err(e) =
+                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(io, hyper_svc)
+                    .await
+            {
+                tracing::debug!("Unix socket HTTP connection closed: {:#}", e);
             }
         });
     }
@@ -776,6 +897,7 @@ mod tests {
             handshake_timeout_secs: 10,
             enable_quic: false,
             disable_http1_1: false,
+            listener_kind: ListenerKind::Tcp("0.0.0.0:8080".parse().unwrap()),
         };
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.server_command, "custom_server");

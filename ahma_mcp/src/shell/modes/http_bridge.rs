@@ -96,6 +96,7 @@ pub async fn run_http_bridge_mode(config: AppConfig) -> Result<()> {
         handshake_timeout_secs: config.handshake_timeout_secs,
         enable_quic: !config.no_quic,
         disable_http1_1: config.disable_http1_1,
+        listener_kind: ahma_http_bridge::ListenerKind::Tcp(bind_addr),
     };
 
     start_bridge(bridge_config).await?;

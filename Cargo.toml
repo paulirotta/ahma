@@ -66,6 +66,7 @@ rmcp = { version = "1.3", features = [
     "transport-child-process",
     "elicitation",
     "schemars",
+    "transport-streamable-http-client-unix-socket",
 ] }
 schemars = "1.2"
 serde = "1.0"

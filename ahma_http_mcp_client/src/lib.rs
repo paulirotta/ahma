@@ -37,3 +37,6 @@
 pub mod client;
 /// Error types for HTTP MCP client operations.
 pub mod error;
+/// Unix domain socket MCP transport (Unix only).
+#[cfg(unix)]
+pub mod unix_client;

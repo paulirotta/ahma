@@ -61,7 +61,7 @@ pub mod quic;
 /// Session lifecycle management for HTTP clients.
 pub mod session;
 
-pub use bridge::{BridgeConfig, start_bridge};
+pub use bridge::{BridgeConfig, ListenerKind, start_bridge};
 pub use error::{BridgeError, Result};
 pub use session::{
     DEFAULT_HANDSHAKE_TIMEOUT_SECS, McpRoot, Session, SessionManager, SessionManagerConfig,

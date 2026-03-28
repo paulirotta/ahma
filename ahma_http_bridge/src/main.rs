@@ -111,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
         handshake_timeout_secs: args.handshake_timeout_secs,
         enable_quic: true,
         disable_http1_1: args.disable_http1_1,
+        listener_kind: ahma_http_bridge::ListenerKind::Tcp(args.bind_addr),
     };
 
     tracing::info!("Starting Ahma HTTP Bridge on {}", config.bind_addr);

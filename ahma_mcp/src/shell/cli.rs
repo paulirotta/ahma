@@ -89,6 +89,9 @@ pub struct AppConfig {
     pub disable_http1_1: bool,
     /// Handshake timeout for HTTP mode in seconds (AHMA_HANDSHAKE_TIMEOUT, default 45).
     pub handshake_timeout_secs: u64,
+    /// Unix domain socket path for `serve unix` mode (AHMA_UNIX_SOCKET).
+    /// Empty string means unix socket mode is not active.
+    pub unix_socket_path: String,
 
     // ── tool list subcommand ─────────────────────────────────────────────────
     /// Server name from mcp.json (for `tool list`).
@@ -131,6 +134,7 @@ impl Default for AppConfig {
             no_quic: false,
             disable_http1_1: false,
             handshake_timeout_secs: 45,
+            unix_socket_path: String::new(),
             list_server: None,
             mcp_config: PathBuf::from("mcp.json"),
             list_http: None,
@@ -424,6 +428,12 @@ async fn dispatch_subcommand(cmd: Subcommands, cfg: AppConfig) -> Result<()> {
                 tracing::info!("Running in HTTP bridge mode");
                 modes::run_http_bridge_mode(cfg).await
             }
+            #[cfg(unix)]
+            ServeTransport::Unix(u) => {
+                let path = u.socket_path.as_deref().unwrap_or("/tmp/ahma-mcp.sock");
+                tracing::info!("Running in Unix socket bridge mode on {}", path);
+                modes::run_unix_bridge_mode(cfg).await
+            }
         },
         Subcommands::Tool(tool_cmd) => match tool_cmd.command {
             ToolCommand::Validate(v) => {
@@ -651,6 +661,33 @@ pub enum ServeTransport {
     /// concurrently.  Suitable for CI runners, shared machines, or
     /// remote integrations.
     Http(HttpArgs),
+    /// Serve over a Unix domain socket (UDS) — for local IPC and Kubernetes sidecar proxies.
+    ///
+    /// Listens on a filesystem UDS path and routes MCP Streamable HTTP traffic
+    /// through that socket.  Useful when TCP/DNS is unavailable (e.g. Envoy
+    /// sidecars in K8s pods) or when you want socket-file-level access control
+    /// without a network port.
+    ///
+    /// Linux abstract sockets are supported with the `@` prefix:
+    ///   --socket-path @my-socket  →  binds `\0my-socket` in the kernel namespace
+    ///
+    /// Filesystem socket files are removed automatically on graceful shutdown.
+    ///
+    /// Not available on Windows; use `serve http` on that platform.
+    #[cfg(unix)]
+    #[command(after_help = "EXAMPLES:
+  # Filesystem socket (default path)
+  ahma-mcp serve unix
+
+  # Custom path
+  ahma-mcp serve unix --socket-path /run/ahma/mcp.sock
+
+  # Linux abstract socket (@ prefix)
+  ahma-mcp serve unix --socket-path @ahma-mcp
+
+  # Or set via environment variable
+  AHMA_UNIX_SOCKET=/tmp/ahma.sock ahma-mcp serve unix")]
+    Unix(UnixArgs),
 }
 
 /// Start a persistent HTTP-based MCP bridge.
@@ -702,6 +739,21 @@ pub struct HttpArgs {
     /// Require HTTP/2+; reject HTTP/1.1 connections.
     #[arg(long = "disable-http1-1")]
     pub disable_http1_1: bool,
+}
+
+/// Arguments for `ahma-mcp serve unix`.
+#[cfg(unix)]
+#[derive(Parser, Debug)]
+pub struct UnixArgs {
+    /// Path to the Unix domain socket to create.
+    ///
+    /// Supports filesystem paths (`/tmp/ahma.sock`) and Linux abstract sockets
+    /// using the `@` prefix (`@ahma-mcp`).
+    ///
+    /// Defaults to the value of `AHMA_UNIX_SOCKET`, or `/tmp/ahma-mcp.sock`
+    /// if neither the flag nor the env var is set.
+    #[arg(long = "socket-path")]
+    pub socket_path: Option<String>,
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────
@@ -845,6 +897,8 @@ fn build_app_config(cli: Cli) -> AppConfig {
             let (host, port, no_quic, disable_http1_1) = match &s.transport {
                 ServeTransport::Http(h) => (h.host.clone(), h.port, h.no_quic, h.disable_http1_1),
                 ServeTransport::Stdio => ("127.0.0.1".to_string(), 3000u16, false, false),
+                #[cfg(unix)]
+                ServeTransport::Unix(_) => ("127.0.0.1".to_string(), 3000u16, true, false),
             };
             (
                 s.tool_bundles.clone(),
@@ -953,6 +1007,26 @@ fn build_app_config(cli: Cli) -> AppConfig {
         no_quic,
         disable_http1_1,
         handshake_timeout_secs: AppConfig::env_u64("AHMA_HANDSHAKE_TIMEOUT", 45),
+        unix_socket_path: {
+            #[cfg(unix)]
+            {
+                match &cli.command {
+                    Subcommands::Serve(s) => match &s.transport {
+                        ServeTransport::Unix(u) => u
+                            .socket_path
+                            .clone()
+                            .or_else(|| std::env::var("AHMA_UNIX_SOCKET").ok())
+                            .unwrap_or_else(|| "/tmp/ahma-mcp.sock".to_string()),
+                        _ => String::new(),
+                    },
+                    _ => String::new(),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                String::new()
+            }
+        },
         list_server,
         mcp_config,
         list_http,
@@ -1322,6 +1396,7 @@ mod tests {
             no_quic: false,
             disable_http1_1: false,
             handshake_timeout_secs: 45,
+            unix_socket_path: String::new(),
             list_server: None,
             mcp_config: PathBuf::from("mcp.json"),
             list_http: None,
