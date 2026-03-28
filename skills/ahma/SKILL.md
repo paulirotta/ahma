@@ -22,35 +22,102 @@ kernel-level filesystem sandboxing, async execution, and live log monitoring.
 
 ## Quick Start: mcp.json Setup
 
-Add Ahma to your IDE's MCP config:
+MCP stdio servers auto-start when the IDE needs tools — the only step is getting
+the config in place. There are several approaches, from zero-friction to global:
 
-**VS Code** (`~/.config/Code/User/mcp.json` or `.vscode/mcp.json`):
+### 1. Commit to the repo (recommended — zero setup for teammates)
+
+**The Ahma project already provides `.vscode/mcp.json` with three configurations to try:**
+
+- `ahma` — stdio mode (recommended, automatic per-client instances)
+- `ahma-http` — shared HTTP server on port 3000 (run `ahma-mcp serve http --tools rust,git,fileutils --tmp --log-monitor`)
+- `ahma-unix` — shared HTTP server over Unix socket (run `ahma-mcp serve http --socket-path /tmp/ahma-mcp.sock --tools rust,git,fileutils --tmp --log-monitor`)
+
+You can copy or customize this for your own projects. Create `.vscode/mcp.json` in your project root and commit it. Every VS Code user
+who opens the project gets Ahma configured automatically (prompted to trust once):
+
 ```json
 {
   "servers": {
-    "Ahma": {
+    "ahma": {
       "type": "stdio",
       "command": "ahma-mcp",
-      "args": ["serve", "stdio"]
+      "args": ["serve", "stdio", "--tools", "rust,git,fileutils", "--tmp", "--log-monitor"]
     }
   }
 }
 ```
 
-**With Rust, Git, and temp access** (most common developer setup):
+### 2. User-level config (available in all workspaces)
+
+| IDE | Config file |
+|-----|-------------|
+| **VS Code** | `~/.config/Code/User/mcp.json` (or run `MCP: Open User Configuration`) |
+| **Cursor** | `~/.cursor/mcp.json` |
+| **Claude Code** | `~/.claude.json` → `"mcpServers"` key |
+| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+
+Same JSON structure as above. The server starts automatically when chat is opened.
+
+### 3. VS Code auto-start setting
+
+Enable globally in VS Code settings:
+```json
+{ "chat.mcp.autoStart": true }
+```
+This auto-(re)starts MCP servers when configuration changes are detected, so
+Ahma spins up as soon as VS Code sees the config — no need to open chat first.
+
+### 4. VS Code sandbox integration (auto-approve tool calls)
+
+VS Code provides its own sandbox for MCP stdio servers. When enabled, tool calls
+are auto-approved (no confirmation dialogs). Pairs well with Ahma's kernel sandbox:
+
 ```json
 {
   "servers": {
-    "Ahma": {
+    "ahma": {
       "type": "stdio",
       "command": "ahma-mcp",
-      "args": ["serve", "stdio", "--tools", "rust,git,fileutils", "--tmp"]
+      "args": ["serve", "stdio", "--tools", "rust,git,fileutils", "--tmp"],
+      "sandboxEnabled": true,
+      "sandbox": {
+        "filesystem": { "allowWrite": ["${workspaceFolder}"] }
+      }
     }
   }
 }
 ```
 
-**Cursor** (`~/.cursor/mcp.json`), **Claude Code** (`~/.claude.json`): same format.
+### 5. Install script (multi-IDE setup)
+
+Run the install script to configure Ahma across all supported IDEs at once:
+```bash
+curl -fsSL https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
+```
+
+### 6. Dev containers
+
+Add to `.devcontainer/devcontainer.json` for Codespaces / container users:
+```json
+{
+  "features": {},
+  "postCreateCommand": "cargo install ahma-mcp",
+  "customizations": {
+    "vscode": {
+      "settings": { "chat.mcp.autoStart": true }
+    }
+  }
+}
+```
+Combine with `.vscode/mcp.json` committed to the repo.
+
+### AI Agent: Helping Users Set Up
+
+If a user asks you to use Ahma but it isn't configured, help them by:
+1. Check if `.vscode/mcp.json` exists — if not, offer to create it
+2. Ask which bundles they need (rust, git, python, etc.)
+3. Create the config and tell them to reload the window (`Developer: Reload Window`)
 
 ---
 
