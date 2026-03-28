@@ -1167,7 +1167,79 @@ This ensures:
 > 2. Add to "Known Issues" if new bugs found
 > 3. Update feature tables with status changes
 > 4. **BEFORE stopping work: Run `cargo clippy` then `cargo nextest run` to verify quality`
+> 5. If you change CLI flags, env vars, tool bundles, connection modes, or sandbox behavior,
+>    update `skills/ahma/SKILL.md` to keep the agent skill current.
 
 **Last Updated**: 2026-01-18
 
 **Status**: Living Document - Update with every architectural decision or significant change
+
+---
+
+## 15. Agent Skills
+
+This section specifies requirements for the AI agent skill files (`SKILL.md`) bundled with
+Ahma. Skills are machine-readable guides that help AI coding assistants use Ahma effectively.
+
+### R-SK1 — Canonical skill location
+
+The primary `/ahma` skill MUST be maintained at `skills/ahma/SKILL.md` and symlinked from
+`.agents/skills/ahma/SKILL.md`. The symlink must resolve correctly from the workspace root. The
+`ahma-simplify` skill lives at `skills/ahma-simplify/SKILL.md` (standalone file).
+
+### R-SK2 — YAML frontmatter
+
+Every `SKILL.md` MUST have a YAML frontmatter block with:
+- `name`: short identifier matching the `/` invocation name
+- `description`: rich trigger-phrase description for skill dispatcher routing
+- `user-invocable`: `true` if the user can invoke it directly with `/name`
+
+### R-SK3 — Size limit
+
+Skills MUST NOT exceed **500 lines**. Keep content dense: use tables, bullet lists, and code
+snippets rather than prose paragraphs. Link to `docs/` for deep dives.
+
+### R-SK4 — Required sections (ahma skill)
+
+`skills/ahma/SKILL.md` MUST include these sections (any order):
+
+| Section | Content |
+|---------|---------|
+| Quick Start | mcp.json setup for VS Code, Cursor, Claude Code |
+| Tool Bundles | Table of all bundles, how to activate, when to use |
+| Built-in Tools | `sandboxed_shell`, `status`, `await`, `cancel` with examples |
+| Async Workflow | Operation ID pattern, status/await/cancel usage |
+| Sandbox | Scope rules, `--tmp`, env vars, nested sandbox note |
+| Key Env Vars | Quick-reference table with link to full reference |
+| CLI Reference | `serve`/`tool` subcommand synopsis |
+| Troubleshooting | Common errors and fixes |
+
+### R-SK5 — Currency requirement
+
+Skills are **living documents**. When any of the following change, the relevant skill MUST be
+updated in the same PR or commit:
+
+- CLI flags or subcommands (`ahma_mcp/src/shell/cli.rs`)
+- Environment variables (`ahma_mcp/src/config/`)
+- Tool bundle names or contents (`ahma_mcp/src/mcp_service/bundle_registry.rs`)
+- Built-in tool signatures (`sandboxed_shell`, `status`, `await`, `cancel`)
+- Connection modes or HTTP endpoints (`ahma_http_bridge/`)
+- Sandbox scope semantics (`ahma_core/src/sandbox/`)
+- Live-log monitoring configuration
+
+### R-SK6 — CI / pre-commit validation
+
+The skill symlink MUST resolve at the repo root. A CI or pre-push check MUST assert:
+
+```bash
+# Cross-platform (macOS readlink does not support -f)
+test -L .agents/skills/ahma/SKILL.md && cat .agents/skills/ahma/SKILL.md > /dev/null
+```
+
+If the symlink does not exist or does not resolve, the check fails.
+
+### R-SK7 — No duplication with AGENTS.md
+
+`skills/ahma/SKILL.md` targets **AI agents using Ahma**. `AGENTS.md` targets **AI contributors
+developing Ahma**. Do not copy developer-only content (testing rules, cross-platform checklist,
+commit format) into the skill, and do not copy agent usage recipes into AGENTS.md.
