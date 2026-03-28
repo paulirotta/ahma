@@ -45,7 +45,7 @@
                     "name": "extensions",
                     "alias": "e",
                     "type": "array",
-                    "description": "File extensions to analyze as comma-separated values (e.g. rs,py,js). Supported: rs, py, js, ts, tsx, c, h, cpp, cc, hpp, hh, cs, java, go, css, html. Default: all supported extensions",
+                    "description": "File extensions or language names to analyze, comma-separated. Language names are case-insensitive and expand to all their extensions (e.g. 'rust' → rs, 'kotlin' → kt,kts). Supported languages: rust, python, javascript, typescript, kotlin, c, c++, java, c#, go, html, css. Raw extensions also work: rs, py, js, ts, tsx, kt, kts, c, h, cpp, cc, hpp, hh, cs, java, go, css, html. Default: all supported extensions",
                     "items": {
                         "type": "string"
                     }

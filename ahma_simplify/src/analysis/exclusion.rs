@@ -26,13 +26,16 @@ fn pattern_matches_path(pattern: &str, path: &Path) -> bool {
 }
 
 const DEFAULT_EXCLUDES: &[&str] = &[
+    // Rust
     "**/target/**",
+    // JavaScript / Node
     "**/node_modules/**",
     "**/dist/**",
     "**/build/**",
     "**/out/**",
     "**/bin/**",
     "**/obj/**",
+    // Python
     "**/venv/**",
     "**/.venv/**",
     "**/env/**",
@@ -41,13 +44,35 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/.tox/**",
     "**/.pytest_cache/**",
     "**/.mypy_cache/**",
+    // JavaScript frameworks
     "**/.next/**",
     "**/.nuxt/**",
+    "**/.angular/**",
+    // C/C++ build systems
     "**/cmake-build-*/**",
+    // Kotlin / Android / Gradle
+    "**/.gradle/**",
+    "**/.kotlin/**",
+    "**/gradle/wrapper/**",
+    // Go / Ruby / PHP vendored deps
+    "**/vendor/**",
+    "**/.bundle/**",
+    // iOS / macOS
+    "**/Pods/**",
+    "**/DerivedData/**",
+    // Dart / Flutter
+    "**/.pub-cache/**",
+    "**/.dart_tool/**",
+    // Coverage
+    "**/coverage/**",
+    "**/lcov-report/**",
+    // Internal analysis dir
     "**/analysis_results/**",
+    // VCS
     "**/.git/**",
     "**/.svn/**",
     "**/.hg/**",
+    // IDE
     "**/.idea/**",
     "**/.vscode/**",
 ];

@@ -179,6 +179,7 @@ fn write_package_simplicity(report: &mut String, summary: &RepoSummary, is_works
                     }
                 }
                 Language::Python | Language::JavaScript | Language::TypeScript => "Module",
+                Language::Kotlin | Language::Java => "Package",
                 _ => "Directory",
             };
 

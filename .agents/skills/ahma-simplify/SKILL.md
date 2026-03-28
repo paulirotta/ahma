@@ -8,17 +8,17 @@ description: >
   Runs ahma-simplify (via the simplify MCP tool or CLI) to score every file 0-100%, identifies
   the worst hotspot functions, and returns a structured prompt to fix them with minimal, targeted
   changes. Always verifies improvement after editing.
+version: 1.0.0
+author: ahma project
 user-invocable: true
 ---
-
-<!-- version: 1.0.0 | author: Paul Houghton -->
 
 # ahma-simplify Skill
 
 Analyze code complexity across any supported language, identify the worst hotspot functions, fix
 them with minimal targeted changes, and verify measurable improvement.
 
-Supports: Rust, Python, JavaScript, TypeScript, Kotlin, C, C++, Java, C#, Go, CSS, HTML.
+Supports: Rust, Python, JavaScript, TypeScript, C, C++, Java, C#, Go, CSS, HTML.
 
 ---
 
@@ -52,49 +52,6 @@ or `--tools rust,simplify`).
 script at `scripts/install.sh` / `scripts/install.ps1`.
 
 To check availability, run: `ahma-simplify --version`
-
----
-
-## Language Filtering
-
-To scope the scan to a specific language, mention it after the skill name:
-
-```
-/ahma-simplify rust
-/ahma-simplify kotlin
-/ahma-simplify rust python
-```
-
-The language name is passed as the `extensions` argument. Both language names and raw
-extensions work, and names are case-insensitive:
-
-| You write | Extensions scanned |
-|-----------|--------------------|
-| `rust` | `.rs` |
-| `kotlin` | `.kt`, `.kts` |
-| `python` | `.py` |
-| `javascript` | `.js`, `.jsx` |
-| `typescript` | `.ts`, `.tsx` |
-| `java` | `.java` |
-| `c++` or `cpp` | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.hh` |
-| `c#` or `csharp` | `.cs` |
-| `go` | `.go` |
-| `html` | `.html`, `.htm` |
-| `css` | `.css` |
-
-Omitting a language filter scans all supported extensions automatically.
-
-When the user says `/ahma-simplify rust`, translate to:
-
-**Via MCP tool:**
-```
-simplify(directory="<project-root>", extensions=["rs"], ai_fix=1)
-```
-
-**Via CLI:**
-```
-ahma-simplify <project-root> --extensions rust --ai-fix 1
-```
 
 ---
 
@@ -161,8 +118,8 @@ ahma-simplify <project-root> --verify <path-to-edited-file>
 ```
 
 The output shows before/after metrics with a verdict:
-- **Significant improvement** (≥10% score gain) — success, continue
-- **Modest improvement** (1–9% gain) — acceptable, move to next issue
+- **Significant improvement** (>=10% score gain) — success, continue
+- **Modest improvement** (1-9% gain) — acceptable, move to next issue
 - **No change** — review if the hotspot functions were actually modified
 - **Regression** — revert and try a different approach
 
@@ -185,18 +142,18 @@ Continue iterating until the project score is satisfactory or the user stops.
 Each file receives a composite score:
 
 ```
-Score = 0.6 × Maintainability Index + 0.2 × Cognitive Score + 0.2 × Cyclomatic Score
+Score = 0.6 x Maintainability Index + 0.2 x Cognitive Score + 0.2 x Cyclomatic Score
 ```
 
 | Score Range | Status | Guidance |
 |-------------|--------|----------|
-| 85–100% | Excellent | No action needed |
-| 70–84% | Good | Acceptable; fix only the worst outliers |
-| 55–69% | Fair | Plan a simplification sprint |
-| 40–54% | Poor | Prioritize before adding features |
-| 0–39% | Critical | Address now; maintenance cost is high |
+| 85-100% | Excellent | No action needed |
+| 70-84% | Good | Acceptable; fix only the worst outliers |
+| 55-69% | Fair | Plan a simplification sprint |
+| 40-54% | Poor | Prioritize before adding features |
+| 0-39% | Critical | Address now; maintenance cost is high |
 
-A project overall score below 70% is a signal to run `--ai-fix` on the top 3–5 files.
+A project overall score below 70% is a signal to run --ai-fix on the top 3-5 files.
 
 ---
 
@@ -210,24 +167,16 @@ Tool name: `simplify`
 | `ai_fix` | integer | — | Issue number to generate fix prompt for (1 = worst file) |
 | `limit` | integer | 50 | Number of issues to include in report |
 | `verify` | path | — | Re-analyze a file and compare to baseline |
-| `extensions` | array | all | Restrict to specific file types (e.g. `["rs","py"]`) |
+| `extensions` | array | all | Restrict to specific file types (e.g. ["rs","py"]) |
 | `exclude` | array | — | Additional glob patterns to exclude |
 | `output_path` | path | — | Write report to directory instead of stdout |
 | `html` | boolean | false | Also generate HTML report |
 
 ---
 
-## Extended Documentation
-
-If you need additional detail on any topic, read the adjacent files in this skill folder:
-- `scoring-formula.md` — Full derivation of the composite score and edge cases
-- `hotspot-guide.md` — Detailed guidance on each hotspot function metric
-
----
-
 ## Anti-Patterns to Avoid
 
-1. **Do not refactor the whole file** when only 1–2 functions are hotspots. Follow the fix
+1. **Do not refactor the whole file** when only 1-2 functions are hotspots. Follow the fix
    prompt's hotspot list exactly.
 
 2. **Do not add comments to reduce complexity scores.** The Maintainability Index is not
@@ -236,7 +185,7 @@ If you need additional detail on any topic, read the adjacent files in this skil
 3. **Do not inline complex logic to reduce function count.** Fewer functions with more
    complexity each makes scores worse, not better.
 
-4. **Do not run `--ai-fix` without reading the structured prompt.** The prompt contains
+4. **Do not run --ai-fix without reading the structured prompt.** The prompt contains
    file-specific context that prevents generic, incorrect refactors.
 
 5. **Do not skip Step 4 (verify).** Complexity improvements are only real if the metrics
@@ -250,16 +199,6 @@ If you need additional detail on any topic, read the adjacent files in this skil
 # Analyze and get fix prompt for worst file
 ahma-simplify . --ai-fix 1
 
-# Rust files only (language name or raw extension both work)
-ahma-simplify . --extensions rust --ai-fix 1
-ahma-simplify . --extensions rs --ai-fix 1
-
-# Kotlin files only
-ahma-simplify . --extensions kotlin --ai-fix 1
-
-# Multiple languages
-ahma-simplify . --extensions rust,python --ai-fix 1
-
 # Analyze and get fix prompt for 2nd worst file
 ahma-simplify . --ai-fix 2
 
@@ -271,6 +210,9 @@ ahma-simplify . --output-path ./reports
 
 # HTML report, open in browser
 ahma-simplify . --heml
+
+# Restrict to Rust files only
+ahma-simplify . --extensions rs --ai-fix 1
 
 # Exclude generated code
 ahma-simplify . --exclude '**/generated/**,**/vendor/**' --ai-fix 1

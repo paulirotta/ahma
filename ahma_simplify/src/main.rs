@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use analysis::{get_project_name, is_cargo_workspace, perform_analysis};
-use models::{FileSimplicity, MetricsResults};
+use models::{FileSimplicity, MetricsResults, resolve_extensions};
 use report::{create_report_md, generate_ai_fix_prompt, generate_report};
 
 #[derive(Parser, Debug)]
@@ -44,13 +44,15 @@ struct Cli {
     #[arg(long)]
     heml: bool,
 
-    /// File extensions to analyze as a comma-separated list (e.g. rs,py,js).
-    /// Supported: rs, py, js, ts, tsx, c, h, cpp, cc, hpp, hh, cs, java, go, css, html.
+    /// File extensions or language names to analyze, comma-separated.
+    /// Accepts raw extensions (e.g. rs,py,kt) or language names (e.g. rust,kotlin,python).
+    /// Language names are case-insensitive and expand to all their extensions.
+    /// Supported languages: rust, python, javascript, typescript, kotlin, c, c++, java, c#, go, html, css.
     /// Default: all supported extensions.
     #[arg(
         short,
         long,
-        default_value = "rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs,java,go,css,html",
+        default_value = "rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs,java,go,css,html,kt,kts",
         value_delimiter = ','
     )]
     extensions: Vec<String>,
@@ -89,7 +91,8 @@ fn main() -> Result<()> {
     }
 
     if let Some(ref verify_path) = cli.verify {
-        return run_verify(verify_path, &cli.output, &cli.directory, &cli.extensions);
+        let extensions = resolve_extensions(&cli.extensions);
+        return run_verify(verify_path, &cli.output, &cli.directory, &extensions);
     }
 
     let directory =
@@ -97,11 +100,12 @@ fn main() -> Result<()> {
     prepare_output_directory(&cli.output)?;
 
     let is_workspace = is_cargo_workspace(&cli.directory);
+    let extensions = resolve_extensions(&cli.extensions);
     perform_analysis(
         &directory,
         &cli.output,
         is_workspace,
-        &cli.extensions,
+        &extensions,
         &cli.exclude,
     )?;
 

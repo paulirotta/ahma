@@ -122,6 +122,7 @@ pub enum Language {
     Python,
     JavaScript,
     TypeScript,
+    Kotlin,
     Cpp,
     C,
     Java,
@@ -146,6 +147,7 @@ impl Language {
             "py" => Language::Python,
             "js" | "jsx" => Language::JavaScript,
             "ts" | "tsx" => Language::TypeScript,
+            "kt" | "kts" => Language::Kotlin,
             "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Language::Cpp,
             "c" | "h" => Language::C,
             "java" => Language::Java,
@@ -163,6 +165,7 @@ impl Language {
             Language::Python => "Python",
             Language::JavaScript => "JavaScript",
             Language::TypeScript => "TypeScript",
+            Language::Kotlin => "Kotlin",
             Language::Cpp => "C++",
             Language::C => "C",
             Language::Java => "Java",
@@ -172,6 +175,61 @@ impl Language {
             Language::Css => "CSS",
             Language::Unknown => "Unknown",
         }
+    }
+}
+
+/// Resolves language names and file extensions to a normalised list of file extensions.
+///
+/// Accepts a mix of language names (e.g. `"rust"`, `"kotlin"`) and raw extensions
+/// (e.g. `"rs"`, `"kt"`). Language names are matched case-insensitively and expanded
+/// to all their associated extensions. Unknown values are passed through unchanged so
+/// the extension filter can handle them.
+///
+/// # Examples
+///
+/// ```
+/// // Language name
+/// assert_eq!(resolve_extensions(&["rust".to_string()]), vec!["rs"]);
+///
+/// // Raw extension (pass-through)
+/// assert_eq!(resolve_extensions(&["rs".to_string()]), vec!["rs"]);
+///
+/// // Mixed, case-insensitive
+/// assert_eq!(resolve_extensions(&["Rust".to_string(), "py".to_string()]), vec!["rs", "py"]);
+/// ```
+pub fn resolve_extensions(inputs: &[String]) -> Vec<String> {
+    let mut result = Vec::new();
+    for input in inputs {
+        let exts = language_name_to_extensions(input.trim());
+        if exts.is_empty() {
+            // Not a known language name — treat as a raw extension.
+            result.push(input.clone());
+        } else {
+            for ext in exts {
+                result.push(ext.to_string());
+            }
+        }
+    }
+    result
+}
+
+/// Maps a language name (case-insensitive) to its file extensions.
+/// Returns an empty slice if the name is not recognised as a language alias.
+fn language_name_to_extensions(name: &str) -> &'static [&'static str] {
+    match name.to_lowercase().as_str() {
+        "rust" => &["rs"],
+        "python" | "py" => &["py"],
+        "javascript" | "js" => &["js", "jsx"],
+        "typescript" | "ts" => &["ts", "tsx"],
+        "kotlin" | "kt" => &["kt", "kts"],
+        "c++" | "cpp" => &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
+        "java" => &["java"],
+        "c#" | "csharp" | "cs" => &["cs"],
+        "go" | "golang" => &["go"],
+        "html" | "htm" => &["html", "htm"],
+        "css" => &["css"],
+        // Not a language name — caller will treat it as a raw extension.
+        _ => &[],
     }
 }
 
@@ -562,5 +620,75 @@ mod tests {
         let simplicity = FileSimplicity::calculate(&results, true);
         // Should use file-level MI=60, not function-level
         assert_eq!(simplicity.mi, 60.0);
+    }
+
+    // ── resolve_extensions tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_extensions_language_name_rust() {
+        assert_eq!(resolve_extensions(&["rust".to_string()]), vec!["rs"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_language_name_kotlin() {
+        assert_eq!(
+            resolve_extensions(&["kotlin".to_string()]),
+            vec!["kt", "kts"]
+        );
+    }
+
+    #[test]
+    fn test_resolve_extensions_language_name_case_insensitive() {
+        assert_eq!(resolve_extensions(&["Rust".to_string()]), vec!["rs"]);
+        assert_eq!(
+            resolve_extensions(&["KOTLIN".to_string()]),
+            vec!["kt", "kts"]
+        );
+        assert_eq!(resolve_extensions(&["Python".to_string()]), vec!["py"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_raw_extension_passthrough() {
+        // Raw extensions (not matching any language name) pass through unchanged.
+        assert_eq!(resolve_extensions(&["rs".to_string()]), vec!["rs"]);
+        assert_eq!(resolve_extensions(&["kt".to_string()]), vec!["kt", "kts"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_mixed_names_and_extensions() {
+        let input = vec!["rust".to_string(), "py".to_string()];
+        let result = resolve_extensions(&input);
+        assert_eq!(result, vec!["rs", "py"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_multiple_language_names() {
+        let input = vec!["javascript".to_string(), "typescript".to_string()];
+        let result = resolve_extensions(&input);
+        assert_eq!(result, vec!["js", "jsx", "ts", "tsx"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_unknown_passthrough() {
+        // Completely unknown token passes through unchanged.
+        assert_eq!(resolve_extensions(&["xyz".to_string()]), vec!["xyz"]);
+    }
+
+    #[test]
+    fn test_resolve_extensions_empty_input() {
+        let result: Vec<String> = resolve_extensions(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_extensions_language_aliases() {
+        // Alias: "golang" → same as "go"
+        assert_eq!(resolve_extensions(&["golang".to_string()]), vec!["go"]);
+        // Alias: "csharp" → same as "c#"
+        assert_eq!(resolve_extensions(&["csharp".to_string()]), vec!["cs"]);
+        // Alias: "cpp" → C++ extensions
+        let cpp_exts = resolve_extensions(&["cpp".to_string()]);
+        assert!(cpp_exts.contains(&"cpp".to_string()));
+        assert!(cpp_exts.contains(&"hpp".to_string()));
     }
 }
