@@ -544,3 +544,68 @@ async fn test_non_flagged_bundles_remain_hidden_with_auto_reveal() {
         "git should be hidden (not CLI-flagged)"
     );
 }
+
+/// Verifies the new default: `--tools` without `--auto-reveal` keeps bundles hidden.
+/// This is the regression test for the breaking change in R1.5.6.
+#[tokio::test]
+async fn test_tools_loaded_but_hidden_without_auto_reveal() {
+    init_test_logging();
+
+    let monitor_config =
+        ahma_mcp::operation_monitor::MonitorConfig::with_timeout(Duration::from_secs(300));
+    let operation_monitor = Arc::new(ahma_mcp::operation_monitor::OperationMonitor::new(
+        monitor_config,
+    ));
+    let shell_config = ahma_mcp::shell_pool::ShellPoolConfig::default();
+    let shell_pool = Arc::new(ahma_mcp::shell_pool::ShellPoolManager::new(shell_config));
+    let sandbox = Arc::new(ahma_mcp::sandbox::Sandbox::new_test());
+    let adapter =
+        Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
+
+    // Load rust bundle (as --tools rust would), but do NOT call pre_disclose
+    let config = ahma_mcp::shell::cli::AppConfig {
+        tool_bundles: vec!["rust".to_string()],
+        auto_reveal: false, // this is the new default
+        ..ahma_mcp::shell::cli::AppConfig::default()
+    };
+    let tool_configs = load_tool_configs(&config, None).await.unwrap_or_default();
+    let configs = Arc::new(tool_configs);
+    let guidance = Arc::new(None::<GuidanceConfig>);
+
+    let service = AhmaMcpService::new(
+        adapter,
+        operation_monitor,
+        configs,
+        guidance,
+        false,
+        false,
+        true, // progressive_disclosure = true
+    )
+    .await
+    .unwrap();
+
+    // Intentionally NOT calling pre_disclose -- simulates server.rs with auto_reveal=false
+
+    let tool_names = service.list_tool_names();
+
+    // cargo tools should be hidden (bundle loaded but not revealed)
+    assert!(
+        !tool_names.contains(&"cargo".to_string()),
+        "cargo should be hidden when auto_reveal=false (new default), got: {:?}",
+        tool_names
+    );
+
+    // activate_tools must be present so LLM can reveal bundles on demand
+    assert!(
+        tool_names.contains(&"activate_tools".to_string()),
+        "activate_tools must be present for LLM to reveal bundles, got: {:?}",
+        tool_names
+    );
+
+    // sandboxed_shell must still be present (built-in, not bundle-gated)
+    assert!(
+        tool_names.contains(&"sandboxed_shell".to_string()),
+        "sandboxed_shell must always be visible, got: {:?}",
+        tool_names
+    );
+}

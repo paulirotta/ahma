@@ -153,7 +153,7 @@ These tools are always available regardless of JSON configuration:
 - **R1.5.3**: The `--disable-progressive-disclosure` CLI flag **must** restore legacy behavior where all enabled tools are listed immediately.
 - **R1.5.4**: The `instructions` field in the MCP `initialize` response **must** contain sandbox routing directives instructing the model to use `sandboxed_shell` for all command execution.
 - **R1.5.5**: The `activate_tools` description **must** dynamically list all loaded bundles with action-oriented hints (`ai_hint`) so the AI knows exactly when to activate each bundle.
-- **R1.5.6**: CLI-enabled bundles (e.g., `--rust`, `--git`) **should** be immediately visible via auto-reveal at startup, eliminating the need for a separate reveal step.
+- **R1.5.6**: CLI-enabled bundles (e.g., `--tools rust,git`) are **loaded but hidden by default**. The `--auto-reveal` flag (or `AHMA_AUTO_REVEAL=1`) makes them immediately visible at startup, bypassing the progressive disclosure step. Without `--auto-reveal`, the LLM must call `activate_tools` to reveal them.
 
 ### R2: Async-First Architecture
 
