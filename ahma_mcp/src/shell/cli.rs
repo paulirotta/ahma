@@ -47,9 +47,6 @@ pub struct AppConfig {
     pub explicit_tools_dir: bool,
     /// Tool bundles to activate (e.g. ["rust", "python"]).
     pub tool_bundles: Vec<String>,
-    /// Immediately reveal `--tools` bundles at startup instead of requiring `activate_tools`.
-    /// Default false: bundles are loaded but hidden behind progressive disclosure.
-    pub auto_reveal: bool,
 
     // ── Execution ───────────────────────────────────────────────────────────
     /// Default command timeout in seconds (AHMA_TIMEOUT, default 360).
@@ -119,7 +116,6 @@ impl Default for AppConfig {
             tools_dir: None,
             explicit_tools_dir: false,
             tool_bundles: vec![],
-            auto_reveal: false,
             timeout_secs: 360,
             force_sync: false,
             hot_reload_tools: false,
@@ -619,12 +615,6 @@ pub struct ServeArgs {
     /// as a notification. Equivalent to AHMA_SYNC=1.
     #[arg(long = "sync", global = true)]
     pub sync: bool,
-
-    /// Immediately reveal bundles specified via `--tools` at startup.
-    /// Without this flag, `--tools` loads bundles but keeps them hidden until
-    /// the LLM calls `activate_tools`. Equivalent to AHMA_AUTO_REVEAL=1.
-    #[arg(long = "auto-reveal", global = true)]
-    pub auto_reveal: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -902,7 +892,6 @@ fn build_app_config(cli: Cli) -> AppConfig {
         cli_no_sandbox,
         cli_timeout,
         cli_sync,
-        cli_auto_reveal,
     ) = match &cli.command {
         Subcommands::Serve(s) => {
             let (host, port, no_quic, disable_http1_1) = match &s.transport {
@@ -924,7 +913,6 @@ fn build_app_config(cli: Cli) -> AppConfig {
                 s.no_sandbox,
                 s.timeout,
                 s.sync,
-                s.auto_reveal,
             )
         }
         _ => (
@@ -939,7 +927,6 @@ fn build_app_config(cli: Cli) -> AppConfig {
             None,
             false,
             None,
-            false,
             false,
         ),
     };
@@ -1001,7 +988,6 @@ fn build_app_config(cli: Cli) -> AppConfig {
         tools_dir,
         explicit_tools_dir,
         tool_bundles,
-        auto_reveal: cli_auto_reveal || AppConfig::env_flag("AHMA_AUTO_REVEAL"),
         timeout_secs: cli_timeout.unwrap_or_else(|| AppConfig::env_u64("AHMA_TIMEOUT", 360)),
         force_sync: cli_sync || AppConfig::env_flag("AHMA_SYNC"),
         hot_reload_tools: AppConfig::env_flag("AHMA_HOT_RELOAD"),
@@ -1392,7 +1378,6 @@ mod tests {
             tools_dir: None,
             explicit_tools_dir: false,
             tool_bundles: vec![],
-            auto_reveal: false,
             timeout_secs: 360,
             force_sync: false,
             hot_reload_tools: false,
@@ -1866,62 +1851,6 @@ mod tests {
         } else {
             panic!("expected serve stdio");
         }
-    }
-
-    #[test]
-    fn test_cli_parse_auto_reveal_default_false() {
-        let cli = Cli::try_parse_from(["ahma-mcp", "serve", "stdio", "--tools", "rust"]).unwrap();
-        if let Subcommands::Serve(s) = cli.command {
-            assert!(!s.auto_reveal, "--auto-reveal should default to false");
-        } else {
-            panic!("expected serve stdio");
-        }
-    }
-
-    #[test]
-    fn test_cli_parse_auto_reveal_flag() {
-        let cli = Cli::try_parse_from([
-            "ahma-mcp",
-            "serve",
-            "stdio",
-            "--tools",
-            "rust",
-            "--auto-reveal",
-        ])
-        .unwrap();
-        if let Subcommands::Serve(s) = cli.command {
-            assert!(s.auto_reveal, "--auto-reveal should be true when passed");
-        } else {
-            panic!("expected serve stdio");
-        }
-    }
-
-    #[test]
-    fn test_app_config_auto_reveal_wired() {
-        let cli = Cli::try_parse_from([
-            "ahma-mcp",
-            "serve",
-            "stdio",
-            "--tools",
-            "rust",
-            "--auto-reveal",
-        ])
-        .unwrap();
-        let config = build_app_config(cli);
-        assert!(
-            config.auto_reveal,
-            "auto_reveal should be true in AppConfig when --auto-reveal is passed"
-        );
-    }
-
-    #[test]
-    fn test_app_config_auto_reveal_false_by_default() {
-        let cli = Cli::try_parse_from(["ahma-mcp", "serve", "stdio", "--tools", "rust"]).unwrap();
-        let config = build_app_config(cli);
-        assert!(
-            !config.auto_reveal,
-            "auto_reveal should be false when --auto-reveal is not passed"
-        );
     }
 
     // ─── AppConfig::env_flag ─────────────────────────────────────────────────

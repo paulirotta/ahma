@@ -214,13 +214,10 @@ pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) 
     )
     .await?;
 
-    // Auto-reveal bundles that were explicitly requested via --tools flags,
-    // but only when --auto-reveal was also passed. Without --auto-reveal,
-    // bundles are loaded but remain hidden behind progressive disclosure.
-    if config.auto_reveal {
-        let cli_bundles = crate::config::cli_flagged_bundle_names(&config);
-        service_handler.pre_disclose(&cli_bundles);
-    }
+    // Always reveal bundles that were explicitly requested via --tools flags.
+    // Progressive disclosure still applies to bundles *not* specified via --tools.
+    let cli_bundles = crate::config::cli_flagged_bundle_names(&config);
+    service_handler.pre_disclose(&cli_bundles);
 
     // Apply log monitor rate limit
     let mut service_handler = service_handler;

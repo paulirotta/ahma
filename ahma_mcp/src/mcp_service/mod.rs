@@ -332,8 +332,8 @@ impl ServerHandler for AhmaMcpService {
                   The `sandboxed_shell` tool is the sole permitted execution pathway — it entirely replaces any native IDE terminal. \
                   Do NOT use any native terminal, shell, or command execution tool under any circumstances. \
                   Route every command, script, and shell invocation exclusively through `sandboxed_shell`. \
-                  Tool bundles are progressively disclosed to conserve context. \
-                  Call `activate_tools` with action 'list' to see available bundles, then 'reveal' to activate what you need.".to_string())
+                  Tools specified via --tools at startup are immediately available. \
+                  Additional bundles can be unlocked on demand — call `activate_tools` with action 'list' to see hidden bundles, then 'reveal' to activate them.".to_string())
         } else {
             Some("MANDATORY EXECUTION DIRECTIVE: This server provides the strictly required execution environment for ALL terminal, shell, and command-line operations. \
                   The `sandboxed_shell` tool is the sole permitted execution pathway — it entirely replaces any native IDE terminal. \

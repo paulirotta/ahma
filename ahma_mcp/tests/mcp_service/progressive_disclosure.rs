@@ -545,10 +545,10 @@ async fn test_non_flagged_bundles_remain_hidden_with_auto_reveal() {
     );
 }
 
-/// Verifies the new default: `--tools` without `--auto-reveal` keeps bundles hidden.
-/// This is the regression test for the breaking change in R1.5.6.
+/// Verifies that `--tools rust` reveals bundles immediately (the default behavior).
+/// This is the regression test for the old R1.5.6 regression where --tools hid bundles.
 #[tokio::test]
-async fn test_tools_loaded_but_hidden_without_auto_reveal() {
+async fn test_tools_reveal_bundles_by_default() {
     init_test_logging();
 
     let monitor_config =
@@ -562,10 +562,9 @@ async fn test_tools_loaded_but_hidden_without_auto_reveal() {
     let adapter =
         Arc::new(Adapter::new(Arc::clone(&operation_monitor), shell_pool, sandbox).unwrap());
 
-    // Load rust bundle (as --tools rust would), but do NOT call pre_disclose
+    // Load rust bundle (as --tools rust would).
     let config = ahma_mcp::shell::cli::AppConfig {
         tool_bundles: vec!["rust".to_string()],
-        auto_reveal: false, // this is the new default
         ..ahma_mcp::shell::cli::AppConfig::default()
     };
     let tool_configs = load_tool_configs(&config, None).await.unwrap_or_default();
@@ -584,21 +583,16 @@ async fn test_tools_loaded_but_hidden_without_auto_reveal() {
     .await
     .unwrap();
 
-    // Intentionally NOT calling pre_disclose -- simulates server.rs with auto_reveal=false
+    // Simulate server.rs: always pre-disclose CLI-flagged bundles.
+    let cli_bundles = ahma_mcp::config::cli_flagged_bundle_names(&config);
+    service.pre_disclose(&cli_bundles);
 
     let tool_names = service.list_tool_names();
 
-    // cargo tools should be hidden (bundle loaded but not revealed)
+    // cargo tools should be visible (--tools rust pre-discloses the rust bundle)
     assert!(
-        !tool_names.contains(&"cargo".to_string()),
-        "cargo should be hidden when auto_reveal=false (new default), got: {:?}",
-        tool_names
-    );
-
-    // activate_tools must be present so LLM can reveal bundles on demand
-    assert!(
-        tool_names.contains(&"activate_tools".to_string()),
-        "activate_tools must be present for LLM to reveal bundles, got: {:?}",
+        tool_names.contains(&"cargo".to_string()),
+        "cargo should be visible when --tools rust was passed, got: {:?}",
         tool_names
     );
 

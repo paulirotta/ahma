@@ -123,8 +123,10 @@ If a user asks you to use Ahma but it isn't configured, help them by:
 
 ## Tool Bundles & Progressive Disclosure
 
-By default, Ahma hides bundled tools to save AI context ("progressive disclosure"). You first
-see only: `sandboxed_shell`, `status`, `await`, `cancel`, and `activate_tools`.
+By default, Ahma shows only built-in tools (`sandboxed_shell`, `status`, `await`) plus
+`activate_tools` (when bundles are loaded but not yet specified via `--tools`).
+Bundles specified with `--tools` are **always revealed immediately** — no extra flag needed.
+Bundles NOT in `--tools` remain hidden and can be unlocked on demand via `activate_tools`.
 
 ### Discovering and Activating Bundles
 
@@ -146,12 +148,12 @@ activate_tools(action="reveal", bundle="git")    # Unlock Git tools
 | `github` | `--tools github` | gh pr/issue/run/release | GitHub CLI operations |
 | `simplify` | `--tools simplify` | Code complexity analysis | Code quality work |
 
-**Pre-reveal at startup** (skip progressive disclosure):
+**Specify bundles at startup** (tools visible immediately — no extra step required):
 ```json
 "args": ["serve", "stdio", "--tools", "rust,git,fileutils"]
 ```
 
-**Disable progressive disclosure entirely** (all tools visible immediately):
+**Disable progressive disclosure entirely** (show all loaded tools, no `activate_tools`):
 ```json
 "args": ["serve", "stdio", "--tools", "rust,git", "--disable-progressive-disclosure"]
 ```

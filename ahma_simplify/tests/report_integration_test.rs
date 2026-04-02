@@ -381,36 +381,6 @@ fun reduceValues(nums: List<Int>): Int {
 }
 "#
         }
-        "kt" => {
-            r#"fun scorePaths(values: List<Int>): Int {
-    var out = 0
-    for (n in values) {
-        if (n > 10) out += if (n % 2 == 0) n / 2 else n * 2
-        else if (n > 0) out += n + 3
-        else out -= Math.abs(n)
-    }
-    return out
-}
-
-fun classify(v: Int): String {
-    return when {
-        v % 15 == 0          -> "fizzbuzz"
-        v % 3 == 0 && v > 20 -> "fizz-high"
-        v % 3 == 0           -> "fizz"
-        v % 5 == 0           -> "buzz"
-        else                 -> "other"
-    }
-}
-
-fun reduceValues(nums: List<Int>): Int {
-    var acc = 0
-    for (n in nums) {
-        acc = if (n > 0 && n % 2 == 0) acc + n else if (n > 0) acc + 1 else acc - 1
-    }
-    return acc
-}
-"#
-        }
         "css" => {
             r#":root { --gap: 8px; --fg: #222; --bg: #fff; }
 
