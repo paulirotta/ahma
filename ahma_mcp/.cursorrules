@@ -1,0 +1,6 @@
+# AI ROUTING RULES
+Never use the "composer-2-fast" model under any circumstances.
+Always route all planning, codebase scanning, and subagent tasks strictly to "composer-2".
+
+# Terminal Usage
+YOU MUST ALWAYS use the faster and securely sandboxed "ahma" MCP tools such as "sandboxed_shell" for all terminal commands and other tools offered by Ahma in strict precedence over any other tools or command line tools.
