@@ -4,11 +4,14 @@ mod report;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use analysis::{get_project_name, is_cargo_workspace, perform_analysis};
+use analysis::{
+    AnalyzerRegistry, ExternalMetrics, get_project_name, is_cargo_workspace, perform_analysis,
+};
 use models::{FileSimplicity, MetricsResults, resolve_extensions};
 use report::{create_report_md, generate_ai_fix_prompt, generate_report};
 
@@ -62,6 +65,12 @@ struct Cli {
     #[arg(short = 'x', long, value_delimiter = ',')]
     exclude: Vec<String>,
 
+    /// Disable external language-specific analyzers (e.g. Detekt for Kotlin).
+    /// When set, only rust-code-analysis metrics are used. Useful for faster
+    /// CI runs or when external tools are not available.
+    #[arg(long)]
+    no_external: bool,
+
     /// Output directory for CODE_SIMPLICITY.md and CODE_SIMPLICITY.html files.
     /// If omitted (and --html/--open not set), report is printed to stdout.
     /// When specified, writes files to the given directory.
@@ -101,15 +110,25 @@ fn main() -> Result<()> {
 
     let is_workspace = is_cargo_workspace(&cli.directory);
     let extensions = resolve_extensions(&cli.extensions);
-    perform_analysis(
+
+    // Build the external analyzer registry unless the user requested rca-only.
+    let registry = build_registry(cli.no_external);
+    let registry_ref = if cli.no_external {
+        None
+    } else {
+        Some(&registry)
+    };
+
+    let external_metrics = perform_analysis(
         &directory,
         &cli.output,
         is_workspace,
         &extensions,
         &cli.exclude,
+        registry_ref,
     )?;
 
-    let mut files_simplicity = load_metrics(&cli.output, true)?;
+    let mut files_simplicity = load_metrics(&cli.output, true, &external_metrics)?;
     if files_simplicity.is_empty() {
         eprintln!("No analysis files found in {}.", cli.output.display());
         return Ok(());
@@ -202,6 +221,18 @@ fn handle_ai_fix_to_stdout(
     }
 }
 
+/// Build the default external analyzer registry.
+///
+/// When `no_external` is true returns an empty registry so the caller can
+/// still call `perform_analysis` with `None` (no external analysis runs).
+fn build_registry(no_external: bool) -> AnalyzerRegistry {
+    let mut registry = AnalyzerRegistry::new();
+    if !no_external {
+        registry.register(Box::new(analysis::detekt::DetektAnalyzer));
+    }
+    registry
+}
+
 fn prepare_output_directory(output: &Path) -> Result<()> {
     if output.exists() {
         eprintln!(
@@ -244,10 +275,22 @@ fn determine_report_output_dir(output_path: &Option<PathBuf>) -> Result<PathBuf>
         .ok_or_else(|| anyhow::anyhow!("Invalid output path: cannot determine parent directory"))
 }
 
-fn try_parse_metrics_file(path: &Path, normalized: bool) -> Option<FileSimplicity> {
+fn try_parse_metrics_file(
+    path: &Path,
+    normalized: bool,
+    external: &HashMap<PathBuf, ExternalMetrics>,
+) -> Option<FileSimplicity> {
     let content = fs::read_to_string(path).ok()?;
     match toml::from_str::<MetricsResults>(&content) {
-        Ok(results) => Some(FileSimplicity::calculate(&results, normalized)),
+        Ok(results) => {
+            let fs_base = FileSimplicity::calculate(&results, normalized);
+            // Look up external metrics by the source file's absolute path.
+            let fs_merged = match external.get(Path::new(&results.name)) {
+                Some(ext) => fs_base.apply_external(ext),
+                None => fs_base,
+            };
+            Some(fs_merged)
+        }
         Err(e) => {
             eprintln!("Error parsing {}: {}", path.display(), e);
             None
@@ -255,14 +298,18 @@ fn try_parse_metrics_file(path: &Path, normalized: bool) -> Option<FileSimplicit
     }
 }
 
-fn load_metrics(output: &Path, normalized: bool) -> Result<Vec<FileSimplicity>> {
+fn load_metrics(
+    output: &Path,
+    normalized: bool,
+    external: &HashMap<PathBuf, ExternalMetrics>,
+) -> Result<Vec<FileSimplicity>> {
     eprintln!("Aggregating metrics from {}...", output.display());
 
     let files_simplicity = WalkDir::new(output)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
-        .filter_map(|e| try_parse_metrics_file(e.path(), normalized))
+        .filter_map(|e| try_parse_metrics_file(e.path(), normalized, external))
         .collect();
 
     Ok(files_simplicity)
@@ -320,7 +367,7 @@ fn run_verify(
     let parent_dir = canonical_verify
         .parent()
         .context("Cannot determine parent directory")?;
-    analysis::run_analysis(parent_dir, temp_output.path(), extensions, &[])?;
+    analysis::run_analysis(parent_dir, temp_output.path(), extensions, &[], None)?;
 
     let current = find_baseline_metrics(temp_output.path(), &canonical_verify)?;
     let current_simplicity = FileSimplicity::calculate(&current, true);

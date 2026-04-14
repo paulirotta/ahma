@@ -1,48 +1,67 @@
 use anyhow::{Context, Result};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use super::conversion::analyze_file;
 use super::exclusion::should_exclude;
+use super::external::{AnalyzerRegistry, ExternalMetrics};
 use super::workspace::workspace_analysis_dirs;
+use crate::models::Language;
 
 // ---------------------------------------------------------------------------
 // Public analysis API (drop-in replacement for the old CLI-based version)
 // ---------------------------------------------------------------------------
 
-/// Analyses all source files under `dir` and writes per-file TOML metric
-/// results into `output_dir`, mirroring the old `rust-code-analysis-cli`
-/// output format so that `--verify` and the rest of main.rs continue to work.
+/// Analyses all source files under `dir`, writes per-file TOML metric results
+/// into `output_dir`, and optionally runs external analyzers via `registry`.
+///
+/// Returns a map of absolute file path → external metrics for any files that
+/// were covered by an external analyzer.  The map is empty when `registry` is
+/// `None` or no analyzers are available.
 pub fn run_analysis(
     dir: &Path,
     output_dir: &Path,
     extensions: &[String],
     custom_excludes: &[String],
-) -> Result<()> {
+    registry: Option<&AnalyzerRegistry>,
+) -> Result<HashMap<PathBuf, ExternalMetrics>> {
     println!("Analyzing {}...", dir.display());
 
-    let allowed_exts: std::collections::HashSet<&str> = extensions
+    let allowed_exts: HashSet<&str> = extensions
         .iter()
         .map(|e| e.trim_start_matches('.'))
         .collect();
 
+    // Run rca analysis and collect the set of languages seen.
+    let mut languages_present: HashSet<Language> = HashSet::new();
     let count = source_files(dir, &allowed_exts, custom_excludes).try_fold(
         0usize,
         |count, path| -> Result<usize> {
+            if let Some(lang) = file_language(&path) {
+                languages_present.insert(lang);
+            }
             write_metrics_toml(&path, dir, output_dir)?;
             Ok(count + 1)
         },
     )?;
 
-    println!("  Analyzed {} files.", count);
-    Ok(())
+    println!("  Analyzed {count} files.");
+
+    // Run external analyzers when a registry is provided.
+    let external = match registry {
+        Some(reg) if !languages_present.is_empty() => reg.run_for_project(dir, &languages_present),
+        _ => HashMap::new(),
+    };
+
+    Ok(external)
 }
 
 /// Check if a file matches the extension filter and is not excluded.
 fn is_matching_source_file(
     path: &Path,
-    allowed_exts: &std::collections::HashSet<&str>,
+    allowed_exts: &HashSet<&str>,
     custom_excludes: &[String],
 ) -> bool {
     if should_exclude(path, custom_excludes) {
@@ -53,6 +72,25 @@ fn is_matching_source_file(
         .is_some_and(|ext| {
             allowed_exts.is_empty() || allowed_exts.contains(ext.to_lowercase().as_str())
         })
+}
+
+/// Detect the language of a file from its extension.
+fn file_language(path: &Path) -> Option<Language> {
+    let ext = path.extension()?.to_str()?;
+    match ext.to_lowercase().as_str() {
+        "kt" | "kts" => Some(Language::Kotlin),
+        "rs" => Some(Language::Rust),
+        "java" => Some(Language::Java),
+        "py" => Some(Language::Python),
+        "js" | "mjs" | "cjs" => Some(Language::JavaScript),
+        "ts" | "tsx" => Some(Language::TypeScript),
+        "swift" => Some(Language::Swift),
+        "go" => Some(Language::Go),
+        "cpp" | "cc" | "cxx" => Some(Language::Cpp),
+        "c" | "h" => Some(Language::C),
+        "cs" => Some(Language::CSharp),
+        _ => None,
+    }
 }
 
 /// Iterate source files in `dir` matching extension and exclusion filters.
@@ -98,10 +136,13 @@ pub fn perform_analysis(
     is_workspace: bool,
     extensions: &[String],
     custom_excludes: &[String],
-) -> Result<()> {
+    registry: Option<&AnalyzerRegistry>,
+) -> Result<HashMap<PathBuf, ExternalMetrics>> {
     let dirs = workspace_analysis_dirs(directory, is_workspace)?;
+    let mut all_external: HashMap<PathBuf, ExternalMetrics> = HashMap::new();
     for dir in &dirs {
-        run_analysis(dir, output, extensions, custom_excludes)?;
+        let external = run_analysis(dir, output, extensions, custom_excludes, registry)?;
+        all_external.extend(external);
     }
-    Ok(())
+    Ok(all_external)
 }

@@ -58,6 +58,21 @@ else
   echo "WARNING️  --allow-dirty enabled (clean tree check skipped)"
 fi
 
+echo "=== Guardrail: SKILL.md self-containment (no relative file links) ==="
+# Skills are installed standalone to ~/.agents/skills/ — external relative links break.
+# All cross-references must use absolute GitHub URLs, not relative paths like ](docs/foo.md).
+SKILL_LINK_VIOLATIONS=$(grep -rn '](docs/' skills .agents/skills 2>/dev/null | grep -v 'https://' || true)
+if [[ -n "$SKILL_LINK_VIOLATIONS" ]]; then
+  echo ""
+  echo "FAIL SKILL.md files contain relative docs/ links that break when installed standalone:"
+  echo "$SKILL_LINK_VIOLATIONS"
+  echo ""
+  echo "Replace relative paths with absolute GitHub URLs:"
+  echo "  ](docs/foo.md)  ->  ](https://github.com/paulirotta/ahma/blob/main/docs/foo.md)"
+  exit 1
+fi
+echo "OK No relative docs/ links in SKILL.md files"
+
 echo "=== Guardrail: crate root preflight (src/lib.rs or src/main.rs) ==="
 missing=0
 while IFS= read -r manifest; do

@@ -379,7 +379,7 @@ Hot-reload while authoring (dev only): `AHMA_HOT_RELOAD=1 ahma-mcp serve stdio`
 | `AHMA_PROGRESSIVE_DISCLOSURE_OFF` | off | Expose all tools immediately |
 | `RUST_LOG` | `info` | Log verbosity (e.g., `ahma_mcp=debug`) |
 
-Full reference: [docs/environment-variables.md](docs/environment-variables.md)
+Full reference: [environment-variables.md](https://github.com/paulirotta/ahma/blob/main/docs/environment-variables.md)
 
 ---
 
@@ -467,8 +467,8 @@ older systems (Raspberry Pi OS bullseye, etc.).
 
 ---
 
-**See also**: [docs/security-sandbox.md](docs/security-sandbox.md) ·
-[docs/live-log-monitoring.md](docs/live-log-monitoring.md) ·
-[docs/connection-modes.md](docs/connection-modes.md) ·
-[docs/environment-variables.md](docs/environment-variables.md) ·
-[docs/mtdf-schema.json](docs/mtdf-schema.json)
+**See also**: [security-sandbox.md](https://github.com/paulirotta/ahma/blob/main/docs/security-sandbox.md) ·
+[live-log-monitoring.md](https://github.com/paulirotta/ahma/blob/main/docs/live-log-monitoring.md) ·
+[connection-modes.md](https://github.com/paulirotta/ahma/blob/main/docs/connection-modes.md) ·
+[environment-variables.md](https://github.com/paulirotta/ahma/blob/main/docs/environment-variables.md) ·
+[mtdf-schema.json](https://github.com/paulirotta/ahma/blob/main/docs/mtdf-schema.json)

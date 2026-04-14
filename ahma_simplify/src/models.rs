@@ -123,6 +123,7 @@ pub enum Language {
     JavaScript,
     TypeScript,
     Kotlin,
+    Swift,
     Cpp,
     C,
     Java,
@@ -148,6 +149,7 @@ impl Language {
             "js" | "jsx" => Language::JavaScript,
             "ts" | "tsx" => Language::TypeScript,
             "kt" | "kts" => Language::Kotlin,
+            "swift" => Language::Swift,
             "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Language::Cpp,
             "c" | "h" => Language::C,
             "java" => Language::Java,
@@ -166,6 +168,7 @@ impl Language {
             Language::JavaScript => "JavaScript",
             Language::TypeScript => "TypeScript",
             Language::Kotlin => "Kotlin",
+            Language::Swift => "Swift",
             Language::Cpp => "C++",
             Language::C => "C",
             Language::Java => "Java",
@@ -222,6 +225,7 @@ fn language_name_to_extensions(name: &str) -> &'static [&'static str] {
         "javascript" | "js" => &["js", "jsx"],
         "typescript" | "ts" => &["ts", "tsx"],
         "kotlin" | "kt" => &["kt", "kts"],
+        "swift" => &["swift"],
         "c++" | "cpp" => &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
         "java" => &["java"],
         "c#" | "csharp" | "cs" => &["cs"],
@@ -243,6 +247,10 @@ pub struct FileSimplicity {
     pub sloc: f64,
     pub mi: f64,
     pub hotspots: Vec<FunctionHotspot>,
+    /// Names of the analysis tools that contributed to this file's metrics.
+    /// Always contains at least `"rust-code-analysis"`. May also contain
+    /// `"detekt"`, `"swiftlint"`, etc. when external analyzers ran.
+    pub analysis_sources: Vec<String>,
 }
 
 impl FileSimplicity {
@@ -296,7 +304,58 @@ impl FileSimplicity {
             sloc,
             mi,
             hotspots,
+            analysis_sources: vec!["rust-code-analysis".to_string()],
         }
+    }
+
+    /// Like [`calculate`], but merges in supplementary metrics from an external
+    /// analyzer (e.g. Detekt for Kotlin files).
+    ///
+    /// When external data overlaps with rca data, the **higher** (more complex)
+    /// value is used — a conservative approach that catches complexity either
+    /// analyzer alone might miss. The score is recalculated only if the merged
+    /// values differ from the rca values.
+    pub fn apply_external(mut self, external: &crate::analysis::ExternalMetrics) -> Self {
+        let mut changed = false;
+
+        if let Some(ext_cog) = external.cognitive
+            && ext_cog > self.cognitive {
+                self.cognitive = ext_cog;
+                changed = true;
+            }
+        if let Some(ext_cyc) = external.cyclomatic
+            && ext_cyc > self.cyclomatic {
+                self.cyclomatic = ext_cyc;
+                changed = true;
+            }
+
+        if changed {
+            // Recalculate score with updated complexity values.
+            let mi_score = self.mi.clamp(0.0, 100.0);
+            // Use normalized=true as the default (matching calculate() behaviour
+            // for most callers; the normalized flag is not stored on Self, so
+            // we use per-file SLOC which is always available).
+            let sloc_factor = self.sloc.max(1.0);
+            let cog_density = (self.cognitive / sloc_factor) * 100.0;
+            let cyc_density = (self.cyclomatic / sloc_factor) * 100.0;
+            let cog_score = (100.0 - cog_density).max(0.0);
+            let cyc_score = (100.0 - cyc_density).max(0.0);
+            let new_score = 0.6 * mi_score + 0.2 * cog_score + 0.2 * cyc_score;
+            self.score = new_score.clamp(0.0, 100.0);
+        }
+
+        // Record which analyzer contributed regardless of whether values changed.
+        if !external.analyzer.is_empty() {
+            let sources: Vec<&str> = external.analyzer.split(", ").collect();
+            for src in sources {
+                let s = src.to_string();
+                if !self.analysis_sources.contains(&s) {
+                    self.analysis_sources.push(s);
+                }
+            }
+        }
+
+        self
     }
 
     /// Resolves the effective MI value for a file.

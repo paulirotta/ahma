@@ -32,6 +32,7 @@ fn file(path: &str, language: Language, score: f64) -> FileSimplicity {
         sloc: 200.0,
         mi: 70.0,
         hotspots: vec![],
+        analysis_sources: vec!["rust-code-analysis".to_string()],
     }
 }
 
@@ -561,7 +562,7 @@ fn test_full_pipeline_on_generated_fixtures_single_and_multi_module() {
 
     let single_output = temp.path().join("single_output");
     fs::create_dir_all(&single_output).unwrap();
-    perform_analysis(&single_case, &single_output, false, &extensions, &[]).unwrap();
+    perform_analysis(&single_case, &single_output, false, &extensions, &[], None).unwrap();
     let mut single_simplicity = load_metrics(&single_output, true);
     single_simplicity.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     let single_report = create_report_md(&single_simplicity, false, 3, &single_case, "single-case");
@@ -577,7 +578,7 @@ fn test_full_pipeline_on_generated_fixtures_single_and_multi_module() {
 
     let multi_output = temp.path().join("multi_output");
     fs::create_dir_all(&multi_output).unwrap();
-    perform_analysis(&multi_case, &multi_output, false, &extensions, &[]).unwrap();
+    perform_analysis(&multi_case, &multi_output, false, &extensions, &[], None).unwrap();
     let mut multi_simplicity = load_metrics(&multi_output, true);
     multi_simplicity.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
     let multi_report = create_report_md(&multi_simplicity, false, 3, &multi_case, "multi-case");

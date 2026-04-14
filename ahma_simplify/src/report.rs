@@ -459,6 +459,7 @@ mod tests {
             sloc,
             mi,
             hotspots: vec![],
+            analysis_sources: vec!["rust-code-analysis".to_string()],
         }
     }
 
@@ -483,6 +484,7 @@ mod tests {
             sloc,
             mi,
             hotspots,
+            analysis_sources: vec!["rust-code-analysis".to_string()],
         }
     }
 
