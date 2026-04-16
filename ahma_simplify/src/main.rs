@@ -305,12 +305,34 @@ fn load_metrics(
 ) -> Result<Vec<FileSimplicity>> {
     eprintln!("Aggregating metrics from {}...", output.display());
 
-    let files_simplicity = WalkDir::new(output)
+    // Phase 1: load rca-based TOML metrics and merge external where available.
+    let mut covered_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut files_simplicity: Vec<FileSimplicity> = WalkDir::new(output)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
-        .filter_map(|e| try_parse_metrics_file(e.path(), normalized, external))
+        .filter_map(|e| {
+            let result = try_parse_metrics_file(e.path(), normalized, external)?;
+            // Track the source path so we don't double-count in Phase 2.
+            if let Ok(content) = fs::read_to_string(e.path()) {
+                if let Ok(parsed) = toml::from_str::<MetricsResults>(&content) {
+                    covered_paths.insert(PathBuf::from(&parsed.name));
+                }
+            }
+            Some(result)
+        })
         .collect();
+
+    // Phase 2: create synthetic entries for files covered only by external
+    // analyzers (e.g. Kotlin files where rca produced no metrics).
+    for (src_path, ext_metrics) in external {
+        if covered_paths.contains(src_path) {
+            continue;
+        }
+        if let Some(fs) = FileSimplicity::from_external(src_path, ext_metrics) {
+            files_simplicity.push(fs);
+        }
+    }
 
     Ok(files_simplicity)
 }

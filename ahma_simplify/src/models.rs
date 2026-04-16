@@ -308,6 +308,57 @@ impl FileSimplicity {
         }
     }
 
+    /// Build a [`FileSimplicity`] entry from external analyzer metrics alone,
+    /// without a corresponding rust-code-analysis base.
+    ///
+    /// Used for language files (e.g. Kotlin) where rca cannot produce metrics
+    /// but an external tool (Detekt) did analyze the file.  SLOC is estimated
+    /// by counting source lines in the file on disk; MI is unknown (0).
+    pub fn from_external(
+        path: &std::path::Path,
+        external: &crate::analysis::ExternalMetrics,
+    ) -> Option<Self> {
+        let cognitive = external.cognitive.unwrap_or(0.0);
+        let cyclomatic = external.cyclomatic.unwrap_or(0.0);
+        if cognitive == 0.0 && cyclomatic == 0.0 {
+            return None;
+        }
+
+        // Estimate SLOC from the file on disk; fall back to a neutral value.
+        let sloc = std::fs::read_to_string(path)
+            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count() as f64)
+            .unwrap_or(100.0)
+            .max(1.0);
+
+        let sloc_factor = sloc;
+        let cog_density = (cognitive / sloc_factor) * 100.0;
+        let cyc_density = (cyclomatic / sloc_factor) * 100.0;
+        let cog_score = (100.0 - cog_density).max(0.0);
+        let cyc_score = (100.0 - cyc_density).max(0.0);
+        // MI unknown → treat as 50 (neutral midpoint) so the score stays
+        // representative of the complexity components we do have.
+        let mi_score = 50.0_f64;
+        let score = (0.6 * mi_score + 0.2 * cog_score + 0.2 * cyc_score).clamp(0.0, 100.0);
+
+        let analyzer = if external.analyzer.is_empty() {
+            "detekt".to_string()
+        } else {
+            external.analyzer.clone()
+        };
+
+        Some(Self {
+            path: path.to_string_lossy().into_owned(),
+            language: Language::from_path(path),
+            score,
+            cognitive,
+            cyclomatic,
+            sloc,
+            mi: 0.0,
+            hotspots: vec![],
+            analysis_sources: vec![analyzer],
+        })
+    }
+
     /// Like [`calculate`], but merges in supplementary metrics from an external
     /// analyzer (e.g. Detekt for Kotlin files).
     ///
@@ -319,15 +370,17 @@ impl FileSimplicity {
         let mut changed = false;
 
         if let Some(ext_cog) = external.cognitive
-            && ext_cog > self.cognitive {
-                self.cognitive = ext_cog;
-                changed = true;
-            }
+            && ext_cog > self.cognitive
+        {
+            self.cognitive = ext_cog;
+            changed = true;
+        }
         if let Some(ext_cyc) = external.cyclomatic
-            && ext_cyc > self.cyclomatic {
-                self.cyclomatic = ext_cyc;
-                changed = true;
-            }
+            && ext_cyc > self.cyclomatic
+        {
+            self.cyclomatic = ext_cyc;
+            changed = true;
+        }
 
         if changed {
             // Recalculate score with updated complexity values.

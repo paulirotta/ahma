@@ -27,7 +27,7 @@ pub fn run_analysis(
     custom_excludes: &[String],
     registry: Option<&AnalyzerRegistry>,
 ) -> Result<HashMap<PathBuf, ExternalMetrics>> {
-    println!("Analyzing {}...", dir.display());
+    eprintln!("Analyzing {}...", dir.display());
 
     let allowed_exts: HashSet<&str> = extensions
         .iter()
@@ -36,18 +36,22 @@ pub fn run_analysis(
 
     // Run rca analysis and collect the set of languages seen.
     let mut languages_present: HashSet<Language> = HashSet::new();
+    let mut analyzed_count = 0usize;
     let count = source_files(dir, &allowed_exts, custom_excludes).try_fold(
         0usize,
         |count, path| -> Result<usize> {
             if let Some(lang) = file_language(&path) {
                 languages_present.insert(lang);
             }
-            write_metrics_toml(&path, dir, output_dir)?;
+            let had_metrics = write_metrics_toml(&path, dir, output_dir)?;
+            if had_metrics {
+                analyzed_count += 1;
+            }
             Ok(count + 1)
         },
     )?;
 
-    println!("  Analyzed {count} files.");
+    eprintln!("  Analyzed {count} files ({analyzed_count} with metrics).");
 
     // Run external analyzers when a registry is provided.
     let external = match registry {
@@ -117,9 +121,11 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 }
 
 /// Analyse a single file and write its metrics as TOML into `output_dir`.
-fn write_metrics_toml(path: &Path, dir: &Path, output_dir: &Path) -> Result<()> {
+/// Returns `true` if metrics were produced (rca could analyze the file),
+/// `false` if the file was iterated but rca had no metrics for it.
+fn write_metrics_toml(path: &Path, dir: &Path, output_dir: &Path) -> Result<bool> {
     let Some(results) = analyze_file(path) else {
-        return Ok(());
+        return Ok(false);
     };
     let toml_content = toml::to_string(&results).context("Failed to serialize metrics to TOML")?;
     let relative = path.strip_prefix(dir).unwrap_or(path);
@@ -127,7 +133,7 @@ fn write_metrics_toml(path: &Path, dir: &Path, output_dir: &Path) -> Result<()> 
     ensure_parent_dir(&toml_path)?;
     fs::write(&toml_path, toml_content)
         .with_context(|| format!("Failed to write {}", toml_path.display()))?;
-    Ok(())
+    Ok(true)
 }
 
 pub fn perform_analysis(

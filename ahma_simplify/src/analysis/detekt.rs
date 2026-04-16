@@ -4,11 +4,19 @@
 //! project directory and parses the Checkstyle-format XML report that Detekt
 //! produces at `build/reports/detekt/`.
 //!
+//! # Multi-module Android projects
+//!
+//! Standard Android projects place reports in per-module directories
+//! (`app/build/reports/detekt/`, `lib/build/reports/detekt/`, etc.).  The
+//! analyzer walks all immediate subdirectories looking for these report dirs
+//! and merges all discovered XML files into a single metrics map.
+//!
 //! # Requirements
 //!
 //! - The project must contain a `gradlew` or `gradlew.bat` wrapper.
 //! - The project must have the Detekt Gradle plugin configured (detected by
-//!   scanning `build.gradle.kts` / `build.gradle` for the word `"detekt"`).
+//!   scanning root and module-level `build.gradle.kts` / `build.gradle` for
+//!   the word `"detekt"`).
 //!
 //! # Graceful degradation
 //!
@@ -46,6 +54,29 @@ impl ExternalAnalyzer for DetektAnalyzer {
         gradlew_path(project_dir).exists() && project_has_detekt(project_dir)
     }
 
+    fn setup_hint(&self, project_dir: &Path) -> Option<String> {
+        if !gradlew_path(project_dir).exists() {
+            return Some(
+                "Kotlin files found but no Gradle wrapper (gradlew) detected. \
+                 Run `gradle wrapper` in your project root, then add the detekt plugin \
+                 to your build script."
+                    .to_string(),
+            );
+        }
+        if !project_has_detekt(project_dir) {
+            return Some(
+                "Kotlin files found but detekt is not configured. \
+                 Add the plugin to your build.gradle.kts:\n\
+                 \n\
+                 \x20 plugins { id(\"io.gitlab.arturbosch.detekt\") version \"1.23.7\" }\n\
+                 \n\
+                 See https://detekt.dev/docs/gettingstarted/gradle/"
+                    .to_string(),
+            );
+        }
+        None
+    }
+
     fn analyze(&self, project_dir: &Path) -> Result<HashMap<PathBuf, ExternalMetrics>> {
         // Try the source-set-specific task first, then the root task.
         let candidate_tasks = ["detektMain", "detekt"];
@@ -77,45 +108,71 @@ fn gradlew_path(project_dir: &Path) -> PathBuf {
     }
 }
 
-/// Heuristic: scan likely Gradle build files for the word "detekt".
+/// Heuristic: scan root and module-level Gradle build files for the word "detekt".
+///
+/// Checks root build files first, then all immediate subdirectory build files
+/// (common Android convention: detekt may be applied per-module).
 fn project_has_detekt(project_dir: &Path) -> bool {
-    let candidates = [
+    // Root-level candidates
+    let root_candidates = [
         "build.gradle.kts",
         "build.gradle",
         "settings.gradle.kts",
         "settings.gradle",
-        // Common Android monorepo layout
-        "app/build.gradle.kts",
-        "app/build.gradle",
+        // buildSrc / build-logic convention plugins
+        "buildSrc/src/main/kotlin/detekt.gradle.kts",
+        "build-logic/src/main/kotlin/detekt.gradle.kts",
     ];
 
-    for name in &candidates {
+    for name in &root_candidates {
         if let Ok(content) = std::fs::read_to_string(project_dir.join(name))
-            && content.contains("detekt") {
+            && content.contains("detekt")
+        {
+            return true;
+        }
+    }
+
+    // Scan immediate subdirectories (modules) for build.gradle.kts / build.gradle
+    let Ok(entries) = std::fs::read_dir(project_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        for build_file in &["build.gradle.kts", "build.gradle"] {
+            if let Ok(content) = std::fs::read_to_string(path.join(build_file))
+                && content.contains("detekt")
+            {
                 return true;
             }
+        }
     }
+
     false
 }
 
-/// Run a Gradle Detekt task and return per-file metrics.
+/// Run a Gradle Detekt task and return per-file metrics aggregated from all
+/// module report directories.
 fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, ExternalMetrics>> {
     let gradlew = gradlew_path(project_dir);
     eprintln!("  [detekt] running {} {}...", gradlew.display(), task);
 
-    // --no-daemon prevents leaving a Gradle daemon running between analysis
-    // sessions. Detekt exits non-zero when it finds violations, which is
-    // expected — do not treat that as a fatal spawn error.
+    // --no-daemon: prevent orphaned Gradle daemons between analysis sessions.
+    // --continue:  run all modules even if one fails, so we collect reports
+    //              from every module instead of stopping at the first violation.
+    // Detekt exits non-zero when it finds violations — do not treat as fatal.
     let output = Command::new(&gradlew)
-        .args([task, "--no-daemon"])
+        .args([task, "--no-daemon", "--continue"])
         .current_dir(project_dir)
         .output()
         .with_context(|| format!("Failed to spawn {} {}", gradlew.display(), task))?;
 
     // Distinguish "task not found" from "task ran but found violations".
-    let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let combined = format!("{stdout}{stderr}");
         // Gradle reports missing tasks in both stdout and stderr.
         if combined.contains(&format!("Task '{task}' not found"))
@@ -123,25 +180,53 @@ fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, Ex
         {
             anyhow::bail!("Gradle task '{}' not found in project", task);
         }
-        // Any other failure: try to parse whatever report exists.
+        // Any other failure: try to parse whatever reports exist.
         eprintln!(
             "  [detekt] task '{task}' exited with status {} (violations are expected)",
             output.status
         );
     }
 
-    // Find the XML report. Convention:
-    //   detektMain → build/reports/detekt/main.xml
-    //   detekt     → build/reports/detekt/detekt.xml
-    let report_path = locate_xml_report(project_dir, task)?;
-    parse_checkstyle_xml(&report_path)
+    // Collect all XML reports produced across root and module directories,
+    // then merge them into a single map.
+    let xml_paths = collect_xml_reports(project_dir, task);
+    if xml_paths.is_empty() {
+        anyhow::bail!(
+            "Detekt report directory '{}' not found. \
+             Ensure the detekt Gradle plugin is applied and the task ran successfully.",
+            project_dir.join("build/reports/detekt").display()
+        );
+    }
+
+    let mut all_metrics: HashMap<PathBuf, ExternalMetrics> = HashMap::new();
+    for xml_path in &xml_paths {
+        match parse_checkstyle_xml(xml_path) {
+            Ok(file_metrics) => {
+                for (path, m) in file_metrics {
+                    super::external::merge_into(all_metrics.entry(path).or_default(), m);
+                }
+            }
+            Err(e) => {
+                eprintln!("  [detekt] failed to parse {}: {e:#}", xml_path.display());
+            }
+        }
+    }
+    Ok(all_metrics)
 }
 
-/// Derive the conventional XML report path for a Detekt Gradle task name.
-fn locate_xml_report(project_dir: &Path, task: &str) -> Result<PathBuf> {
-    let reports_dir = project_dir.join("build/reports/detekt");
-
-    // Strip the "detekt" prefix to get the source-set suffix ("Main", "Test", …).
+/// Collect all detekt Checkstyle XML reports for `task` under `project_dir`.
+///
+/// Checks three locations in priority order:
+/// 1. `<project_dir>/build/reports/detekt/` — root-level task (single-module)
+/// 2. `<project_dir>/<module>/build/reports/detekt/` for each immediate
+///    subdirectory — standard Android multi-module layout
+///
+/// Within each reports directory the conventional file name for the task is
+/// tried first (`main.xml` for `detektMain`, `detekt.xml` for `detekt`), then
+/// any `.xml` file is accepted as fallback.
+fn collect_xml_reports(project_dir: &Path, task: &str) -> Vec<PathBuf> {
+    // Derive the conventional filename from the task name.
+    // detektMain → main.xml,  detekt → detekt.xml
     let suffix = task.strip_prefix("detekt").unwrap_or("").to_lowercase();
     let report_name = if suffix.is_empty() {
         "detekt.xml".to_string()
@@ -149,36 +234,43 @@ fn locate_xml_report(project_dir: &Path, task: &str) -> Result<PathBuf> {
         format!("{suffix}.xml")
     };
 
-    let primary = reports_dir.join(&report_name);
-    if primary.exists() {
-        return Ok(primary);
+    let mut found = Vec::new();
+
+    // Build the candidate report directory list: root first, then each module.
+    let mut candidate_dirs: Vec<PathBuf> = vec![project_dir.join("build/reports/detekt")];
+
+    if let Ok(entries) = std::fs::read_dir(project_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                candidate_dirs.push(path.join("build/reports/detekt"));
+            }
+        }
     }
 
-    // Fallback: look for any .xml file in the detekt reports directory.
-    let fallback = std::fs::read_dir(&reports_dir)
-        .with_context(|| {
-            format!(
-                "Detekt report directory '{}' not found. \
-                 Ensure the detekt Gradle plugin is applied and the task ran successfully.",
-                reports_dir.display()
-            )
-        })?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("xml"))
-        })
-        .map(|e| e.path())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No XML report found in '{}'. \
-                 Run Gradle with `--report xml` or check your detekt configuration.",
-                reports_dir.display()
-            )
-        })?;
+    for reports_dir in candidate_dirs {
+        if !reports_dir.is_dir() {
+            continue;
+        }
+        // Try the conventional name first.
+        let primary = reports_dir.join(&report_name);
+        if primary.is_file() {
+            found.push(primary);
+            continue;
+        }
+        // Fallback: any .xml in the reports dir.
+        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")) {
+                    found.push(p);
+                    break;
+                }
+            }
+        }
+    }
 
-    Ok(fallback)
+    found
 }
 
 // ---------------------------------------------------------------------------
@@ -225,16 +317,18 @@ fn parse_checkstyle_xml(path: &Path) -> Result<HashMap<PathBuf, ExternalMetrics>
             Ok(Event::Empty(ref e)) => {
                 if e.name().as_ref() == b"error"
                     && let Some(ref file_path) = current_file
-                        && let Some(issue) = parse_error_element(e) {
-                            let entry = metrics.entry(file_path.clone()).or_insert_with(|| {
-                                ExternalMetrics {
-                                    analyzer: "detekt".to_string(),
-                                    ..ExternalMetrics::default()
-                                }
+                    && let Some(issue) = parse_error_element(e)
+                {
+                    let entry =
+                        metrics
+                            .entry(file_path.clone())
+                            .or_insert_with(|| ExternalMetrics {
+                                analyzer: "detekt".to_string(),
+                                ..ExternalMetrics::default()
                             });
-                            accumulate_issue(entry, &issue);
-                            entry.issues.push(issue);
-                        }
+                    accumulate_issue(entry, &issue);
+                    entry.issues.push(issue);
+                }
             }
             Ok(Event::End(ref e)) if e.name().as_ref() == b"file" => {
                 current_file = None;
@@ -375,9 +469,10 @@ fn extract_complexity_value(message: &str) -> Option<f64> {
         let rest = &message[start + 1..];
         let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !num.is_empty()
-            && let Ok(v) = num.parse::<f64>() {
-                return Some(v);
-            }
+            && let Ok(v) = num.parse::<f64>()
+        {
+            return Some(v);
+        }
     }
 
     None
@@ -507,5 +602,65 @@ mod tests {
         assert!(analyzer.supports_language(Language::Kotlin));
         assert!(!analyzer.supports_language(Language::Rust));
         assert!(!analyzer.supports_language(Language::Java));
+    }
+
+    // --- setup_hint tests ---
+
+    #[test]
+    fn test_setup_hint_no_gradlew() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // No gradlew present → first hint
+        let hint = DetektAnalyzer.setup_hint(tmp.path());
+        assert!(
+            hint.is_some(),
+            "should return a hint when gradlew is absent"
+        );
+        let msg = hint.unwrap();
+        assert!(
+            msg.contains("no Gradle wrapper"),
+            "hint should mention missing gradlew: {msg}"
+        );
+        assert!(
+            msg.contains("gradle wrapper"),
+            "hint should suggest running `gradle wrapper`: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_setup_hint_gradlew_but_no_detekt() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Create a gradlew file but no detekt config
+        std::fs::write(tmp.path().join("gradlew"), "#!/bin/sh\n").unwrap();
+        let hint = DetektAnalyzer.setup_hint(tmp.path());
+        assert!(
+            hint.is_some(),
+            "should return a hint when detekt is not configured"
+        );
+        let msg = hint.unwrap();
+        assert!(
+            msg.contains("detekt is not configured"),
+            "hint should say detekt is not configured: {msg}"
+        );
+        assert!(
+            msg.contains("detekt.dev"),
+            "hint should include the detekt docs URL: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_setup_hint_none_when_detekt_configured() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // gradlew + build.gradle.kts mentioning detekt → available, no hint needed
+        std::fs::write(tmp.path().join("gradlew"), "#!/bin/sh\n").unwrap();
+        std::fs::write(
+            tmp.path().join("build.gradle.kts"),
+            r#"plugins { id("io.gitlab.arturbosch.detekt") version "1.23.7" }"#,
+        )
+        .unwrap();
+        let hint = DetektAnalyzer.setup_hint(tmp.path());
+        assert!(
+            hint.is_none(),
+            "should return None when detekt is properly configured"
+        );
     }
 }

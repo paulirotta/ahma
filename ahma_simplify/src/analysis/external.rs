@@ -71,6 +71,15 @@ pub trait ExternalAnalyzer: Send + Sync {
     /// It must not run the actual analysis.
     fn is_available(&self, project_dir: &Path) -> bool;
 
+    /// Returns a human-readable setup hint to display when the analyzer is
+    /// relevant (the project contains supported language files) but
+    /// [`is_available`] returns `false`.
+    ///
+    /// Return `None` (default) to keep the generic skip message.
+    fn setup_hint(&self, _project_dir: &Path) -> Option<String> {
+        None
+    }
+
     /// Run the full analysis and return a map of absolute file path → metrics.
     ///
     /// The analyzer is responsible for discovering which files to analyze
@@ -118,11 +127,15 @@ impl AnalyzerRegistry {
             }
 
             if !analyzer.is_available(project_dir) {
-                eprintln!(
-                    "  [{}] not available for {} — skipping.",
-                    analyzer.name(),
-                    project_dir.display()
-                );
+                if let Some(hint) = analyzer.setup_hint(project_dir) {
+                    eprintln!("  [{}] {}", analyzer.name(), hint);
+                } else {
+                    eprintln!(
+                        "  [{}] not available for {} — skipping.",
+                        analyzer.name(),
+                        project_dir.display()
+                    );
+                }
                 continue;
             }
 

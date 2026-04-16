@@ -115,18 +115,35 @@ async fn test_handle_sandboxed_shell_working_directory() -> Result<()> {
     init_test_logging();
     let client = ClientBuilder::new().build().await?;
 
-    let current_dir = std::env::current_dir()?;
-    let current_dir_str = current_dir.to_string_lossy();
+    // Use a tempdir so this test is fully isolated and doesn't compete with
+    // cargo lock files when running under heavy nextest parallelism.
+    let temp_dir = tempfile::tempdir()?;
+    let temp_dir_str = temp_dir.path().to_string_lossy();
 
     let mut args = Map::new();
-    args.insert("command".to_string(), json!("cargo --version"));
-    args.insert("working_directory".to_string(), json!(current_dir_str));
+    // `pwd` is instant and has no external lock dependencies, unlike `cargo --version`.
+    args.insert("command".to_string(), json!("pwd"));
+    args.insert("working_directory".to_string(), json!(temp_dir_str));
     args.insert("execution_mode".to_string(), json!("Synchronous"));
 
     let call_param = CallToolRequestParams::new("sandboxed_shell").with_arguments(args);
 
     let result = client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
+    // Verify the working directory was actually applied.
+    if let Some(content) = result.content.first()
+        && let Some(text) = content.as_text()
+    {
+        // On macOS, /var/folders/... may be a symlink to /private/var/folders/...
+        // so compare using canonical forms.
+        let actual = std::path::PathBuf::from(text.text.trim());
+        let expected = dunce::canonicalize(temp_dir.path())?;
+        let actual_canon = dunce::canonicalize(&actual).unwrap_or(actual);
+        assert_eq!(
+            actual_canon, expected,
+            "shell should run in the requested working directory"
+        );
+    }
 
     Ok(())
 }
