@@ -51,7 +51,7 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   SCCACHE_CACHE_SIZE: 1G # Limit sccache size to prevent GitHub Actions cache eviction
 jobs:
-  job-cargo-nextest:
+  job-cargo-test:
     defaults:
       run:
         shell: bash
@@ -83,9 +83,11 @@ jobs:
         run: |
           git config --global core.pager cat
           git config --global fetch.recurseSubmodules false
-          echo "PAGER=cat" >> $GITHUB_ENV
-          echo "LC_ALL=C" >> $GITHUB_ENV
-          echo "LANG=C" >> $GITHUB_ENV
+          {
+            echo "PAGER=cat"
+            echo "LC_ALL=C"
+            echo "LANG=C"
+          } >> "$GITHUB_ENV"
 
       - name: Preflight workspace crate roots
         run: |
@@ -112,7 +114,7 @@ jobs:
 
       - name: Get current day number
         id: day-number
-        run: echo "day=$(date +%j)" >> $GITHUB_OUTPUT
+        run: echo "day=$(date +%j)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo build artifacts
         uses: actions/cache@v5
@@ -128,8 +130,8 @@ jobs:
 
       - name: Configure sccache cache keys
         run: |
-          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
-          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day${{ steps.day-number.outputs.day }},sccache-${{ runner.os }}-${{ runner.arch }}-nextest-day,sccache-${{ runner.os }}-${{ runner.arch }}-android-day" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ runner.os }}-${{ runner.arch }}-test-day${{ steps.day-number.outputs.day }}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ runner.os }}-${{ runner.arch }}-test-day${{ steps.day-number.outputs.day }},sccache-${{ runner.os }}-${{ runner.arch }}-test-day,sccache-${{ runner.os }}-${{ runner.arch }}-android-day" >> "$GITHUB_ENV"
 
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -138,17 +140,14 @@ jobs:
         uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Cargo Nextest (excluding Android/Kotlin tests)
+      - name: Cargo Test (excluding Android/Kotlin tests)
         run: |
           echo "--- cargo --version" && cargo --version
-          echo "--- Running cargo nextest (faster parallel test runner)"
+          echo "--- Running cargo test (lower concurrency, more stable in CI)"
           # Exclude kotlin/android tests - they run in job-android only
-          cargo nextest run --profile ci --locked --no-default-features --no-fail-fast -- --skip kotlin --skip android
+          cargo test --locked --no-default-features -- --skip kotlin --skip android
 
       - name: Cargo Clippy
         if: runner.os == 'Linux' && runner.arch == 'X64'
@@ -194,7 +193,7 @@ jobs:
 
       - name: Get current day number
         id: day-number
-        run: echo "day=$(date +%j)" >> $GITHUB_OUTPUT
+        run: echo "day=$(date +%j)" >> "$GITHUB_OUTPUT"
 
       - name: Cache AGP and more Gradle directories
         uses: actions/cache@v5
@@ -221,7 +220,7 @@ jobs:
           rustflags: ""
 
       - name: Add Cargo Bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Cache Android Cargo build artifacts
         uses: actions/cache@v5
@@ -237,8 +236,8 @@ jobs:
 
       - name: Configure sccache cache keys
         run: |
-          echo "SCCACHE_GHA_CACHE_TO=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
-          echo "SCCACHE_GHA_CACHE_FROM=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }},sccache-macOS-ARM64-android-day,sccache-macOS-ARM64-nextest-day" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_TO=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-macOS-ARM64-android-day${{ steps.day-number.outputs.day }},sccache-macOS-ARM64-android-day,sccache-macOS-ARM64-test-day" >> "$GITHUB_ENV"
 
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -305,13 +304,15 @@ jobs:
         run: |
           git config --global core.pager cat
           git config --global fetch.recurseSubmodules false
-          echo "PAGER=cat" >> $GITHUB_ENV
-          echo "LC_ALL=C" >> $GITHUB_ENV
-          echo "LANG=C" >> $GITHUB_ENV
+          {
+            echo "PAGER=cat"
+            echo "LC_ALL=C"
+            echo "LANG=C"
+          } >> "$GITHUB_ENV"
 
       - name: Get current day number
         id: day-number
-        run: echo "day=$(date +%j)" >> $GITHUB_OUTPUT
+        run: echo "day=$(date +%j)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo build artifacts
         uses: actions/cache@v5
@@ -347,8 +348,8 @@ jobs:
 
       - name: Configure sccache cache keys
         run: |
-          echo "SCCACHE_GHA_CACHE_TO=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
-          echo "SCCACHE_GHA_CACHE_FROM=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }},sccache-Linux-X64-coverage-day,sccache-Linux-X64-nextest-day" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_TO=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-Linux-X64-coverage-day${{ steps.day-number.outputs.day }},sccache-Linux-X64-coverage-day,sccache-Linux-X64-test-day" >> "$GITHUB_ENV"
 
       - name: sccache-action
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -357,7 +358,7 @@ jobs:
         uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -372,11 +373,9 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo binstall cargo-llvm-cov --no-confirm --force
 
-      - uses: taiki-e/install-action@nextest
-
       - name: Generate coverage report
         run: |
-          cargo llvm-cov nextest --profile coverage --locked --no-default-features --html --output-dir ./coverage -E 'not test(kotlin) & not test(android)'
+          cargo llvm-cov --profile coverage --locked --no-default-features --html --output-dir ./coverage -- --skip kotlin --skip android --test-threads=2
 
       - name: Generate code simplicity report
         run: |
@@ -479,9 +478,11 @@ jobs:
         run: |
           git config --global core.pager cat
           git config --global fetch.recurseSubmodules false
-          echo "PAGER=cat" >> $GITHUB_ENV
-          echo "LC_ALL=C" >> $GITHUB_ENV
-          echo "LANG=C" >> $GITHUB_ENV
+          {
+            echo "PAGER=cat"
+            echo "LC_ALL=C"
+            echo "LANG=C"
+          } >> "$GITHUB_ENV"
 
       - name: Preflight workspace crate roots
         run: |
@@ -508,7 +509,7 @@ jobs:
 
       - name: Get current day number
         id: day-number
-        run: echo "day=$(date +%j)" >> $GITHUB_OUTPUT
+        run: echo "day=$(date +%j)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo build artifacts
         uses: actions/cache@v5
@@ -526,8 +527,8 @@ jobs:
       - name: Configure sccache cache keys
         if: "!matrix.use_cross"
         run: |
-          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }}" >> $GITHUB_ENV
-          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }},sccache-${{ matrix.platform }}-release-day" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_CACHE_TO=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }}" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_CACHE_FROM=sccache-${{ matrix.platform }}-release-day${{ steps.day-number.outputs.day }},sccache-${{ matrix.platform }}-release-day" >> "$GITHUB_ENV"
 
       - name: sccache-action
         if: "!matrix.use_cross"
@@ -537,7 +538,7 @@ jobs:
         uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Add Cargo Bin to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Install cross (for cross-compilation)
         if: matrix.use_cross
@@ -582,8 +583,8 @@ jobs:
             (cd dist && shasum -a 256 ahma-mcp ahma-simplify > SHA256SUMS)
             tar -czf "$archive_name" -C dist ahma-mcp ahma-simplify SHA256SUMS README.md
           fi
-          echo "archive_name=$archive_name" >> $GITHUB_OUTPUT
-          echo "platform=$platform" >> $GITHUB_OUTPUT
+          echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
 
       - name: Upload release binaries artifact
         uses: actions/upload-artifact@v6
@@ -599,7 +600,7 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [job-cargo-nextest, job-android, job-release-binaries, job-coverage]
+    needs: [job-cargo-test, job-android, job-release-binaries, job-coverage]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -644,8 +645,8 @@ jobs:
   job-publish-winget:
     name: Publish Winget Manifest
     needs: [job-publish-release]
-    # Temporarily disabled until WINGET_TOKEN secret is configured.
-    if: false
+    # Enable by defining repository variable WINGET_PUBLISH_ENABLED=true.
+    if: ${{ vars.WINGET_PUBLISH_ENABLED == 'true' }}
     runs-on: windows-latest
     defaults:
       run:

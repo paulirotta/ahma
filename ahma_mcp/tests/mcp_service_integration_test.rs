@@ -251,7 +251,12 @@ async fn test_mcp_call_sync_tool_with_positional_args() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
 
     // Should not be an error
     assert!(

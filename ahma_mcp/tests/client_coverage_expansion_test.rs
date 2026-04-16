@@ -10,6 +10,7 @@
 //!
 //! These tests use the real ahma_mcp binary to ensure full integration coverage.
 
+use ahma_common::timeouts::TestTimeouts;
 use ahma_mcp::skip_if_disabled_async_result;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::test_utils::project::{TestProjectOptions, create_rust_project};
@@ -28,7 +29,11 @@ async fn call_test_tool(
         params = params.with_arguments(arguments);
     }
 
-    Ok(client.call_tool(params).await?)
+    Ok(
+        tokio::time::timeout(TestTimeouts::scale_secs(15), client.call_tool(params))
+            .await
+            .map_err(|_| anyhow::anyhow!("call_tool timed out after scaled 15s"))??,
+    )
 }
 
 fn get_result_text(result: &rmcp::model::CallToolResult) -> &str {
@@ -155,6 +160,7 @@ async fn test_client_status_no_operations() -> Result<()> {
         "Expected status output, got: {}",
         text
     );
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -178,6 +184,7 @@ async fn test_client_status_with_id() -> Result<()> {
 
     // Should handle gracefully - no crash, returns some response
     assert!(!result.content.is_empty());
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -194,6 +201,7 @@ async fn test_client_await_no_pending() -> Result<()> {
     let result = call_test_tool(&client, "await", json!({})).await?;
     // Should return quickly indicating nothing to await
     assert!(!result.content.is_empty());
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -206,6 +214,7 @@ async fn test_client_await_nonexistent_operation() -> Result<()> {
     let result = call_test_tool(&client, "await", json!({ "id": "nonexistent_op_67890" })).await?;
     // Should handle gracefully
     assert!(!result.content.is_empty());
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -245,6 +254,7 @@ async fn test_async_operation_lifecycle() -> Result<()> {
         let await_result = call_test_tool(&client, "await", json!({ "id": op_id })).await?;
         assert!(!await_result.content.is_empty());
     }
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -281,6 +291,7 @@ async fn test_multiple_async_operations() -> Result<()> {
     // Results should exist
     assert!(!result1.content.is_empty());
     assert!(!result2.content.is_empty());
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -303,6 +314,7 @@ async fn test_sandboxed_shell_execution() -> Result<()> {
     )
     .await?;
     assert!(!result.content.is_empty());
+    client.cancel().await.ok();
     Ok(())
 }
 
@@ -362,6 +374,7 @@ async fn test_call_nonexistent_tool() -> Result<()> {
     .await;
     // Should return an error
     assert!(result.is_err(), "Expected error for nonexistent tool");
+    client.cancel().await.ok();
     Ok(())
 }
 

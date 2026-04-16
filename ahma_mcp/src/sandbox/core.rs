@@ -11,13 +11,11 @@ use super::types::{SandboxMode, ScopesGuard};
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn resolve_livelog_scopes(canonicalized: &[PathBuf]) -> Vec<PathBuf> {
-    let mut read_scopes = Vec::new();
-    for scope in canonicalized {
-        if let Some(scope_entries) = resolve_log_dir_symlinks(&log_dir_for_scope(scope)) {
-            read_scopes.extend(scope_entries);
-        }
-    }
-    read_scopes
+    canonicalized
+        .iter()
+        .filter_map(|scope| resolve_log_dir_symlinks(&log_dir_for_scope(scope)))
+        .flatten()
+        .collect()
 }
 
 fn log_dir_for_scope(scope: &Path) -> PathBuf {
@@ -26,19 +24,19 @@ fn log_dir_for_scope(scope: &Path) -> PathBuf {
 
 fn resolve_log_dir_symlinks(log_dir: &Path) -> Option<Vec<PathBuf>> {
     let entries = std::fs::read_dir(log_dir).ok()?;
-    let mut results = Vec::new();
-
-    for entry in entries.flatten() {
-        if let Some(target) = resolve_log_symlink(&entry.path(), log_dir) {
-            tracing::info!(
-                "Adding --livelog read-only scope for symlink target: {}",
-                target.display()
-            );
-            results.push(target);
-        }
-    }
-
-    Some(results)
+    Some(
+        entries
+            .flatten()
+            .filter_map(|entry| {
+                let target = resolve_log_symlink(&entry.path(), log_dir)?;
+                tracing::info!(
+                    "Adding --livelog read-only scope for symlink target: {}",
+                    target.display()
+                );
+                Some(target)
+            })
+            .collect(),
+    )
 }
 
 fn resolve_log_symlink(path: &Path, log_dir: &Path) -> Option<PathBuf> {
@@ -147,11 +145,9 @@ impl Sandbox {
              Example: --sandbox-scope /home/user/project",
         )?;
 
-        let read_scopes = if livelog && mode != SandboxMode::Test {
-            resolve_livelog_scopes(&canonicalized)
-        } else {
-            Vec::new()
-        };
+        let read_scopes = (livelog && mode != SandboxMode::Test)
+            .then(|| resolve_livelog_scopes(&canonicalized))
+            .unwrap_or_default();
 
         Ok(Self {
             scopes: std::sync::RwLock::new(canonicalized),
@@ -232,16 +228,16 @@ impl Sandbox {
 
         let canonical = self.resolve_path(path, &scopes_guard)?;
 
-        if self.is_path_allowed(&canonical, &scopes_guard) {
-            self.check_security_policies(path, &canonical)?;
-            Ok(canonical)
-        } else {
-            Err(SandboxError::PathOutsideSandbox {
+        if !self.is_path_allowed(&canonical, &scopes_guard) {
+            return Err(SandboxError::PathOutsideSandbox {
                 path: path.to_path_buf(),
                 scopes: scopes_guard.to_vec(),
             }
-            .into())
+            .into());
         }
+
+        self.check_security_policies(path, &canonical)?;
+        Ok(canonical)
     }
 
     fn should_bypass_validation(&self, scopes_guard: &[PathBuf]) -> bool {
@@ -284,14 +280,15 @@ impl Sandbox {
         }
 
         let path_str = canonical.to_string_lossy();
-        if is_blocked_temp_path(&path_str) || is_in_temp_dir(canonical) {
-            return Err(SandboxError::HighSecurityViolation {
-                path: original_path.to_path_buf(),
-            }
-            .into());
+        let is_blocked = is_blocked_temp_path(&path_str) || is_in_temp_dir(canonical);
+        if !is_blocked {
+            return Ok(());
         }
 
-        Ok(())
+        Err(SandboxError::HighSecurityViolation {
+            path: original_path.to_path_buf(),
+        }
+        .into())
     }
 
     fn preserved_temp_dir(&self, canonicalized: &[PathBuf]) -> Option<PathBuf> {

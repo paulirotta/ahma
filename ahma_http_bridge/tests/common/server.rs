@@ -104,6 +104,17 @@ fn workspace_dir() -> PathBuf {
         .to_path_buf()
 }
 
+fn target_dir_from_binary(binary: &Path) -> Option<PathBuf> {
+    binary
+        .parent()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf)
+}
+
+fn candidate_in_target(base_target: &Path, subdir: &str, bin_name: &str) -> PathBuf {
+    base_target.join(subdir).join(bin_name)
+}
+
 pub fn resolve_binary_path() -> PathBuf {
     static BINARY_LOG_ONCE: std::sync::Once = std::sync::Once::new();
 
@@ -111,28 +122,15 @@ pub fn resolve_binary_path() -> PathBuf {
     // Construct sibling binary paths with the correct platform executable extension.
     let exe_ext = if cfg!(windows) { ".exe" } else { "" };
     let bin_name = format!("ahma-mcp{exe_ext}");
-    let release_bin = debug_bin
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|target| target.join("release").join(&bin_name));
-    let llvm_cov_debug_bin = debug_bin
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|target| target.join("llvm-cov-target/debug").join(&bin_name));
-    let llvm_cov_release_bin = debug_bin
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|target| target.join("llvm-cov-target/release").join(&bin_name));
-
-    let mut candidates = vec![debug_bin];
-    if let Some(path) = release_bin {
-        candidates.push(path);
-    }
-    if let Some(path) = llvm_cov_debug_bin {
-        candidates.push(path);
-    }
-    if let Some(path) = llvm_cov_release_bin {
-        candidates.push(path);
+    let mut candidates = vec![debug_bin.clone()];
+    if let Some(base_target) = target_dir_from_binary(&debug_bin) {
+        for subdir in [
+            "release",
+            "llvm-cov-target/debug",
+            "llvm-cov-target/release",
+        ] {
+            candidates.push(candidate_in_target(&base_target, subdir, &bin_name));
+        }
     }
 
     let binary_path = candidates
@@ -279,6 +277,25 @@ fn stop_child(child: &mut Child) {
     let _ = child.wait();
 }
 
+fn read_startup_line(
+    line: &str,
+    quic_port: &mut Option<u16>,
+    quic_cert_der: &mut Option<Vec<u8>>,
+) -> Option<u16> {
+    match parse_startup_marker(line) {
+        Some(StartupMarker::QuicPort(port)) => {
+            *quic_port = Some(port);
+            None
+        }
+        Some(StartupMarker::QuicCert(cert)) => {
+            *quic_cert_der = Some(cert);
+            None
+        }
+        Some(StartupMarker::BoundPort(port)) => Some(port),
+        None => None,
+    }
+}
+
 fn configure_server_command(
     cmd: &mut Command,
     workspace: &Path,
@@ -346,17 +363,14 @@ fn wait_for_startup_info(
         match receiver.recv_timeout(Duration::from_millis(200)) {
             Ok(line) => {
                 eprintln!("{}", line);
-                match parse_startup_marker(&line) {
-                    Some(StartupMarker::QuicPort(port)) => quic_port = Some(port),
-                    Some(StartupMarker::QuicCert(cert)) => quic_cert_der = Some(cert),
-                    Some(StartupMarker::BoundPort(port)) => {
-                        return Some(ServerStartupInfo {
-                            bound_port: port,
-                            quic_port,
-                            quic_cert_der,
-                        });
-                    }
-                    None => {}
+                if let Some(bound_port) =
+                    read_startup_line(&line, &mut quic_port, &mut quic_cert_der)
+                {
+                    return Some(ServerStartupInfo {
+                        bound_port,
+                        quic_port,
+                        quic_cert_der,
+                    });
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -378,13 +392,39 @@ async fn wait_for_health(port: u16) -> bool {
 
     while start.elapsed() < timeout {
         sleep(poll_interval).await;
-        if let Ok(resp) = client.get(&health_url).send().await
-            && resp.status().is_success()
-        {
-            return true;
+        match client.get(&health_url).send().await {
+            Ok(resp) if resp.status().is_success() => return true,
+            Ok(_) | Err(_) => {}
         }
     }
     false
+}
+
+fn wait_for_startup_or_cleanup(
+    child: &mut Child,
+    line_rx: &mpsc::Receiver<String>,
+    timeout: Duration,
+    timeout_message: &'static str,
+) -> Result<ServerStartupInfo, String> {
+    match wait_for_startup_info(line_rx, timeout) {
+        Some(info) => Ok(info),
+        None => {
+            stop_child(child);
+            Err(timeout_message.to_string())
+        }
+    }
+}
+
+async fn wait_for_health_or_cleanup(
+    child: &mut Child,
+    bound_port: u16,
+    failure_message: &'static str,
+) -> Result<(), String> {
+    if wait_for_health(bound_port).await {
+        return Ok(());
+    }
+    stop_child(child);
+    Err(failure_message.to_string())
 }
 
 /// Spawn a new test server with dynamic port allocation.
@@ -412,30 +452,30 @@ pub async fn spawn_test_server_with_timeout(
         "[TestServer] Sandbox unavailable on this platform/kernel; running test server with --disable-sandbox",
     )?;
 
-    let startup_info =
-        match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
-            Some(info) => info,
-            None => {
-                stop_child(&mut child);
-                return Err("Timeout waiting for server to start".to_string());
-            }
-        };
+    let startup_info = wait_for_startup_or_cleanup(
+        &mut child,
+        &line_rx,
+        TestTimeouts::get(TimeoutCategory::ProcessSpawn),
+        "Timeout waiting for server to start",
+    )?;
     let bound_port = startup_info.bound_port;
 
     eprintln!("[TestServer] Server bound to port {}", bound_port);
 
-    if wait_for_health(bound_port).await {
-        return Ok(TestServerInstance {
-            child,
-            port: bound_port,
-            quic_port: startup_info.quic_port,
-            quic_cert_der: startup_info.quic_cert_der,
-            _temp_dir: temp_dir,
-        });
-    }
+    wait_for_health_or_cleanup(
+        &mut child,
+        bound_port,
+        "Test server failed to respond to health check within 5 seconds",
+    )
+    .await?;
 
-    stop_child(&mut child);
-    Err("Test server failed to respond to health check within 5 seconds".to_string())
+    Ok(TestServerInstance {
+        child,
+        port: bound_port,
+        quic_port: startup_info.quic_port,
+        quic_cert_der: startup_info.quic_cert_der,
+        _temp_dir: temp_dir,
+    })
 }
 
 /// Spawn a raw server guard using explicit tools + sandbox scope paths.
@@ -463,19 +503,19 @@ pub async fn spawn_server_guard_with_config(
         "[TestServer] Sandbox unavailable on this platform/kernel; forcing custom server no-sandbox",
     )?;
 
-    let bound_port =
-        match wait_for_startup_info(&line_rx, TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
-            Some(info) => info.bound_port,
-            None => {
-                stop_child(&mut child);
-                return Err("Timeout waiting for custom server to start".to_string());
-            }
-        };
+    let startup_info = wait_for_startup_or_cleanup(
+        &mut child,
+        &line_rx,
+        TestTimeouts::get(TimeoutCategory::ProcessSpawn),
+        "Timeout waiting for custom server to start",
+    )?;
 
-    if wait_for_health(bound_port).await {
-        return Ok(ServerGuard::new(child, bound_port));
-    }
+    wait_for_health_or_cleanup(
+        &mut child,
+        startup_info.bound_port,
+        "Custom test server failed to respond to health check within timeout",
+    )
+    .await?;
 
-    stop_child(&mut child);
-    Err("Custom test server failed to respond to health check within timeout".to_string())
+    Ok(ServerGuard::new(child, startup_info.bound_port))
 }

@@ -24,6 +24,16 @@ use tokio::sync::mpsc::{Receiver, Sender};
 /// Cached path to the pre-built ahma_mcp binary.
 static BINARY_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+fn find_first_existing_path<I>(candidates: I) -> PathBuf
+where
+    I: IntoIterator<Item = PathBuf>,
+{
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or_default()
+}
+
 /// Get the path to the ahma_mcp binary.
 fn get_test_binary_path() -> PathBuf {
     BINARY_PATH
@@ -43,30 +53,33 @@ fn get_test_binary_path() -> PathBuf {
             // Check for debug binary
             let workspace = get_workspace_dir();
             let bin_name = format!("ahma-mcp{}", std::env::consts::EXE_SUFFIX);
+            let mut candidates = Vec::with_capacity(3);
 
             // Check CARGO_TARGET_DIR
             if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-                let p = PathBuf::from(target_dir).join("debug").join(&bin_name);
-                if p.exists() {
-                    return p;
-                }
+                candidates.push(PathBuf::from(target_dir).join("debug").join(&bin_name));
             }
 
-            let debug_binary = workspace.join("target/debug").join(&bin_name);
-            if debug_binary.exists() {
-                return debug_binary;
-            }
+            candidates.push(workspace.join("target/debug").join(&bin_name));
+            candidates.push(workspace.join("target/release").join(&bin_name));
 
-            // Check for release binary
-            let release_binary = workspace.join("target/release").join(&bin_name);
-            if release_binary.exists() {
-                return release_binary;
-            }
-
-            // No pre-built binary found - return empty path to signal fallback
-            PathBuf::new()
+            // No pre-built binary found returns empty path to signal fallback.
+            find_first_existing_path(candidates)
         })
         .clone()
+}
+
+fn build_cargo_run_command(workspace_dir: &Path) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run")
+        .arg("--manifest-path")
+        .arg(workspace_dir.join("Cargo.toml"))
+        .arg("--package")
+        .arg("ahma_mcp")
+        .arg("--bin")
+        .arg("ahma-mcp")
+        .arg("--");
+    cmd
 }
 
 fn use_prebuilt_binary() -> bool {
@@ -160,24 +173,16 @@ impl ClientBuilder {
             .clone()
             .unwrap_or_else(|| workspace_dir.clone());
 
-        let fut = if use_prebuilt_binary() {
-            let binary_path = get_test_binary_path();
-            self.run_command(Command::new(&binary_path), &working_dir)
+        let command = if use_prebuilt_binary() {
+            Command::new(get_test_binary_path())
         } else {
             eprintln!(
                 "Warning: Using slow 'cargo run' path. Run 'cargo build' first for faster tests."
             );
-            let mut cmd = Command::new("cargo");
-            cmd.arg("run")
-                .arg("--manifest-path")
-                .arg(workspace_dir.join("Cargo.toml"))
-                .arg("--package")
-                .arg("ahma_mcp")
-                .arg("--bin")
-                .arg("ahma-mcp")
-                .arg("--");
-            self.run_command(cmd, &working_dir)
+            build_cargo_run_command(&workspace_dir)
         };
+
+        let fut = self.run_command(command, &working_dir);
 
         // Safety-net timeout: fail fast with a clear message instead of being
         // killed by nextest after 60s with no context.
@@ -201,7 +206,16 @@ impl ClientBuilder {
         // environment is a nested sandbox (Cursor, VS Code, Docker), `sandbox-exec` would fail
         // inside the child process and cause an immediate exit.  Force no-sandbox so the
         // child can start; application-level path checks (path_security.rs) still enforce bounds.
-        let force_no_sandbox = self.no_sandbox || is_nested_sandbox_environment();
+        let ClientBuilder {
+            tools_dir,
+            extra_args,
+            extra_env,
+            no_sandbox,
+            livelog,
+            skip_availability_probes,
+            ..
+        } = self;
+        let force_no_sandbox = no_sandbox || is_nested_sandbox_environment();
 
         ().serve(TokioChildProcess::new(command.configure(|cmd| {
             // New CLI: `ahma-mcp serve stdio [--tools-dir PATH]`
@@ -223,32 +237,32 @@ impl ClientBuilder {
                 if let Some(scope) = working_dir.to_str() {
                     cmd.env("AHMA_SANDBOX_SCOPE", scope);
                 }
-                if self.livelog {
+                if livelog {
                     cmd.env("AHMA_LOG_MONITOR", "1");
                 }
             }
-            if self.skip_availability_probes {
+
+            if skip_availability_probes {
                 cmd.env("AHMA_SKIP_PROBES", "1");
             }
+
             cmd.current_dir(working_dir).kill_on_drop(true);
 
-            for (k, v) in self.extra_env {
+            for (k, v) in extra_env {
                 cmd.env(k, v);
             }
 
-            if let Some(dir) = self.tools_dir {
+            if let Some(dir) = tools_dir {
                 let tools_path = if dir.is_absolute() {
                     dir
                 } else {
-                    // Resolve relative to working_dir
                     working_dir.join(dir)
                 };
                 // --tools-dir was removed from CLI; use AHMA_TOOLS_DIR env var instead
                 cmd.env("AHMA_TOOLS_DIR", tools_path);
             }
-            for arg in self.extra_args {
-                cmd.arg(arg);
-            }
+
+            cmd.args(extra_args);
         }))?)
         .await
         .context("Failed to start client service")
