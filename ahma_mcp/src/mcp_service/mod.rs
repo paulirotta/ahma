@@ -406,6 +406,19 @@ impl ServerHandler for AhmaMcpService {
                         "Sandbox scopes already configured via CLI/Env ({:?}), skipping roots/list request",
                         self.adapter.sandbox().scopes()
                     );
+                } else if self.adapter.sandbox().is_test_mode() {
+                    // In test/disabled sandbox mode, skip the roots/list exchange.
+                    // Calling configure_sandbox_from_roots in test mode causes two issues:
+                    // 1) It blocks the event loop waiting for roots/list from a client that
+                    //    may not implement the handler (causing a 60s handshake timeout).
+                    // 2) On failure it calls emit_stdout_notification(), which writes raw
+                    //    bytes to the rmcp stdio pipe, corrupting the JSON-RPC framing
+                    //    and causing the client to hang on subsequent tool calls.
+                    // In test mode path validation is bypassed anyway, so this is safe.
+                    tracing::debug!(
+                        "Sandbox in test/disabled mode: skipping roots/list request. \
+                         Path validation bypassed for all paths."
+                    );
                 } else {
                     // Run synchronously per R19.3 - sandbox configuration is a lifecycle
                     // operation that should complete before we're "ready"

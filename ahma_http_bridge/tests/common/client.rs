@@ -5,6 +5,7 @@ use reqwest::header::HeaderMap;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tokio::time::sleep;
 
 /// Transport mode for MCP POST requests: content negotiated via the `Accept` header.
 ///
@@ -338,6 +339,9 @@ impl McpTestClient {
     pub async fn complete_handshake_with_roots(&self, roots: &[PathBuf]) -> Result<(), String> {
         let session_id = self.required_session_id()?;
         let sse_resp = self.open_handshake_sse(session_id).await?;
+        // Avoid a race where initialized is processed before SSE subscription
+        // registration is fully active in the bridge.
+        sleep(TestTimeouts::short_delay()).await;
         self.send_initialized_notification(session_id).await?;
         self.process_roots_handshake_stream(sse_resp, session_id, roots)
             .await
@@ -363,6 +367,9 @@ impl McpTestClient {
         let session_id = self.required_session_id()?;
 
         let sse_resp = self.open_handshake_sse(session_id).await?;
+        // Avoid a race where initialized is processed before SSE subscription
+        // registration is fully active in the bridge.
+        sleep(TestTimeouts::short_delay()).await;
         self.send_initialized().await?;
         self.process_roots_handshake_stream(sse_resp, session_id, roots)
             .await?;

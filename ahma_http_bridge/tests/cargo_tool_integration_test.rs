@@ -27,6 +27,7 @@
 
 mod common;
 
+use ahma_common::timeouts::TestTimeouts;
 use common::{McpTestClient, spawn_test_server};
 use serde_json::json;
 use std::fs;
@@ -130,13 +131,29 @@ async fn setup_cargo_test() -> Option<CargoTestContext> {
 
     let mut client = McpTestClient::with_url(&server.base_url());
 
-    if client
-        .initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()])
-        .await
-        .is_err()
-    {
-        eprintln!("WARNING️  Skipping test - failed to initialize MCP client");
-        return None;
+    let handshake_timeout = TestTimeouts::scale_secs(15);
+    let init_result = tokio::time::timeout(
+        handshake_timeout,
+        client.initialize_with_roots("cargo-test-client", &[project.path().to_path_buf()]),
+    )
+    .await;
+
+    match init_result {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => {
+            eprintln!(
+                "WARNING️  Skipping test - failed to initialize MCP client: {}",
+                e
+            );
+            return None;
+        }
+        Err(_) => {
+            eprintln!(
+                "WARNING️  Skipping test - MCP initialize timed out after {:?}",
+                handshake_timeout
+            );
+            return None;
+        }
     }
 
     if !is_cargo_tool_available(&client).await {

@@ -282,11 +282,11 @@ async fn test_missing_session_id_returns_fast_error() {
 
     // Transport-level failures indicate the server was temporarily unavailable
     // under parallel test load — not a hang bug. Skip rather than fail.
-    if let Err(ref e) = result {
-        if is_transport_error(e) {
-            eprintln!("Transport error (server unavailable, not a hang): {}", e);
-            return;
-        }
+    if let Err(ref e) = result
+        && is_transport_error(e)
+    {
+        eprintln!("Transport error (server unavailable, not a hang): {}", e);
+        return;
     }
 
     // MUST return fast - if this fails, server has a hang bug
@@ -335,11 +335,11 @@ async fn test_invalid_tool_name_returns_fast_error() {
 
     // Transport-level failures indicate the server was temporarily unavailable
     // under parallel test load — not a hang bug. Skip rather than fail.
-    if let Err(ref e) = result {
-        if is_transport_error(e) {
-            eprintln!("Transport error (server unavailable, not a hang): {}", e);
-            return;
-        }
+    if let Err(ref e) = result
+        && is_transport_error(e)
+    {
+        eprintln!("Transport error (server unavailable, not a hang): {}", e);
+        return;
     }
 
     // MUST return fast
@@ -400,11 +400,11 @@ async fn test_invalid_subcommand_returns_fast_error() {
 
     // Transport-level failures indicate the server was temporarily unavailable
     // under parallel test load — not a hang bug. Skip rather than fail.
-    if let Err(ref e) = result {
-        if is_transport_error(e) {
-            eprintln!("Transport error (server unavailable, not a hang): {}", e);
-            return;
-        }
+    if let Err(ref e) = result
+        && is_transport_error(e)
+    {
+        eprintln!("Transport error (server unavailable, not a hang): {}", e);
+        return;
     }
 
     // MUST return fast
@@ -456,11 +456,11 @@ async fn test_invalid_method_returns_fast_error() {
 
     // Transport-level failures indicate the server was temporarily unavailable
     // under parallel test load — not a hang bug. Skip rather than fail.
-    if let Err(ref e) = result {
-        if is_transport_error(e) {
-            eprintln!("Transport error (server unavailable, not a hang): {}", e);
-            return;
-        }
+    if let Err(ref e) = result
+        && is_transport_error(e)
+    {
+        eprintln!("Transport error (server unavailable, not a hang): {}", e);
+        return;
     }
 
     // MUST return fast
@@ -552,11 +552,11 @@ async fn test_missing_required_args_returns_fast_error() {
 
     // Transport-level failures indicate the server was temporarily unavailable
     // under parallel test load — not a hang bug. Skip rather than fail.
-    if let Err(ref e) = result {
-        if is_transport_error(e) {
-            eprintln!("Transport error (server unavailable, not a hang): {}", e);
-            return;
-        }
+    if let Err(ref e) = result
+        && is_transport_error(e)
+    {
+        eprintln!("Transport error (server unavailable, not a hang): {}", e);
+        return;
     }
 
     // MUST return fast

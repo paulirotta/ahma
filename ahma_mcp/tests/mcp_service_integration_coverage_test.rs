@@ -8,11 +8,12 @@
 //!
 //! These tests spawn the actual ahma_mcp binary and communicate via MCP protocol.
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::skip_if_disabled_async_result;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::test_utils::project::{TestProjectOptions, create_rust_project};
 use ahma_mcp::utils::logging::init_test_logging;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
 
@@ -427,30 +428,59 @@ async fn test_list_tools_await_schema() -> Result<()> {
 #[tokio::test]
 async fn test_list_tools_status_schema() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let list_timeout = TestTimeouts::scale_secs(15);
+    let cleanup_timeout = TestTimeouts::get(TimeoutCategory::Cleanup);
+    let mut last_error = String::new();
 
-    let tools = client.list_all_tools().await?;
-    let status_tool = tools
-        .iter()
-        .find(|t| t.name.as_ref() == "status")
-        .expect("Should find status tool");
+    for attempt in 1..=2 {
+        let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+        let tools_result = tokio::time::timeout(list_timeout, client.list_all_tools()).await;
 
-    assert!(
-        status_tool.description.is_some(),
-        "Status tool should have description"
-    );
+        match tools_result {
+            Ok(Ok(tools)) => {
+                let status_tool = tools
+                    .iter()
+                    .find(|t| t.name.as_ref() == "status")
+                    .expect("Should find status tool");
 
-    if let Some(desc) = &status_tool.description {
-        assert!(
-            desc.contains("poll")
-                || desc.contains("anti-pattern")
-                || desc.contains("automatically"),
-            "Status description should warn about polling"
-        );
+                assert!(
+                    status_tool.description.is_some(),
+                    "Status tool should have description"
+                );
+
+                if let Some(desc) = &status_tool.description {
+                    assert!(
+                        desc.contains("poll")
+                            || desc.contains("anti-pattern")
+                            || desc.contains("automatically"),
+                        "Status description should warn about polling"
+                    );
+                }
+
+                let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+                return Ok(());
+            }
+            Ok(Err(e)) => {
+                last_error = format!("list_all_tools failed: {}", e);
+            }
+            Err(_) => {
+                last_error = format!("list_all_tools timed out after {:?}", list_timeout);
+            }
+        }
+
+        let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+        if attempt == 1 {
+            eprintln!(
+                "WARNING  test_list_tools_status_schema attempt {} failed: {}. Retrying once...",
+                attempt, last_error
+            );
+        }
     }
 
-    client.cancel().await?;
-    Ok(())
+    bail!(
+        "test_list_tools_status_schema failed after 2 attempts: {}",
+        last_error
+    )
 }
 
 // ============================================================================

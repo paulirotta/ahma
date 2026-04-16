@@ -113,11 +113,17 @@ async fn test_handle_sandboxed_shell_async() -> Result<()> {
 #[tokio::test]
 async fn test_handle_sandboxed_shell_working_directory() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().build().await?;
 
-    // Use a tempdir so this test is fully isolated and doesn't compete with
-    // cargo lock files when running under heavy nextest parallelism.
+    // Create tempdir first so it's in scope for both the client (sandbox scope) and
+    // the shell command (working_directory arg).  The server's cwd is the sandbox
+    // root; pointing it at the tempdir ensures the shell's requested directory is
+    // within the sandbox scope.
     let temp_dir = tempfile::tempdir()?;
+    let client = ClientBuilder::new()
+        .working_dir(temp_dir.path())
+        .build()
+        .await?;
+
     let temp_dir_str = temp_dir.path().to_string_lossy();
 
     let mut args = Map::new();

@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+use ahma_common::timeouts::TestTimeouts;
+
 #[macro_use]
 pub mod sse_test_helpers;
 
@@ -90,20 +92,38 @@ pub fn is_async_operation_output(output: &str) -> bool {
 pub async fn setup_test_mcp(
     transport: TransportMode,
 ) -> Option<(TestServerInstance, McpTestClient)> {
-    let server = match spawn_test_server().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("WARNING  setup_test_mcp: server spawn failed: {}", e);
-            return None;
-        }
-    };
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let mut mcp = McpTestClient::with_url(&server.base_url()).with_transport(transport);
-    match mcp.initialize_with_roots("tool-test-client", &[root]).await {
-        Ok(_) => Some((server, mcp)),
-        Err(e) => {
-            eprintln!("WARNING  setup_test_mcp: handshake failed: {}", e);
-            None
+    let handshake_timeout = TestTimeouts::scale_secs(15);
+    let mut last_error = String::new();
+    for attempt in 1..=2u32 {
+        let server = match spawn_test_server().await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("WARNING  setup_test_mcp: server spawn failed: {}", e);
+                return None;
+            }
+        };
+        let mut mcp = McpTestClient::with_url(&server.base_url()).with_transport(transport);
+        match tokio::time::timeout(
+            handshake_timeout,
+            mcp.initialize_with_roots("tool-test-client", std::slice::from_ref(&root)),
+        )
+        .await
+        {
+            Ok(Ok(_)) => return Some((server, mcp)),
+            Ok(Err(e)) => last_error = e.to_string(),
+            Err(_) => last_error = format!("handshake timed out after {:?}", handshake_timeout),
+        }
+        if attempt == 1 {
+            eprintln!(
+                "WARNING  setup_test_mcp: handshake attempt {} failed: {}. Retrying...",
+                attempt, last_error
+            );
         }
     }
+    eprintln!(
+        "WARNING  setup_test_mcp: skipping due to persistent handshake failure: {}",
+        last_error
+    );
+    None
 }

@@ -143,14 +143,20 @@ async fn open_roots_sse_stream(
     session_id: &str,
 ) -> reqwest::Response {
     let url = format!("{}/mcp", base_url);
-    client
+    let response = client
         .get(&url)
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Mcp-Session-Id", session_id)
         .send()
         .await
-        .expect("Failed to open SSE stream")
+        .expect("Failed to open SSE stream");
+
+    // Avoid a race where initialized is processed before SSE subscription
+    // registration is fully active in the bridge.
+    sleep(TestTimeouts::short_delay()).await;
+
+    response
 }
 
 fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {

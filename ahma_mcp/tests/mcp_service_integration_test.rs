@@ -9,9 +9,10 @@
 //!
 //! These are real integration tests using the actual ahma_mcp binary via stdio MCP.
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::utils::logging::init_test_logging;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
 use std::borrow::Cow;
@@ -494,44 +495,71 @@ async fn test_mcp_call_invalid_subcommand_error() -> Result<()> {
 async fn test_mcp_shell_command_execution() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
+    let call_timeout = TestTimeouts::scale_secs(15);
+    let cleanup_timeout = TestTimeouts::get(TimeoutCategory::Cleanup);
+    let mut last_error = String::new();
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    for attempt in 1..=2 {
+        let client = ClientBuilder::new()
+            .tools_dir(".ahma")
+            .working_dir(temp_dir.path())
+            .build()
+            .await?;
 
-    let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell")).with_arguments(
-        json!({
-            "command": "echo 'MCP test output'",
-            "execution_mode": "Synchronous"
-        })
-        .as_object()
-        .unwrap()
-        .clone(),
-    );
+        let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell")).with_arguments(
+            json!({
+                "command": "echo 'MCP test output'",
+                "execution_mode": "Synchronous"
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    let result = client.call_tool(params).await?;
+        let call_result = tokio::time::timeout(call_timeout, client.call_tool(params)).await;
+        match call_result {
+            Ok(Ok(result)) => {
+                assert!(
+                    !result.is_error.unwrap_or(false),
+                    "Shell command should succeed"
+                );
 
-    assert!(
-        !result.is_error.unwrap_or(false),
-        "Shell command should succeed"
-    );
+                let all_text: String = result
+                    .content
+                    .iter()
+                    .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+                    .collect();
 
-    let all_text: String = result
-        .content
-        .iter()
-        .filter_map(|c| c.as_text().map(|t| t.text.clone()))
-        .collect();
+                assert!(
+                    all_text.contains("MCP test output"),
+                    "Should contain command output. Got: {}",
+                    all_text
+                );
 
-    assert!(
-        all_text.contains("MCP test output"),
-        "Should contain command output. Got: {}",
-        all_text
-    );
+                let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+                return Ok(());
+            }
+            Ok(Err(e)) => {
+                last_error = format!("call_tool failed: {}", e);
+            }
+            Err(_) => {
+                last_error = format!("call_tool timed out after {:?}", call_timeout);
+            }
+        }
 
-    client.cancel().await?;
-    Ok(())
+        let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+        if attempt == 1 {
+            eprintln!(
+                "WARNING  test_mcp_shell_command_execution attempt {} failed: {}. Retrying once...",
+                attempt, last_error
+            );
+        }
+    }
+
+    bail!(
+        "test_mcp_shell_command_execution failed after 2 attempts: {}",
+        last_error
+    )
 }
 
 /// Test shell command that fails returns error status
@@ -539,58 +567,81 @@ async fn test_mcp_shell_command_execution() -> Result<()> {
 async fn test_mcp_shell_command_failure() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
+    let call_timeout = TestTimeouts::scale_secs(15);
+    let cleanup_timeout = TestTimeouts::get(TimeoutCategory::Cleanup);
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    for attempt in 1..=2u32 {
+        let client = ClientBuilder::new()
+            .tools_dir(".ahma")
+            .working_dir(temp_dir.path())
+            .build()
+            .await?;
 
-    let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell"))
-        .with_arguments(json!({"command": "exit 1"}).as_object().unwrap().clone());
+        let params = CallToolRequestParams::new(Cow::Borrowed("sandboxed_shell"))
+            .with_arguments(json!({"command": "exit 1"}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await;
+        let result = match tokio::time::timeout(call_timeout, client.call_tool(params)).await {
+            Ok(r) => r,
+            Err(_) => {
+                let msg = format!("call_tool timed out after {:?}", call_timeout);
+                let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+                if attempt == 1 {
+                    eprintln!(
+                        "WARNING  test_mcp_shell_command_failure attempt {} timed out. Retrying...",
+                        attempt
+                    );
+                    continue;
+                }
+                bail!(
+                    "test_mcp_shell_command_failure failed after 2 attempts: {}",
+                    msg
+                );
+            }
+        };
 
-    // A failing command can either:
-    // 1. Return Err (MCP protocol error for the failure)
-    // 2. Return Ok with is_error=true
-    // 3. Return Ok with output indicating failure
-    // All are valid behaviors - the test verifies failure is detected somehow
-    match result {
-        Err(e) => {
-            // The server returns an error for failed commands
-            let error_msg = format!("{:?}", e);
-            assert!(
-                error_msg.contains("exit code 1")
-                    || error_msg.contains("failed")
-                    || error_msg.contains("Command failed"),
-                "Error should indicate command failure. Got: {}",
-                error_msg
-            );
+        // A failing command can either:
+        // 1. Return Err (MCP protocol error for the failure)
+        // 2. Return Ok with is_error=true
+        // 3. Return Ok with output indicating failure
+        // All are valid behaviors - the test verifies failure is detected somehow
+        match result {
+            Err(e) => {
+                // The server returns an error for failed commands
+                let error_msg = format!("{:?}", e);
+                assert!(
+                    error_msg.contains("exit code 1")
+                        || error_msg.contains("failed")
+                        || error_msg.contains("Command failed"),
+                    "Error should indicate command failure. Got: {}",
+                    error_msg
+                );
+            }
+            Ok(r) => {
+                // If it returns Ok, check for failure indication
+                let all_text: String = r
+                    .content
+                    .iter()
+                    .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+                    .collect();
+
+                let is_error = r.is_error.unwrap_or(false);
+                let text_indicates_failure = all_text.contains("exit")
+                    || all_text.contains("fail")
+                    || all_text.contains("error")
+                    || all_text.contains("1");
+
+                assert!(
+                    is_error || text_indicates_failure || all_text.is_empty(),
+                    "Should handle failed command appropriately"
+                );
+            }
         }
-        Ok(r) => {
-            // If it returns Ok, check for failure indication
-            let all_text: String = r
-                .content
-                .iter()
-                .filter_map(|c| c.as_text().map(|t| t.text.clone()))
-                .collect();
 
-            let is_error = r.is_error.unwrap_or(false);
-            let text_indicates_failure = all_text.contains("exit")
-                || all_text.contains("fail")
-                || all_text.contains("error")
-                || all_text.contains("1");
-
-            assert!(
-                is_error || text_indicates_failure || all_text.is_empty(),
-                "Should handle failed command appropriately"
-            );
-        }
+        let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
+        return Ok(());
     }
 
-    client.cancel().await?;
-    Ok(())
+    bail!("test_mcp_shell_command_failure: unreachable")
 }
 
 // ============================================================================

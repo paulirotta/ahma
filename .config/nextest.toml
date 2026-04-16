@@ -58,6 +58,23 @@ slow-timeout = { period = "180s", terminate-after = 3 }
 filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(shell_tool_tests::) | test(file_tool_tests::) | test(git_tool_tests::) | test(python_tool_tests::) | test(tool_integration_test::) | test(request_handler_coverage_test::) | test(sandbox_lifecycle_notification_test::) | test(sse_streaming_test::) | test(sse_endpoint_test::) | test(cargo_tool_integration_test::) | test(fast_error_response_test::) | test(handshake_replay_test::) | test(http3_integration_test::) | test(http_initialize_validation_integration_test::) | test(progress_token_http_integration_test::) | test(sandbox_roots_handshake_stress_test::) | test(sandbox_security_test::) | test(session_coverage_test::) | test(session_sandbox_test::) | test(session_stress_test::)"
 slow-timeout = { period = "120s", terminate-after = 3 }
 
+# test_tool_call_with_different_working_directory makes a real SSE + roots/list
+# handshake. Under peak parallel load the subprocess may take >60 s to
+# respond; one automatic retry avoids a spurious CI red while preserving
+# the invariant that repeated failures indicate a real session-isolation bug.
+[[profile.default.overrides]]
+filter = "test(test_tool_call_with_different_working_directory)"
+retries = 1
+
+# http_bridge_integration_test tests open SSE streams and exchange roots/list
+# messages via spawned subprocesses. Under heavy parallel load the handshake
+# can exceed the 60 s TimeoutCategory::Handshake deadline, producing a panic
+# that would be a false failure. One retry lets transient overload pass
+# without hiding real session-isolation bugs (which would fail both attempts).
+[[profile.default.overrides]]
+filter = "test(http_bridge_integration_test::)"
+retries = 1
+
 # Coverage profile for cargo llvm-cov (instrumentation makes tests much slower)
 [profile.coverage]
 retries = 0

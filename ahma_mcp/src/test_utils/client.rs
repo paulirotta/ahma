@@ -416,7 +416,7 @@ pub fn create_test_config(_workspace_dir: &Path) -> Result<Arc<Adapter>> {
     let shell_pool_config = ShellPoolConfig {
         enabled: true,
         shells_per_directory: 2,
-        max_total_shells: config.max_concurrent_tasks as usize,
+        max_total_shells: config.max_concurrent_tasks,
         shell_idle_timeout: Duration::from_secs(1800),
         pool_cleanup_interval: Duration::from_secs(300),
         shell_spawn_timeout: config.quick_timeout,
