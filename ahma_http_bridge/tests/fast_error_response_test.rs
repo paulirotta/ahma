@@ -96,21 +96,61 @@ async fn timed_request(
 
     let duration_ms = start.elapsed().as_millis();
 
-    match result {
-        Ok(response) => {
-            let status = response.status();
-            if !status.is_success() {
-                let text = response.text().await.unwrap_or_default();
-                (Err(format!("HTTP {}: {}", status, text)), duration_ms)
-            } else {
-                match response.json::<JsonRpcResponse>().await {
-                    Ok(resp) => (Ok(resp), duration_ms),
-                    Err(e) => (Err(format!("Parse error: {}", e)), duration_ms),
-                }
-            }
-        }
-        Err(e) => (Err(format!("Request failed: {}", e)), duration_ms),
+    let response = match result {
+        Ok(r) => r,
+        Err(e) => return (Err(format!("Request failed: {}", e)), duration_ms),
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return (Err(format!("HTTP {}: {}", status, text)), duration_ms);
     }
+
+    let parsed = response
+        .json::<JsonRpcResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {}", e));
+    (parsed, duration_ms)
+}
+
+/// Attempt a single initialize exchange; returns the session ID on success.
+async fn try_single_initialize(client: &Client, url: &str, init_request: &Value) -> Option<String> {
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .json(init_request)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let session_id = response
+        .headers()
+        .get("mcp-session-id")
+        .or_else(|| response.headers().get("Mcp-Session-Id"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())?;
+
+    // Complete MCP handshake by sending initialized notification
+    let initialized_notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    });
+    let _ = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("Mcp-Session-Id", &session_id)
+        .json(&initialized_notification)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await;
+
+    Some(session_id)
 }
 
 /// Initialize a session and return the session ID.
@@ -136,47 +176,8 @@ async fn initialize_session(client: &Client) -> Option<String> {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
-
-        let response = match client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&init_request)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(resp) => resp,
-            Err(_) => continue,
-        };
-
-        if !response.status().is_success() {
-            continue;
-        }
-
-        let session_id = response
-            .headers()
-            .get("mcp-session-id")
-            .or_else(|| response.headers().get("Mcp-Session-Id"))
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-
-        if let Some(ref sid) = session_id {
-            // Complete MCP handshake by sending initialized notification
-            let initialized_notification = json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized"
-            });
-
-            let _ = client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .header("Mcp-Session-Id", sid)
-                .json(&initialized_notification)
-                .timeout(Duration::from_secs(5))
-                .send()
-                .await;
-
-            return session_id;
+        if let Some(sid) = try_single_initialize(client, &url, &init_request).await {
+            return Some(sid);
         }
     }
 
@@ -212,20 +213,21 @@ async fn timed_request_with_session(
 
     let duration_ms = start.elapsed().as_millis();
 
-    match result {
-        Ok(response) => {
-            if !response.status().is_success() {
-                let text = response.text().await.unwrap_or_default();
-                (Err(format!("HTTP error: {}", text)), duration_ms)
-            } else {
-                match response.json::<JsonRpcResponse>().await {
-                    Ok(resp) => (Ok(resp), duration_ms),
-                    Err(e) => (Err(format!("Parse error: {}", e)), duration_ms),
-                }
-            }
-        }
-        Err(e) => (Err(format!("Request failed: {}", e)), duration_ms),
+    let response = match result {
+        Ok(r) => r,
+        Err(e) => return (Err(format!("Request failed: {}", e)), duration_ms),
+    };
+
+    if !response.status().is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return (Err(format!("HTTP error: {}", text)), duration_ms);
     }
+
+    let parsed = response
+        .json::<JsonRpcResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {}", e));
+    (parsed, duration_ms)
 }
 
 // =============================================================================

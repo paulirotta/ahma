@@ -33,7 +33,7 @@ use tracing::info;
 /// # Errors
 /// Returns an error if the server fails to start or encounters a fatal error.
 pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
-    tracing::info!("Starting ahma_mcp v1.0.0");
+    tracing::info!("Starting ahma_mcp v{}", env!("CARGO_PKG_VERSION"));
     if let Some(ref tools_dir) = config.tools_dir {
         tracing::info!("Tools directory: {:?}", tools_dir);
     } else {

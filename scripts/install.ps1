@@ -343,6 +343,8 @@ function Get-AhmaMainSkillContent {
     return @'
 ---
 name: ahma
+version: 0.5.6
+author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
   to understand how to run tools, activate bundles, use the sandbox, monitor logs, author custom
@@ -353,7 +355,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 1.0.0 | author: Paul Houghton -->
+<!-- version: 0.5.6 | author: Paul Houghton -->
 
 # Ahma Skill — Comprehensive AI Usage Guide
 
@@ -828,17 +830,19 @@ description: >
   Runs ahma-simplify (via the simplify MCP tool or CLI) to score every file 0-100%, identifies
   the worst hotspot functions, and returns a structured prompt to fix them with minimal, targeted
   changes. Always verifies improvement after editing.
-version: 1.0.0
-author: ahma project
+version: 0.5.6
+author: Paul Houghton
 user-invocable: true
 ---
+
+<!-- version: 0.5.6 | author: Paul Houghton -->
 
 # ahma-simplify Skill
 
 Analyze code complexity across any supported language, identify the worst hotspot functions, fix
 them with minimal targeted changes, and verify measurable improvement.
 
-Supports: Rust, Python, JavaScript, TypeScript, C, C++, Java, C#, Go, CSS, HTML.
+Supports: Rust, Python, JavaScript, TypeScript, Kotlin, C, C++, Java, C#, Go, CSS, HTML.
 
 ---
 
@@ -1086,8 +1090,8 @@ function Invoke-AhmaSkillSetup {
 
     Write-Host ""
     Write-Host "  Installing skills..."
-    Install-OneSkill -Name 'ahma'          -Version '1.0.0' -ContentFn { Get-AhmaMainSkillContent }
-    Install-OneSkill -Name 'ahma-simplify' -Version '1.0.0' -ContentFn { Get-AhmaSkillContent }
+    Install-OneSkill -Name 'ahma'          -Version '0.5.6' -ContentFn { Get-AhmaMainSkillContent }
+    Install-OneSkill -Name 'ahma-simplify' -Version '0.5.6' -ContentFn { Get-AhmaSkillContent }
 
     Write-Host ""
     Write-Host "  Skills are automatically available in:"

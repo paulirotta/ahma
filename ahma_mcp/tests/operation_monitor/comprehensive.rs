@@ -153,17 +153,9 @@ async fn test_memory_cleanup_validation() -> Result<()> {
     Ok(())
 }
 
-/// Test status query performance under high load
-#[tokio::test]
-async fn test_status_query_performance_under_load() -> Result<()> {
-    let monitor = OperationMonitor::new(MonitorConfig::with_timeout(Duration::from_secs(60)));
-    let monitor = Arc::new(monitor);
-
-    let num_operations = 50;
-    let num_query_tasks = 20;
-
-    // Create operations with mixed states
-    for i in 0..num_operations {
+/// Populate a monitor with `num_ops` operations in rotating Completed / InProgress / Pending states.
+async fn create_mixed_state_operations(monitor: &OperationMonitor, num_ops: usize) {
+    for i in 0..num_ops {
         let op_id = format!("perf_test_op_{}", i);
         let operation = Operation::new(
             op_id.clone(),
@@ -171,10 +163,8 @@ async fn test_status_query_performance_under_load() -> Result<()> {
             format!("Performance test operation {}", i),
             Some(json!({"test_id": i})),
         );
-
         monitor.add_operation(operation).await;
 
-        // Complete some operations, leave others active
         if i % 3 == 0 {
             monitor
                 .update_status(
@@ -188,72 +178,48 @@ async fn test_status_query_performance_under_load() -> Result<()> {
                 .update_status(&op_id, OperationStatus::InProgress, None)
                 .await;
         }
-        // Leave every 3rd operation as Pending
+        // Every third operation stays Pending
+    }
+}
+
+/// Run a single query-task: synchronise at the barrier, then cycle through all four query types
+/// for `duration_ms` milliseconds, returning `(task_id, query_count, elapsed)`.
+async fn run_query_task(
+    task_id: usize,
+    monitor: Arc<OperationMonitor>,
+    barrier: Arc<Barrier>,
+    duration_ms: u64,
+) -> (usize, usize, Duration) {
+    barrier.wait().await;
+    let start_time = Instant::now();
+    let mut query_count = 0;
+
+    while start_time.elapsed() < Duration::from_millis(duration_ms) {
+        match query_count % 4 {
+            0 => { let _ = monitor.get_active_operations().await; }
+            1 => { let _ = monitor.get_completed_operations().await; }
+            2 => { let _ = monitor.get_all_active_operations().await; }
+            _ => { let _ = monitor.get_shutdown_summary().await; }
+        }
+        query_count += 1;
     }
 
-    // Start multiple query tasks concurrently
-    let barrier = Arc::new(Barrier::new(num_query_tasks));
-    let mut handles = Vec::new();
+    (task_id, query_count, start_time.elapsed())
+}
 
-    for task_id in 0..num_query_tasks {
-        let monitor_clone = monitor.clone();
-        let barrier_clone = barrier.clone();
-
-        let handle = tokio::spawn(async move {
-            barrier_clone.wait().await;
-            let start_time = Instant::now();
-
-            let mut query_count = 0;
-
-            // Perform rapid queries for 100ms
-            while start_time.elapsed() < Duration::from_millis(100) {
-                // Mix different query types
-                match query_count % 4 {
-                    0 => {
-                        let _active = monitor_clone.get_active_operations().await;
-                    }
-                    1 => {
-                        let _completed = monitor_clone.get_completed_operations().await;
-                    }
-                    2 => {
-                        let _all = monitor_clone.get_all_active_operations().await;
-                    }
-                    3 => {
-                        let _summary = monitor_clone.get_shutdown_summary().await;
-                    }
-                    _ => {}
-                }
-                query_count += 1;
-            }
-
-            (task_id, query_count, start_time.elapsed())
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all query tasks to complete
-    let results: Vec<(usize, usize, Duration)> = futures::future::join_all(handles)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // Verify performance metrics
+/// Assert that performance results satisfy throughput and latency bounds.
+fn assert_query_performance(results: &[(usize, usize, Duration)], num_tasks: usize) {
     let total_queries: usize = results.iter().map(|(_, count, _)| count).sum();
-    let avg_queries_per_task = total_queries / num_query_tasks;
+    let avg_queries_per_task = total_queries / num_tasks;
 
-    // Should be able to handle many queries per task in 100ms
     assert!(
         avg_queries_per_task > 10,
         "Expected high query throughput, got avg {} queries per task",
         avg_queries_per_task
     );
 
-    // Verify all tasks completed within reasonable time
-    // Allow for more time under high concurrency and system load
-    // Increased to 1000ms to avoid flaky failures on loaded systems
     let max_duration = Duration::from_millis(1000);
-    for (task_id, query_count, duration) in &results {
+    for (task_id, query_count, duration) in results {
         assert!(
             duration < &max_duration,
             "Task {} took too long: {:?} for {} queries (exceeded {:?})",
@@ -266,8 +232,39 @@ async fn test_status_query_performance_under_load() -> Result<()> {
 
     println!(
         "Performance test completed: {} total queries across {} tasks",
-        total_queries, num_query_tasks
+        total_queries, num_tasks
     );
+}
+
+/// Test status query performance under high load
+#[tokio::test]
+async fn test_status_query_performance_under_load() -> Result<()> {
+    let monitor = OperationMonitor::new(MonitorConfig::with_timeout(Duration::from_secs(60)));
+    let monitor = Arc::new(monitor);
+
+    let num_operations = 50;
+    let num_query_tasks = 20;
+
+    create_mixed_state_operations(&monitor, num_operations).await;
+
+    let barrier = Arc::new(Barrier::new(num_query_tasks));
+    let handles: Vec<_> = (0..num_query_tasks)
+        .map(|task_id| {
+            tokio::spawn(run_query_task(
+                task_id,
+                monitor.clone(),
+                barrier.clone(),
+                100,
+            ))
+        })
+        .collect();
+
+    let results: Vec<(usize, usize, Duration)> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_query_performance(&results, num_query_tasks);
 
     Ok(())
 }

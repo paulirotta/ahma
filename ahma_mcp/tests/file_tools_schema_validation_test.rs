@@ -6,7 +6,7 @@
 //! - Typos in option names
 //! - Aliases that don't match the actual tool's flag letters
 
-use ahma_mcp::config::ToolConfig;
+use ahma_mcp::config::{SubcommandConfig, ToolConfig};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -25,6 +25,73 @@ fn load_tool_config(name: &str) -> ToolConfig {
         .unwrap_or_else(|e| panic!("Failed to parse {}: {}", config_path.display(), e))
 }
 
+/// Assert that a single option alias is a valid single alphanumeric character.
+fn validate_option_alias(opt_name: &str, subcmd_name: &str, alias: &str) {
+    assert!(
+        alias.len() == 1,
+        "Option '{}' in subcommand '{}' has multi-char alias '{}' — \
+         aliases must be single characters for -X flag format",
+        opt_name,
+        subcmd_name,
+        alias
+    );
+    let ch = alias.chars().next().unwrap();
+    assert!(
+        ch.is_ascii_alphanumeric() || ch == '1',
+        "Option '{}' in subcommand '{}' has non-alphanumeric alias '{}' — \
+         aliases should be alphanumeric characters",
+        opt_name,
+        subcmd_name,
+        alias
+    );
+}
+
+/// Assert that a single option name is not a known typo.
+fn assert_no_known_typos(opt_name: &str, subcmd_name: &str) {
+    assert_ne!(
+        opt_name, "heml",
+        "Option name 'heml' in subcommand '{}' appears to be a typo for 'html'",
+        subcmd_name
+    );
+}
+
+/// Assert that a subcommand has no duplicate option names or aliases.
+fn assert_no_duplicates_in_subcommand(subcmd: &SubcommandConfig) {
+    let mut seen_names = HashSet::new();
+    let mut seen_aliases = HashSet::new();
+
+    if let Some(options) = &subcmd.options {
+        for opt in options {
+            assert!(
+                seen_names.insert(&opt.name),
+                "Duplicate option name '{}' in subcommand '{}'",
+                opt.name,
+                subcmd.name
+            );
+            if let Some(alias) = &opt.alias {
+                assert!(
+                    seen_aliases.insert(alias.clone()),
+                    "Duplicate alias '{}' in subcommand '{}' (on option '{}')",
+                    alias,
+                    subcmd.name,
+                    opt.name
+                );
+            }
+        }
+    }
+
+    if let Some(positional) = &subcmd.positional_args {
+        for arg in positional {
+            assert!(
+                seen_names.insert(&arg.name),
+                "Positional arg '{}' conflicts with option name in subcommand '{}'",
+                arg.name,
+                subcmd.name
+            );
+        }
+    }
+}
+
 #[test]
 fn all_file_tools_options_have_valid_single_char_aliases() {
     let config = load_tool_config("file-tools");
@@ -36,23 +103,7 @@ fn all_file_tools_options_have_valid_single_char_aliases() {
         if let Some(options) = &subcmd.options {
             for opt in options {
                 if let Some(alias) = &opt.alias {
-                    assert!(
-                        alias.len() == 1,
-                        "Option '{}' in subcommand '{}' has multi-char alias '{}' — \
-                         aliases must be single characters for -X flag format",
-                        opt.name,
-                        subcmd.name,
-                        alias
-                    );
-                    let ch = alias.chars().next().unwrap();
-                    assert!(
-                        ch.is_ascii_alphanumeric() || ch == '1',
-                        "Option '{}' in subcommand '{}' has non-alphanumeric alias '{}' — \
-                         aliases should be alphanumeric characters",
-                        opt.name,
-                        subcmd.name,
-                        alias
-                    );
+                    validate_option_alias(&opt.name, &subcmd.name, alias);
                 }
             }
         }
@@ -237,12 +288,7 @@ fn no_option_names_are_typos_in_simplify() {
     for subcmd in &subcommands {
         if let Some(options) = &subcmd.options {
             for opt in options {
-                // Catch common typos
-                assert_ne!(
-                    opt.name, "heml",
-                    "Option name 'heml' in subcommand '{}' appears to be a typo for 'html'",
-                    subcmd.name
-                );
+                assert_no_known_typos(&opt.name, &subcmd.name);
             }
         }
     }
@@ -286,38 +332,6 @@ fn no_duplicate_option_names_within_subcommands() {
         .expect("file-tools should have subcommands");
 
     for subcmd in &subcommands {
-        let mut seen_names = HashSet::new();
-        let mut seen_aliases = HashSet::new();
-
-        if let Some(options) = &subcmd.options {
-            for opt in options {
-                assert!(
-                    seen_names.insert(&opt.name),
-                    "Duplicate option name '{}' in subcommand '{}'",
-                    opt.name,
-                    subcmd.name
-                );
-                if let Some(alias) = &opt.alias {
-                    assert!(
-                        seen_aliases.insert(alias.clone()),
-                        "Duplicate alias '{}' in subcommand '{}' (on option '{}')",
-                        alias,
-                        subcmd.name,
-                        opt.name
-                    );
-                }
-            }
-        }
-
-        if let Some(positional) = &subcmd.positional_args {
-            for arg in positional {
-                assert!(
-                    seen_names.insert(&arg.name),
-                    "Positional arg '{}' conflicts with option name in subcommand '{}'",
-                    arg.name,
-                    subcmd.name
-                );
-            }
-        }
+        assert_no_duplicates_in_subcommand(subcmd);
     }
 }

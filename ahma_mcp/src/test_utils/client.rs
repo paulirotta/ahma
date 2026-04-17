@@ -34,37 +34,39 @@ where
         .unwrap_or_default()
 }
 
+fn check_env_binary() -> Option<PathBuf> {
+    let path_str = std::env::var("AHMA_TEST_BINARY").ok()?;
+    let path = PathBuf::from(&path_str);
+    if path.exists() {
+        return Some(path);
+    }
+    eprintln!(
+        "Warning: AHMA_TEST_BINARY={} does not exist, falling back",
+        path_str
+    );
+    None
+}
+
+fn collect_binary_candidates(workspace: &Path, bin_name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::with_capacity(3);
+    if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        candidates.push(PathBuf::from(target_dir).join("debug").join(bin_name));
+    }
+    candidates.push(workspace.join("target/debug").join(bin_name));
+    candidates.push(workspace.join("target/release").join(bin_name));
+    candidates
+}
+
 /// Get the path to the ahma_mcp binary.
 fn get_test_binary_path() -> PathBuf {
     BINARY_PATH
         .get_or_init(|| {
-            // Check env var first
-            if let Ok(path) = std::env::var("AHMA_TEST_BINARY") {
-                let p = PathBuf::from(&path);
-                if p.exists() {
-                    return p;
-                }
-                eprintln!(
-                    "Warning: AHMA_TEST_BINARY={} does not exist, falling back",
-                    path
-                );
+            if let Some(path) = check_env_binary() {
+                return path;
             }
-
-            // Check for debug binary
             let workspace = get_workspace_dir();
             let bin_name = format!("ahma-mcp{}", std::env::consts::EXE_SUFFIX);
-            let mut candidates = Vec::with_capacity(3);
-
-            // Check CARGO_TARGET_DIR
-            if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-                candidates.push(PathBuf::from(target_dir).join("debug").join(&bin_name));
-            }
-
-            candidates.push(workspace.join("target/debug").join(&bin_name));
-            candidates.push(workspace.join("target/release").join(&bin_name));
-
-            // No pre-built binary found returns empty path to signal fallback.
-            find_first_existing_path(candidates)
+            find_first_existing_path(collect_binary_candidates(&workspace, &bin_name))
         })
         .clone()
 }
@@ -85,6 +87,38 @@ fn build_cargo_run_command(workspace_dir: &Path) -> Command {
 fn use_prebuilt_binary() -> bool {
     let path = get_test_binary_path();
     !path.as_os_str().is_empty() && path.exists()
+}
+
+fn configure_sandbox_env(
+    cmd: &mut Command,
+    force_no_sandbox: bool,
+    working_dir: &Path,
+    livelog: bool,
+) {
+    if force_no_sandbox {
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
+    } else {
+        if let Some(scope) = working_dir.to_str() {
+            cmd.env("AHMA_SANDBOX_SCOPE", scope);
+        }
+        if livelog {
+            cmd.env("AHMA_LOG_MONITOR", "1");
+        }
+    }
+}
+
+fn configure_tools_dir_env(
+    cmd: &mut Command,
+    tools_dir: Option<PathBuf>,
+    working_dir: &Path,
+) {
+    let Some(dir) = tools_dir else { return };
+    let tools_path = if dir.is_absolute() {
+        dir
+    } else {
+        working_dir.join(dir)
+    };
+    cmd.env("AHMA_TOOLS_DIR", tools_path);
 }
 
 /// Builder for creating MCP clients in tests.
@@ -218,29 +252,15 @@ impl ClientBuilder {
         let force_no_sandbox = no_sandbox || is_nested_sandbox_environment();
 
         ().serve(TokioChildProcess::new(command.configure(|cmd| {
-            // New CLI: `ahma-mcp serve stdio [--tools-dir PATH]`
-            // All behaviour flags are now environment variables (no CLI flags).
             cmd.args(["serve", "stdio"]);
 
-            // Clear sandbox-related env vars that may be inherited from a parent ahma process
-            // (e.g., ahma-http-bridge running in HTTP bridge mode with --defer-sandbox).
-            // Inheriting AHMA_SANDBOX_DEFER causes the child to start with empty scopes in
-            // test mode, which bypasses all path validation (security invariant violation).
+            // Clear sandbox-related env vars inherited from a parent ahma process to avoid
+            // bypassing path validation (security invariant violation).
             cmd.env_remove("AHMA_SANDBOX_DEFER");
             cmd.env_remove("AHMA_SANDBOX_SCOPE");
             cmd.env_remove("AHMA_WORKING_DIRS");
 
-            if force_no_sandbox {
-                cmd.env("AHMA_DISABLE_SANDBOX", "1");
-            } else {
-                // Set sandbox scope via env var (--sandbox-scope CLI flag removed in new CLI)
-                if let Some(scope) = working_dir.to_str() {
-                    cmd.env("AHMA_SANDBOX_SCOPE", scope);
-                }
-                if livelog {
-                    cmd.env("AHMA_LOG_MONITOR", "1");
-                }
-            }
+            configure_sandbox_env(cmd, force_no_sandbox, working_dir, livelog);
 
             if skip_availability_probes {
                 cmd.env("AHMA_SKIP_PROBES", "1");
@@ -252,15 +272,7 @@ impl ClientBuilder {
                 cmd.env(k, v);
             }
 
-            if let Some(dir) = tools_dir {
-                let tools_path = if dir.is_absolute() {
-                    dir
-                } else {
-                    working_dir.join(dir)
-                };
-                // --tools-dir was removed from CLI; use AHMA_TOOLS_DIR env var instead
-                cmd.env("AHMA_TOOLS_DIR", tools_path);
-            }
+            configure_tools_dir_env(cmd, tools_dir, working_dir);
 
             cmd.args(extra_args);
         }))?)

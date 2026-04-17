@@ -246,6 +246,10 @@ pub struct FileSimplicity {
     pub cyclomatic: f64,
     pub sloc: f64,
     pub mi: f64,
+    /// Cognitive complexity of the single most complex named function in the file.
+    /// Zero when no named functions are present. Used as a direct complexity signal
+    /// that rewards decomposing the worst hotspot — the primary agentic refactoring op.
+    pub peak_cognitive: f64,
     pub hotspots: Vec<FunctionHotspot>,
     /// Names of the analysis tools that contributed to this file's metrics.
     /// Always contains at least `"rust-code-analysis"`. May also contain
@@ -259,38 +263,37 @@ impl FileSimplicity {
     /// # Scoring Formula
     ///
     /// ```text
-    /// Score = 0.6 × MI + 0.2 × Cog_Score + 0.2 × Cyc_Score
+    /// Score = 0.4 × MI + 0.3 × Cog_Score + 0.2 × Peak_Score + 0.1 × Length_Score
     /// ```
     ///
-    /// Where:
-    /// - **MI**: Maintainability Index (Visual Studio variant, 0-100, higher = better)
-    /// - **Cog_Score**: `(100 - (cognitive / sloc * 100)).max(0)` - density-based cognitive complexity
-    /// - **Cyc_Score**: `(100 - (cyclomatic / sloc * 100)).max(0)` - density-based cyclomatic complexity
+    /// - **MI** (40%): SLOC-weighted average of function-level Maintainability Indices.
+    ///   Always prefers function-level MI over raw file MI (see [`resolve_mi`]).
+    /// - **Cog_Score** (30%): `(100 - cognitive/sloc×100).max(0)` — cognitive density;
+    ///   rewards low nesting depth relative to file size.
+    /// - **Peak_Score** (20%): `(100 - max_function_cognitive).max(0)` — directly rewards
+    ///   decomposing the single worst function, the primary agentic refactoring operation.
+    /// - **Length_Score** (10%): `min(100, 300/sloc×100)` — files ≤300 SLOC score 100;
+    ///   larger files are penalised proportionally for the agent context-window cost.
     ///
-    /// # Weighting Rationale
-    ///
-    /// - MI (60%): Composite metric already balancing complexity, volume, and LOC
-    /// - Cognitive (20%): Human comprehension difficulty (normalized by size)
-    /// - Cyclomatic (20%): Testability (normalized by size)
-    ///
-    /// # Normalization
-    ///
-    /// Complexity is normalized by SLOC to calculate "complexity density" per 100 lines.
-    /// A file with 1 complexity point per line (density = 100 per 100 lines) receives a 0 component score.
+    /// Cyclomatic complexity is not a standalone term because it is already embedded in
+    /// the MI formula (`0.23×G`). Giving it extra weight caused effective over-weighting
+    /// on branches vs cognitive nesting depth, which is a worse predictor of agent errors.
     pub fn calculate(results: &MetricsResults, normalized: bool) -> Self {
         let cognitive = results.metrics.cognitive.sum;
         let cyclomatic = results.metrics.cyclomatic.sum;
         let sloc = results.metrics.loc.sloc;
         let mi = Self::resolve_mi(results.metrics.mi.mi_visual_studio, &results.spaces);
+        let peak_cognitive = Self::max_function_cognitive(&results.spaces);
 
         let score = if mi == 0.0 && cognitive == 0.0 && cyclomatic <= 1.0 {
             // Trivial/empty files get perfect score
             100.0
         } else {
             let mi_score = mi.clamp(0.0, 100.0);
-            let (cog_score, cyc_score) =
-                Self::complexity_scores(cognitive, cyclomatic, sloc, normalized);
-            0.6 * mi_score + 0.2 * cog_score + 0.2 * cyc_score
+            let cog_score = Self::cognitive_density_score(cognitive, sloc, normalized);
+            let peak_score = (100.0 - peak_cognitive).max(0.0);
+            let length_score = Self::length_score(sloc);
+            0.4 * mi_score + 0.3 * cog_score + 0.2 * peak_score + 0.1 * length_score
         };
 
         let hotspots = FunctionHotspot::extract_from_spaces(&results.spaces);
@@ -303,6 +306,7 @@ impl FileSimplicity {
             cyclomatic,
             sloc,
             mi,
+            peak_cognitive,
             hotspots,
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
@@ -331,14 +335,16 @@ impl FileSimplicity {
             .max(1.0);
 
         let sloc_factor = sloc;
-        let cog_density = (cognitive / sloc_factor) * 100.0;
-        let cyc_density = (cyclomatic / sloc_factor) * 100.0;
-        let cog_score = (100.0 - cog_density).max(0.0);
-        let cyc_score = (100.0 - cyc_density).max(0.0);
+        let cog_score = (100.0 - (cognitive / sloc_factor) * 100.0).max(0.0);
+        // Peak cognitive is unknown for external-only files (no space tree).
+        // Use file-level cognitive as a conservative proxy.
+        let peak_score = (100.0 - cognitive).max(0.0);
         // MI unknown → treat as 50 (neutral midpoint) so the score stays
         // representative of the complexity components we do have.
         let mi_score = 50.0_f64;
-        let score = (0.6 * mi_score + 0.2 * cog_score + 0.2 * cyc_score).clamp(0.0, 100.0);
+        let length_score = Self::length_score(sloc);
+        let score = (0.4 * mi_score + 0.3 * cog_score + 0.2 * peak_score + 0.1 * length_score)
+            .clamp(0.0, 100.0);
 
         let analyzer = if external.analyzer.is_empty() {
             "detekt".to_string()
@@ -354,6 +360,7 @@ impl FileSimplicity {
             cyclomatic,
             sloc,
             mi: 0.0,
+            peak_cognitive: cognitive, // no space tree — file-level as proxy
             hotspots: vec![],
             analysis_sources: vec![analyzer],
         })
@@ -383,17 +390,14 @@ impl FileSimplicity {
         }
 
         if changed {
-            // Recalculate score with updated complexity values.
+            // Recalculate score with updated complexity values using the same
+            // formula as calculate() (normalized density mode, function-weighted MI).
             let mi_score = self.mi.clamp(0.0, 100.0);
-            // Use normalized=true as the default (matching calculate() behaviour
-            // for most callers; the normalized flag is not stored on Self, so
-            // we use per-file SLOC which is always available).
-            let sloc_factor = self.sloc.max(1.0);
-            let cog_density = (self.cognitive / sloc_factor) * 100.0;
-            let cyc_density = (self.cyclomatic / sloc_factor) * 100.0;
-            let cog_score = (100.0 - cog_density).max(0.0);
-            let cyc_score = (100.0 - cyc_density).max(0.0);
-            let new_score = 0.6 * mi_score + 0.2 * cog_score + 0.2 * cyc_score;
+            let cog_score = Self::cognitive_density_score(self.cognitive, self.sloc, true);
+            let peak_score = (100.0 - self.peak_cognitive).max(0.0);
+            let length_score = Self::length_score(self.sloc);
+            let new_score =
+                0.4 * mi_score + 0.3 * cog_score + 0.2 * peak_score + 0.1 * length_score;
             self.score = new_score.clamp(0.0, 100.0);
         }
 
@@ -413,36 +417,51 @@ impl FileSimplicity {
 
     /// Resolves the effective MI value for a file.
     ///
-    /// File-level MI from rust-code-analysis is often 0 because the raw
-    /// mi_original goes negative for large files and the Visual Studio
-    /// variant clamps to 0. Individual functions have accurate MI values,
-    /// so compute a SLOC-weighted average of function-level MIs as fallback.
+    /// Always uses the SLOC-weighted average of function-level MI values.
+    /// File-level MI from rust-code-analysis is often 0 (the Visual Studio variant
+    /// clamps the raw value to 0 for large files) or misleading after refactoring
+    /// (extracting helpers into the same file increases the total cyclomatic sum,
+    /// pushing file-level MI down even when every individual function becomes simpler).
+    /// Function-weighted average MI is immune to both problems.
+    ///
+    /// Falls back to raw file MI only when no named functions with positive SLOC exist.
     fn resolve_mi(file_mi: f64, spaces: &[SpaceEntry]) -> f64 {
-        if file_mi == 0.0 && !spaces.is_empty() {
-            Self::weighted_function_mi(spaces).unwrap_or(file_mi)
+        Self::weighted_function_mi(spaces).unwrap_or(file_mi)
+    }
+
+    /// Cognitive density score: `(100 - cognitive/sloc×100).max(0)`.
+    ///
+    /// In `normalized` mode (default) density is relative to SLOC so files of
+    /// different sizes are compared on equal footing. In raw mode, absolute
+    /// cognitive complexity is used (mainly kept for backwards compat in tests).
+    fn cognitive_density_score(cognitive: f64, sloc: f64, normalized: bool) -> f64 {
+        if normalized {
+            let density = (cognitive / sloc.max(1.0)) * 100.0;
+            (100.0 - density).max(0.0)
         } else {
-            file_mi
+            (100.0 - cognitive).max(0.0)
         }
     }
 
-    /// Computes cognitive and cyclomatic component scores.
-    fn complexity_scores(
-        cognitive: f64,
-        cyclomatic: f64,
-        sloc: f64,
-        normalized: bool,
-    ) -> (f64, f64) {
-        if normalized {
-            let sloc_factor = sloc.max(1.0);
-            let cog_density = (cognitive / sloc_factor) * 100.0;
-            let cyc_density = (cyclomatic / sloc_factor) * 100.0;
-            (
-                (100.0 - cog_density).max(0.0),
-                (100.0 - cyc_density).max(0.0),
-            )
-        } else {
-            ((100.0 - cognitive).max(0.0), (100.0 - cyclomatic).max(0.0))
-        }
+    /// Length score: full marks for files ≤300 SLOC, decreasing linearly above.
+    ///
+    /// 300 SLOC is the approximate size where an agent can hold the entire file
+    /// in working memory. Larger files risk incomplete edits or missed context.
+    fn length_score(sloc: f64) -> f64 {
+        const IDEAL_MAX_SLOC: f64 = 300.0;
+        (IDEAL_MAX_SLOC / sloc.max(1.0) * 100.0).min(100.0)
+    }
+
+    /// Returns the cognitive complexity of the single most complex named function.
+    /// Returns 0.0 when no named functions are present.
+    fn max_function_cognitive(spaces: &[SpaceEntry]) -> f64 {
+        let mut max_cog = 0.0_f64;
+        walk_spaces(spaces, &mut |entry| {
+            if is_named_function(entry) {
+                max_cog = max_cog.max(entry.metrics.cognitive.sum);
+            }
+        });
+        max_cog
     }
 
     /// Computes a SLOC-weighted average MI from function-level spaces.
@@ -587,6 +606,11 @@ mod tests {
 
     #[test]
     fn test_file_simplicity_calculate_complex_large_file() {
+        // No spaces → no function-weighted MI → falls back to file_mi=60.
+        // sloc=500: cog_density=50/500×100=10% → cog_score=90
+        // peak_cog=0 (no spaces) → peak_score=100
+        // length=300/500×100=60
+        // Score = 0.4×60 + 0.3×90 + 0.2×100 + 0.1×60 = 24+27+20+6 = 77
         let results = MetricsResults {
             name: "complex.rs".to_string(),
             metrics: Metrics {
@@ -600,13 +624,13 @@ mod tests {
             spaces: vec![],
         };
         let simplicity = FileSimplicity::calculate(&results, true);
-        // mi_score=60, cog_density=10, cyc_density=10 => cog_score=90, cyc_score=90
-        // 0.6*60 + 0.2*90 + 0.2*90 = 36 + 18 + 18 = 72
-        assert_eq!(simplicity.score, 72.0);
+        assert_eq!(simplicity.score, 77.0);
     }
 
     #[test]
     fn test_file_simplicity_calculate_complex_raw() {
+        // raw (normalized=false): cog_score=(100-50)=50; peak=0→100; length=60
+        // Score = 0.4×60 + 0.3×50 + 0.2×100 + 0.1×60 = 24+15+20+6 = 65
         let results = MetricsResults {
             name: "complex.rs".to_string(),
             metrics: Metrics {
@@ -620,13 +644,14 @@ mod tests {
             spaces: vec![],
         };
         let simplicity = FileSimplicity::calculate(&results, false);
-        // mi_score=60, cog_score=50, cyc_score=50
-        // 0.6*60 + 0.2*50 + 0.2*50 = 36 + 10 + 10 = 56
-        assert_eq!(simplicity.score, 56.0);
+        assert_eq!(simplicity.score, 65.0);
     }
 
     #[test]
     fn test_file_simplicity_calculate_high_density() {
+        // sloc=50: cog_density=50/50×100=100% → cog_score=0
+        // peak=0 → peak_score=100; length=300/50×100=600 → clamped to 100
+        // Score = 0.4×60 + 0.3×0 + 0.2×100 + 0.1×100 = 24+0+20+10 = 54
         let results = MetricsResults {
             name: "dense.rs".to_string(),
             metrics: Metrics {
@@ -640,9 +665,7 @@ mod tests {
             spaces: vec![],
         };
         let simplicity = FileSimplicity::calculate(&results, true);
-        // mi_score=60, cog_density=100, cyc_density=100 => cog_score=0, cyc_score=0
-        // 0.6*60 + 0.2*0 + 0.2*0 = 36
-        assert_eq!(simplicity.score, 36.0);
+        assert_eq!(simplicity.score, 54.0);
     }
 
     #[test]
@@ -664,7 +687,8 @@ mod tests {
     }
 
     #[test]
-    fn test_mi_fallback_uses_function_level_mi_when_file_level_is_zero() {
+    fn test_function_weighted_mi_used_when_file_mi_is_zero() {
+        // Weighted MI: (70*100 + 80*100) / 200 = 75.0
         let results = MetricsResults {
             name: "complex_file.rs".to_string(),
             metrics: Metrics {
@@ -709,14 +733,16 @@ mod tests {
             ],
         };
         let simplicity = FileSimplicity::calculate(&results, true);
-        // Weighted MI: (70*100 + 80*100) / 200 = 75.0
         assert_eq!(simplicity.mi, 75.0);
-        // Score: 0.6*75 + 0.2*(100-5) + 0.2*(100-5) = 45 + 19 + 19 = 83
+        // score > 80: MI=75 weighted high, low cognitive density, peak=5
         assert!(simplicity.score > 80.0);
     }
 
     #[test]
-    fn test_mi_fallback_not_used_when_file_level_mi_is_positive() {
+    fn test_function_weighted_mi_used_even_when_file_mi_is_positive() {
+        // Previously MI was only overridden when file_mi == 0.
+        // Now function-weighted avg is always used; file_mi=60 is ignored.
+        // make_space_entry sets MI=50 per function, so weighted avg = 50.
         let results = MetricsResults {
             name: "good_file.rs".to_string(),
             metrics: Metrics {
@@ -730,8 +756,81 @@ mod tests {
             spaces: vec![make_space_entry("fn_a", 1, 50, 3.0, 3.0, 50.0)],
         };
         let simplicity = FileSimplicity::calculate(&results, true);
-        // Should use file-level MI=60, not function-level
-        assert_eq!(simplicity.mi, 60.0);
+        // make_space_entry hard-codes MI=50 → function-weighted avg = 50 ≠ 60
+        assert_eq!(
+            simplicity.mi, 50.0,
+            "should use function-weighted MI, not raw file MI"
+        );
+    }
+
+    #[test]
+    fn test_peak_cognitive_is_max_function_cognitive() {
+        let spaces = vec![
+            make_space_entry("simple", 1, 10, 2.0, 3.0, 10.0),
+            make_space_entry("complex", 11, 50, 18.0, 10.0, 40.0),
+            make_space_entry("medium", 51, 80, 8.0, 6.0, 30.0),
+        ];
+        let results = MetricsResults {
+            name: "mixed.rs".to_string(),
+            metrics: Metrics {
+                cognitive: Cognitive { sum: 28.0 },
+                cyclomatic: Cyclomatic { sum: 19.0 },
+                mi: Mi {
+                    mi_visual_studio: 0.0,
+                },
+                loc: Loc { sloc: 80.0 },
+            },
+            spaces,
+        };
+        let simplicity = FileSimplicity::calculate(&results, true);
+        assert_eq!(simplicity.peak_cognitive, 18.0);
+    }
+
+    #[test]
+    fn test_helper_extraction_does_not_regress_score() {
+        // Simulates extracting a Cog=20 monolithic function into four Cog=5 helpers.
+        // The new formula should reward the decomposition (peak_cog drops 20→5).
+        let make_results = |peak_cog: f64, func_count: usize| MetricsResults {
+            name: "refactored.rs".to_string(),
+            metrics: Metrics {
+                cognitive: Cognitive {
+                    sum: peak_cog + (func_count.saturating_sub(1)) as f64 * 5.0,
+                },
+                cyclomatic: Cyclomatic {
+                    sum: (func_count * 6) as f64,
+                },
+                mi: Mi {
+                    mi_visual_studio: 0.0,
+                },
+                loc: Loc {
+                    sloc: (func_count * 20) as f64,
+                },
+            },
+            spaces: (0..func_count)
+                .map(|i| {
+                    make_space_entry(
+                        &format!("fn_{i}"),
+                        (i * 20) as u32,
+                        (i * 20 + 19) as u32,
+                        if i == 0 { peak_cog } else { 5.0 },
+                        6.0,
+                        20.0,
+                    )
+                })
+                .collect(),
+        };
+        let before = FileSimplicity::calculate(&make_results(20.0, 1), true);
+        let after = FileSimplicity::calculate(&make_results(5.0, 4), true);
+        assert!(
+            after.score >= before.score,
+            "helper extraction should not regress score: before={:.1} after={:.1}",
+            before.score,
+            after.score
+        );
+        assert!(
+            after.peak_cognitive < before.peak_cognitive,
+            "peak cognitive should drop after extraction"
+        );
     }
 
     // ── resolve_extensions tests ──────────────────────────────────────────────

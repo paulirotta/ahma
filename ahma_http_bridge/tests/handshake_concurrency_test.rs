@@ -100,24 +100,30 @@ async fn start_deferred_sandbox_server(
     panic!("HTTP bridge failed to start within timeout");
 }
 
-async fn send_mcp_request(
+fn build_mcp_post(
     client: &Client,
     base_url: &str,
-    request: &Value,
     session_id: Option<&str>,
-) -> Result<(Value, Option<String>), String> {
+) -> reqwest::RequestBuilder {
     let url = format!("{}/mcp", base_url);
     let mut req = client
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
-
     if let Some(id) = session_id {
         req = req.header("Mcp-Session-Id", id);
     }
+    req
+}
 
-    let response = req
+async fn send_mcp_request(
+    client: &Client,
+    base_url: &str,
+    request: &Value,
+    session_id: Option<&str>,
+) -> Result<(Value, Option<String>), String> {
+    let response = build_mcp_post(client, base_url, session_id)
         .json(request)
         .send()
         .await
@@ -150,18 +156,7 @@ async fn send_mcp_request_raw(
     request: &Value,
     session_id: Option<&str>,
 ) -> Result<(u16, Value), String> {
-    let url = format!("{}/mcp", base_url);
-    let mut req = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
-        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest));
-
-    if let Some(id) = session_id {
-        req = req.header("Mcp-Session-Id", id);
-    }
-
-    let response = req
+    let response = build_mcp_post(client, base_url, session_id)
         .json(request)
         .send()
         .await
@@ -285,6 +280,84 @@ async fn test_tool_call_before_roots_handshake() {
 // Test: Slow Client Handshake
 // =============================================================================
 
+/// Extract the JSON-RPC request ID from an SSE event text containing a `roots/list` request.
+/// Returns `None` if the text does not contain a `roots/list` message or the ID cannot be parsed.
+fn parse_roots_list_id(text: &str) -> Option<Value> {
+    if !text.contains("roots/list") {
+        return None;
+    }
+    let start = text.find("\"id\":")?;
+    let rest = &text[start + 5..];
+    let end = rest.find(',')?;
+    let id_str = rest[..end].trim();
+    if let Ok(id_num) = id_str.parse::<i64>() {
+        Some(json!(id_num))
+    } else {
+        Some(json!(id_str.trim_matches('"')))
+    }
+}
+
+/// SSE task for `test_slow_client_handshake`: opens the SSE stream, waits for the server's
+/// `roots/list` request, simulates a slow client by delaying 2 s, sends the roots response,
+/// then waits for `notifications/sandbox/configured` before returning.
+async fn run_slow_roots_sse_task(
+    client: Client,
+    base_url: String,
+    session_id: String,
+    root_uri: String,
+) {
+    let url = format!("{}/mcp", base_url);
+    let resp = client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", session_id.clone())
+        .send()
+        .await
+        .expect("SSE connection failed");
+
+    let mut stream = resp.bytes_stream();
+
+    // Wait for the server's roots/list request.
+    let mut request_id = None;
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.expect("SSE read error");
+        let text = String::from_utf8_lossy(&bytes);
+        if let Some(id) = parse_roots_list_id(&text) {
+            request_id = Some(id);
+            break;
+        }
+    }
+
+    let id = request_id.expect("Did not receive roots/list request");
+
+    // SIMULATE DELAY (e.g. user prompt)
+    sleep(TestTimeouts::scale_secs(2)).await;
+
+    // Send the roots response.
+    let roots_json = vec![json!({"uri": root_uri, "name": "root"})];
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {"roots": roots_json}
+    });
+    let _ = send_mcp_request(&client, &base_url, &response, Some(&session_id)).await;
+
+    // Wait for notifications/sandbox/configured so the sandbox is truly Active
+    // before the task returns.  Without this, the retry tool call races with
+    // the subprocess confirming sandbox activation and incorrectly gets 409.
+    let sandbox_ready_timeout = TestTimeouts::get(TimeoutCategory::SandboxReady);
+    let deadline = tokio::time::Instant::now() + sandbox_ready_timeout;
+    while let Ok(Some(chunk)) = tokio::time::timeout_at(deadline, stream.next()).await {
+        if let Ok(bytes) = chunk {
+            let text = String::from_utf8_lossy(&bytes);
+            if text.contains("notifications/sandbox/configured") {
+                break;
+            }
+        }
+    }
+}
+
 /// Test that the server handles a slow client gracefully.
 /// The server should wait for the roots response before allowing tool calls.
 #[tokio::test]
@@ -323,81 +396,16 @@ async fn test_slow_client_handshake() {
         .expect("Initialize failed");
     let session_id = mcp_client.session_id().expect("No session ID").to_string();
 
-    // Start SSE connection but DELAY sending the roots response
+    // Start SSE connection but DELAY sending the roots response.
     let root_uri = common::encode_file_uri(temp_dir.path());
-    let sse_client = client.clone();
-    let sse_base_url = base_url.clone();
-    let sse_session_id = session_id.clone();
+    let sse_task = tokio::spawn(run_slow_roots_sse_task(
+        client.clone(),
+        base_url.clone(),
+        session_id.clone(),
+        root_uri,
+    ));
 
-    let sse_task = tokio::spawn(async move {
-        // Connect to SSE to receive the request
-        let url = format!("{}/mcp", sse_base_url);
-        let resp = sse_client
-            .get(&url)
-            .header("Accept", "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .header("Mcp-Session-Id", sse_session_id.clone())
-            .send()
-            .await
-            .expect("SSE connection failed");
-
-        let mut stream = resp.bytes_stream();
-
-        // Wait for roots/list request
-        let mut request_id = None;
-        while let Some(chunk) = stream.next().await {
-            let bytes = chunk.expect("SSE read error");
-            let text = String::from_utf8_lossy(&bytes);
-            if text.contains("roots/list") {
-                // Extract ID (simplified parsing for test)
-                if let Some(start) = text.find("\"id\":") {
-                    let rest = &text[start + 5..];
-                    if let Some(end) = rest.find(',') {
-                        let id_str = &rest[..end].trim();
-                        // Handle both number and string IDs
-                        if let Ok(id_num) = id_str.parse::<i64>() {
-                            request_id = Some(json!(id_num));
-                        } else {
-                            request_id = Some(json!(id_str.trim_matches('"')));
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        let id = request_id.expect("Did not receive roots/list request");
-
-        // SIMULATE DELAY (e.g. user prompt)
-        sleep(TestTimeouts::scale_secs(2)).await;
-
-        // Send response
-        let roots_json = vec![json!({"uri": root_uri, "name": "root"})];
-        let response = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {"roots": roots_json}
-        });
-
-        let _ =
-            send_mcp_request(&sse_client, &sse_base_url, &response, Some(&sse_session_id)).await;
-
-        // Wait for notifications/sandbox/configured so the sandbox is truly Active
-        // before the task returns.  Without this, the retry tool call races with
-        // the subprocess confirming sandbox activation and incorrectly gets 409.
-        let sandbox_ready_timeout = TestTimeouts::get(TimeoutCategory::SandboxReady);
-        let deadline = tokio::time::Instant::now() + sandbox_ready_timeout;
-        while let Ok(Some(chunk)) = tokio::time::timeout_at(deadline, stream.next()).await {
-            if let Ok(bytes) = chunk {
-                let text = String::from_utf8_lossy(&bytes);
-                if text.contains("notifications/sandbox/configured") {
-                    break;
-                }
-            }
-        }
-    });
-
-    // Try to call tool during the delay - should fail with strict gating
+    // Try to call tool during the delay - should fail with strict gating.
     sleep(TestTimeouts::short_delay()).await;
     let tool_call = json!({
         "jsonrpc": "2.0",
@@ -428,10 +436,10 @@ async fn test_slow_client_handshake() {
         body
     );
 
-    // Wait for handshake to complete (includes sandbox/configured)
+    // Wait for handshake to complete (includes sandbox/configured).
     sse_task.await.expect("SSE task failed");
 
-    // Now it should work
+    // Now it should work.
     let tool_call_retry = json!({
         "jsonrpc": "2.0",
         "id": 3,

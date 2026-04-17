@@ -187,8 +187,14 @@ Continue iterating until the project score is satisfactory or the user stops.
 Each file receives a composite score:
 
 ```
-Score = 0.6 × Maintainability Index + 0.2 × Cognitive Score + 0.2 × Cyclomatic Score
+Score = 0.4 × MI + 0.3 × Cognitive Density + 0.2 × Peak Cognitive + 0.1 × Length Score
 ```
+
+- **MI (40%)** — function-weighted Maintainability Index; rewards decomposed, well-structured code
+- **Cognitive Density (30%)** — cognitive complexity normalised by SLOC; rewards focused, readable functions
+- **Peak Cognitive (20%)** — cognitive complexity of the single worst function; directly rewards decomposing the hardest hotspot
+- **Length Score (10%)** — 100% at ≤300 SLOC, scaling down linearly above that; reflects agent context-window pressure
+- **Cyclomatic** — reported for context only; already embedded inside MI, so not counted separately
 
 | Score Range | Status | Guidance |
 |-------------|--------|----------|
@@ -218,12 +224,6 @@ Tool name: `simplify`
 | `html` | boolean | false | Also generate HTML report |
 
 ---
-
-## Extended Documentation
-
-If you need additional detail on any topic, read the adjacent files in this skill folder:
-- `scoring-formula.md` — Full derivation of the composite score and edge cases
-- `hotspot-guide.md` — Detailed guidance on each hotspot function metric
 
 ---
 

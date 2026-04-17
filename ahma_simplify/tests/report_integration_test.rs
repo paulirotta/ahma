@@ -31,6 +31,7 @@ fn file(path: &str, language: Language, score: f64) -> FileSimplicity {
         cyclomatic: 15.0,
         sloc: 200.0,
         mi: 70.0,
+        peak_cognitive: 0.0,
         hotspots: vec![],
         analysis_sources: vec!["rust-code-analysis".to_string()],
     }

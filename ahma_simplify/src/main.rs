@@ -21,7 +21,17 @@ use report::{create_report_md, generate_ai_fix_prompt, generate_report};
     author,
     version,
     about = "Analyzes source code metrics and generates a simplicity report",
-    long_about = None
+    long_about = "Analyzes source code metrics and generates a simplicity report.\n\n\
+        Scores are calibrated for AI-assisted maintenance. An AI agent making a change\n\
+        must hold the relevant context in its context window; large, deeply nested functions\n\
+        increase the risk of misunderstanding and regression. The scoring formula rewards\n\
+        decomposed, focused code:\n\n\
+          Score = 0.4 × MI + 0.3 × Cognitive Density + 0.2 × Peak Cognitive + 0.1 × Length\n\n\
+        MI (40%) — function-weighted Maintainability Index; rewards well-structured decomposition.\n\
+        Cognitive Density (30%) — cognitive complexity per SLOC; rewards focused functions.\n\
+        Peak Cognitive (20%) — complexity of the single worst function; the primary hotspot signal.\n\
+        Length Score (10%) — 100% at ≤300 SLOC, scaling down above; reflects context-window pressure.\n\
+        Cyclomatic — reported for context only; already embedded inside MI, not double-counted."
 )]
 struct Cli {
     /// Directory to analyze (absolute or relative)
@@ -433,10 +443,11 @@ fn print_verification(path: &str, before: &FileSimplicity, after: &FileSimplicit
     println!("BEFORE -> AFTER (CHANGE)");
 
     print_metric_row("Simplicity", before.score, after.score, "%", true);
-    print_metric_row("Cognitive", before.cognitive, after.cognitive, "", false);
-    print_metric_row("Cyclomatic", before.cyclomatic, after.cyclomatic, "", false);
-    print_metric_row("SLOC", before.sloc, after.sloc, "", false);
-    print_metric_row("MI", before.mi, after.mi, "", true);
+    print_metric_row("  MI 40%", before.mi, after.mi, "", true);
+    print_metric_row("  Cognitive density 30%", before.cognitive, after.cognitive, "", false);
+    print_metric_row("  Peak cognitive 20%", before.peak_cognitive, after.peak_cognitive, "", false);
+    print_metric_row("  SLOC / length 10%", before.sloc, after.sloc, "", false);
+    print_metric_row("Cyclomatic (info only)", before.cyclomatic, after.cyclomatic, "", false);
 
     println!();
     print_verdict(before.score, after.score);

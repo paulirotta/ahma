@@ -209,11 +209,12 @@ mod flag_combination_tests {
 
         // If it fails, should fail gracefully
         if !output.status.success() {
+            let has_meaningful_output = stderr.contains("not found")
+                || stderr.contains("error")
+                || stderr.contains("Error")
+                || !stderr.is_empty();
             assert!(
-                stderr.contains("not found")
-                    || stderr.contains("error")
-                    || stderr.contains("Error")
-                    || !stderr.is_empty(),
+                has_meaningful_output,
                 "Should have meaningful output on failure"
             );
         }
@@ -548,6 +549,28 @@ mod validate_flag_extended_tests {
         );
     }
 
+    fn validate_tool_file(
+        binary: &std::path::PathBuf,
+        workspace: &std::path::PathBuf,
+        tools_dir: &std::path::PathBuf,
+        tool_name: &str,
+    ) {
+        let tool_path = tools_dir.join(tool_name);
+        if !tool_path.exists() {
+            return;
+        }
+        let output = test_command(binary)
+            .current_dir(workspace)
+            .args(["--validate", tool_path.to_str().unwrap()])
+            .output()
+            .unwrap_or_else(|_| panic!("Failed to validate {}", tool_name));
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("Validation of {} failed: {}", tool_name, stderr);
+        }
+    }
+
     /// Test validation with specific file patterns
     #[test]
     fn test_validate_specific_files() {
@@ -555,21 +578,8 @@ mod validate_flag_extended_tests {
         let workspace = workspace_dir();
         let tools_dir = workspace.join(".ahma");
 
-        // Validate specific tool files if they exist
         for tool_name in ["cargo.json", "git.json", "file-tools.json"] {
-            let tool_path = tools_dir.join(tool_name);
-            if tool_path.exists() {
-                let output = test_command(&binary)
-                    .current_dir(&workspace)
-                    .args(["--validate", tool_path.to_str().unwrap()])
-                    .output()
-                    .unwrap_or_else(|_| panic!("Failed to validate {}", tool_name));
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    println!("Validation of {} failed: {}", tool_name, stderr);
-                }
-            }
+            validate_tool_file(&binary, &workspace, &tools_dir, tool_name);
         }
     }
 }
@@ -621,18 +631,20 @@ mod generate_schema_extended_tests {
             .expect("Failed to execute generate_tool_schema");
 
         if output.status.success() {
-            let schema_path = temp_dir.path().join("mtdf-schema.json");
-            if schema_path.exists() {
-                let content = std::fs::read_to_string(&schema_path).expect("Failed to read schema");
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&content).expect("Invalid JSON");
-
-                // Check for JSON Schema required fields
-                assert!(
-                    parsed.get("$schema").is_some() || parsed.get("type").is_some(),
-                    "Should have JSON Schema structure"
-                );
-            }
+            assert_valid_json_schema(&temp_dir);
         }
+    }
+
+    fn assert_valid_json_schema(temp_dir: &TempDir) {
+        let schema_path = temp_dir.path().join("mtdf-schema.json");
+        if !schema_path.exists() {
+            return;
+        }
+        let content = std::fs::read_to_string(&schema_path).expect("Failed to read schema");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("Invalid JSON");
+        assert!(
+            parsed.get("$schema").is_some() || parsed.get("type").is_some(),
+            "Should have JSON Schema structure"
+        );
     }
 }

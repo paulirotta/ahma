@@ -1019,7 +1019,7 @@ _ahma_skill_content() {
 ---
 name: ahma-simplify
 version: __AHMA_VERSION__
-author: ahma project
+author: Paul Houghton
 description: >
   Use this skill when the user asks about code complexity, simplification, maintainability, or
   refactoring. Trigger phrases: "simplify", "reduce complexity", "too complex", "hard to read",
@@ -1031,12 +1031,14 @@ description: >
 user-invocable: true
 ---
 
+<!-- version: __AHMA_VERSION__ | author: Paul Houghton -->
+
 # ahma-simplify Skill
 
 Analyze code complexity across any supported language, identify the worst hotspot functions, fix
 them with minimal targeted changes, and verify measurable improvement.
 
-Supports: Rust, Python, JavaScript, TypeScript, C, C++, Java, C#, Go, CSS, HTML.
+Supports: Rust, Python, JavaScript, TypeScript, Kotlin, C, C++, Java, C#, Go, CSS, HTML.
 
 ---
 

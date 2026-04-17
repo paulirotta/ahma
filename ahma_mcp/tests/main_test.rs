@@ -67,7 +67,8 @@ mod main_tests {
         tool_name: Option<String>,
         validate: Option<String>,
     ) -> &'static str {
-        if server_mode || (tool_name.is_none() && validate.is_none()) {
+        let no_explicit_mode = tool_name.is_none() && validate.is_none();
+        if server_mode || no_explicit_mode {
             "server"
         } else if validate.is_some() {
             "validate"
@@ -159,6 +160,24 @@ mod main_tests {
         }
     }
 
+    /// Apply a single parsed flag into the output accumulators.
+    fn apply_flag(
+        key: &str,
+        value: Option<String>,
+        working_directory: &mut Option<String>,
+        tool_args_map: &mut serde_json::Map<String, serde_json::Value>,
+    ) {
+        match (key, value) {
+            ("working-directory", Some(val)) => *working_directory = Some(val),
+            (k, Some(val)) => {
+                tool_args_map.insert(k.to_string(), serde_json::Value::String(val));
+            }
+            (k, None) => {
+                tool_args_map.insert(k.to_string(), serde_json::Value::Bool(true));
+            }
+        }
+    }
+
     /// Parse CLI args into (working_directory, tool_args_map).
     fn parse_cli_args(
         args: Vec<String>,
@@ -170,18 +189,16 @@ mod main_tests {
             if arg == "--" {
                 break;
             }
-            if arg.starts_with("--") {
-                let key = arg.trim_start_matches("--").to_string();
-                if let Some(val) = iter.next() {
-                    if key == "working-directory" {
-                        working_directory = Some(val);
-                    } else {
-                        tool_args_map.insert(key, serde_json::Value::String(val));
-                    }
-                } else {
-                    tool_args_map.insert(key, serde_json::Value::Bool(true));
-                }
+            if !arg.starts_with("--") {
+                continue;
             }
+            let key = arg.trim_start_matches("--").to_string();
+            apply_flag(
+                &key,
+                iter.next(),
+                &mut working_directory,
+                &mut tool_args_map,
+            );
         }
         (working_directory, tool_args_map)
     }

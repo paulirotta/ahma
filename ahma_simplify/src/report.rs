@@ -297,8 +297,8 @@ fn write_emergencies(report: &mut String, files: &[FileSimplicity], limit: usize
                 rel_str
             ));
             report.push_str(&format!(
-                "    - Metrics: Cog: {}, Cyc: {}, SLOC: {}, MI: {:.1}\n",
-                f.cognitive, f.cyclomatic, f.sloc, f.mi
+                "    - Metrics: Cog: {:.0}, PeakCog: {:.0}, Cyc: {:.0}, SLOC: {:.0}, MI: {:.1}\n",
+                f.cognitive, f.peak_cognitive, f.cyclomatic, f.sloc, f.mi
             ));
             if !f.hotspots.is_empty() {
                 report.push_str("    - **Hotspots**:\n");
@@ -389,7 +389,7 @@ pub fn generate_ai_fix_prompt(
 
 TARGET: {rel_str}
 SIMPLICITY: {score:.0}% | FLAGGED REASON: {culprit}
-METRICS: Cognitive={cog}, Cyclomatic={cyc}, SLOC={sloc}, MI={mi:.1}{test_context}
+METRICS: Cognitive={cog:.0}, PeakCog={peak_cog:.0}, Cyclomatic={cyc:.0} (info only), SLOC={sloc:.0}, MI={mi:.1}{test_context}
 
 STEP 1 - READ the target file and the hotspot functions listed in the report above.
 
@@ -420,6 +420,7 @@ STEP 5 - Report: either (a) the changes made and the measurable metric improveme
         score = file.score,
         culprit = culprit,
         cog = file.cognitive,
+        peak_cog = file.peak_cognitive,
         cyc = file.cyclomatic,
         sloc = file.sloc,
         mi = file.mi,
@@ -429,8 +430,22 @@ STEP 5 - Report: either (a) the changes made and the measurable metric improveme
 
 fn write_glossary(report: &mut String) {
     report.push_str("\n---\n\n## Metrics Glossary\n\n");
+    report.push_str("### Score Formula\n");
+    report.push_str("*Scores are calibrated for AI-assisted maintenance: decomposed, focused functions reduce the context an AI agent must hold to make safe changes.*\n\n");
+    report.push_str("The composite simplicity score is computed as:\n\n");
+    report.push_str("`Score = 0.4 × MI + 0.3 × Cognitive Density + 0.2 × Peak Cognitive + 0.1 × Length Score`\n\n");
+    report.push_str("| Component | Weight | What it measures |\n");
+    report.push_str("|-----------|--------|------------------|\n");
+    report.push_str("| Maintainability Index (MI) | 40% | Function-weighted composite of Halstead volume, cyclomatic, and SLOC |\n");
+    report.push_str("| Cognitive Density | 30% | Cognitive complexity normalised by SLOC |\n");
+    report.push_str(
+        "| Peak Cognitive | 20% | Cognitive complexity of the single most complex function |\n",
+    );
+    report
+        .push_str("| Length Score | 10% | 100% at ≤300 SLOC; scales down linearly above that |\n");
+    report.push_str("| Cyclomatic | — | Reported for context only; already embedded in MI |\n\n");
     report.push_str("### Cognitive Complexity\n- **Description**: Measures how hard it is to understand the control flow of the code. [See](https://axify.io/blog/cognitive-complexity)\n- **How to Improve**: Extract complex conditions into well-named functions and reduce nesting levels.\n\n");
-    report.push_str("### Cyclomatic Complexity\n- **Description**: Measures the number of linearly independent paths through the source code. [See](https://www.nist.gov/publications/structured-testing-software-testing-methodology-using-cyclomatic-complexity-metric)\n- **How to Improve**: Use polymorphic abstractions instead of complex switch/if-else chains, and break down large functions into smaller components.\n\n");
+    report.push_str("### Cyclomatic Complexity\n- **Description**: Measures the number of linearly independent paths through the source code (info only — not directly scored). [See](https://www.nist.gov/publications/structured-testing-software-testing-methodology-using-cyclomatic-complexity-metric)\n- **How to Improve**: Use polymorphic abstractions instead of complex switch/if-else chains, and break down large functions into smaller components.\n\n");
     report.push_str("### Source Lines of Code (SLOC)\n- **Description**: A measure of the size of the computer program by counting the number of lines in the text of the source code. [See](https://en.wikipedia.org/wiki/Source_lines_of_code)\n- **How to Improve**: Remove dead code and refactor repetitive logic into reusable helper functions or macros.\n\n");
     report.push_str("### Maintainability Index (MI)\n- **Description**: A composite metric representing the relative ease of maintaining the code; higher is better. [See](https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning)\n- **How to Improve**: Simultaneously reduce complexity (both cognitive and cyclomatic) and file size to boost the index.\n");
 }
@@ -458,6 +473,7 @@ mod tests {
             cyclomatic: cyc,
             sloc,
             mi,
+            peak_cognitive: 0.0,
             hotspots: vec![],
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
@@ -483,6 +499,7 @@ mod tests {
             cyclomatic: cyc,
             sloc,
             mi,
+            peak_cognitive: 0.0,
             hotspots,
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
