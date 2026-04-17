@@ -7,7 +7,7 @@
 //!
 //! These tests target untested paths to improve coverage from 36.71% to 65%+.
 
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::client::{ClientBuilder, setup_test_environment};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -144,14 +144,17 @@ async fn test_await_tool_with_id_not_found() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_with_tool_filter_no_pending() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let (service, _tmp) = setup_test_environment().await;
 
     let mut params = Map::new();
     params.insert("tools".to_string(), json!("nonexistent_tool"));
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = service
+        .handle_await(call_param)
+        .await
+        .expect("await with unmatched tool filter should return immediately");
     assert!(!result.content.is_empty());
 
     // Should indicate no pending operations
@@ -163,7 +166,6 @@ async fn test_await_tool_with_tool_filter_no_pending() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 

@@ -8,7 +8,7 @@
 use ahma_mcp::skip_if_disabled_async_result;
 
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::client::{ClientBuilder, setup_test_environment};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::{Context, Result};
 use rmcp::model::CallToolRequestParams;
@@ -58,13 +58,16 @@ async fn test_async_notification_malformed_ids() -> Result<()> {
 #[tokio::test]
 async fn test_async_notification_extreme_timeout_values() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let (service, _tmp) = setup_test_environment().await;
 
     // Test await with no timeout parameter (uses intelligent timeout)
     let no_timeout_params = CallToolRequestParams::new("await")
         .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
-    let result = client.call_tool(no_timeout_params).await?;
+    let result = service
+        .handle_await(no_timeout_params)
+        .await
+        .expect("await with empty params should return immediately");
     assert!(!result.content.is_empty());
 
     // Test await with only valid parameters
@@ -75,10 +78,12 @@ async fn test_async_notification_extreme_timeout_values() -> Result<()> {
             .unwrap_or_default(),
     );
 
-    let result = client.call_tool(valid_params).await?;
+    let result = service
+        .handle_await(valid_params)
+        .await
+        .expect("await with tool filter should return immediately when no ops exist");
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
