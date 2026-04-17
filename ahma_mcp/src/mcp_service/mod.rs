@@ -39,7 +39,7 @@
 pub mod bundle_registry;
 mod config_watcher;
 mod handlers;
-mod schema;
+pub mod schema;
 mod sequence;
 mod subcommand;
 mod types;

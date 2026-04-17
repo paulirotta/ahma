@@ -156,6 +156,18 @@ cargo clippy --fix --allow-dirty   # Auto-fix lints
 
 ## Testing Instructions
 
+### Test Pyramid (Read This First)
+
+**Prefer in-memory unit tests over subprocess E2E tests.** This is the single most important rule for keeping CI stable on GitHub's 2-core runners. Every subprocess spawned by a test burns OS scheduler slots; when 20+ tests run in parallel this causes IPC pipe back-pressure and handshake timeouts.
+
+| Layer | When to use | Tools |
+|-------|-------------|-------|
+| **Unit** (default) | Logic, schema generation, config parsing, state machines | Direct API calls, `#[cfg(test)]` |
+| **Integration (in-process)** | MCP protocol logic, tool dispatch | `setup_mcp_service_with_client()` |
+| **E2E (subprocess)** — use sparingly | Binary wiring, CLI flags, cross-binary IPC | `ClientBuilder`, `spawn_http_bridge` |
+
+**Decision rule**: _Can this test be written without forking a process?_ If yes, do it that way. `ClientBuilder` and `spawn_http_bridge` are reserved for tests that specifically verify binary wiring or MCP wire-protocol behavior.
+
 ### Test Organization
 Tests are organized into three categories:
 
@@ -212,7 +224,7 @@ Available categories: `ProcessSpawn`, `Handshake`, `ToolCall`, `SandboxReady`, `
 ### Hard Invariants (Do Not “Test Around” These)
 
 #### MCP Streamable HTTP Handshake (HTTP Bridge)
-Integration tests MUST mimic real client behavior closely:
+**E2E HTTP integration tests** MUST mimic real client behavior closely (this rule applies to the E2E subprocess layer; unit and in-process tests are exempt):
 
 1. `initialize` (POST, no session header) → server returns `mcp-session-id`
 2. Open SSE stream (GET `/mcp`, `Accept: text/event-stream`, with `mcp-session-id`) **before** sending `notifications/initialized`

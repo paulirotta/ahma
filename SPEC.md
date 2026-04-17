@@ -662,6 +662,22 @@ started_rx.await.ok();  // Don't return until spawn is live
 - **R14.1**: All new functionality **must** have tests.
 - **R14.2**: Tests should be: Fast (<100ms), Isolated, Deterministic, Documented.
 - **R14.3**: Bug fixes **must** include a regression test.
+- **R14.4**: Prefer in-memory unit tests over subprocess E2E tests. A test that validates static configuration, schema generation, or pure logic **must not** spawn an OS process. Only use `ClientBuilder`/`spawn_http_bridge` when the test specifically validates MCP wire protocol or binary wiring.
+
+### 10.1.1 The Test Pyramid
+
+This project follows a strict test pyramid to keep CI stable on 2-core GitHub Actions runners. Every subprocess spawned by a test consumes an OS thread *and* process-scheduler slots. When 20+ tests run concurrently, IPC pipe back-pressure causes handshake timeouts — these look like logic bugs but are infrastructure failures.
+
+| Layer | Tool | When to use | Execution time |
+|-------|------|-------------|----------------|
+| **Unit** (preferred) | Direct API calls, `#[cfg(test)]` modules | Logic, schema generation, config parsing, state machines | <5 ms |
+| **Integration (in-process)** | `setup_mcp_service_with_client()` (stdio, no fork) | MCP protocol logic, tool dispatch, sandbox lifecycle | <100 ms |
+| **E2E (subprocess)** | `ClientBuilder`, `spawn_http_bridge` | Binary wiring, CLI flags, cross-binary IPC | 1–5 s |
+
+**Decision rule**: _Can this test be written without spawning a process?_ If yes, write it that way. `ClientBuilder` and `spawn_http_bridge` are reserved for the E2E layer.
+
+**Impact**: migrating one `ClientBuilder`-based schema test to an in-memory call saved ~500 ms per run and removed two OS processes from the CI scheduler.
+
 
 ### 10.2 Test File Isolation (CRITICAL)
 

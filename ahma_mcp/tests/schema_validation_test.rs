@@ -4,10 +4,20 @@
 //! and do not contain invalid constructs like `"required": true` inside property definitions.
 //!
 //! JSON Schema spec: https://json-schema.org/understanding-json-schema/
+//!
+//! # Design Note
+//!
+//! All tests in this module use the in-memory API (`load_tool_configs` +
+//! `generate_schema_for_tool_config`) instead of spawning a subprocess via
+//! `ClientBuilder`. This keeps them fast (<5 ms each), eliminates OS-process
+//! scheduling jitter on CI, and removes all subprocess overhead from a test
+//! that is purely validating static configuration data.
 
-use ahma_mcp::test_utils::client::ClientBuilder;
-use ahma_mcp::utils::logging::init_test_logging;
+use ahma_mcp::config::load_tool_configs;
+use ahma_mcp::mcp_service::schema::generate_schema_for_tool_config;
+use ahma_mcp::shell::cli::AppConfig;
 use serde_json::{Map, Value};
+use std::path::Path;
 
 /// Validates that a JSON Schema object follows proper JSON Schema conventions.
 ///
@@ -91,51 +101,52 @@ fn validate_json_schema_map(obj: &Map<String, Value>, tool_name: &str) -> Result
     Ok(())
 }
 
-/// Test that all built-in tools have valid JSON Schema input schemas
+/// Test that the sandboxed_shell built-in tool has a valid JSON Schema.
+///
+/// `sandboxed_shell` is the only built-in whose schema is generated from the
+/// same config-file code path as user tools (via `synthetic_sandboxed_shell_config`
+/// + `generate_schema_for_tool_config`). The `await` and `status` tools are
+/// hardcoded directly in the MCP service and tested separately.
+///
+/// Execution time: <5 ms (no subprocess).
 #[tokio::test]
 async fn test_builtin_tools_have_valid_json_schema() {
-    init_test_logging();
-
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
+    let config = AppConfig::default();
+    let tools = load_tool_configs(&config, None)
         .await
-        .unwrap();
-    let tools = client.list_tools(None).await.unwrap();
+        .expect("Failed to load built-in tool configs");
 
-    let builtin_tools = ["await", "status", "sandboxed_shell"];
+    // Only sandboxed_shell goes through the config-file schema generation path.
+    let tool_config = tools
+        .get("sandboxed_shell")
+        .expect("sandboxed_shell should be present in default config");
 
-    for tool in tools.tools.iter() {
-        if builtin_tools.contains(&tool.name.as_ref()) {
-            let result = validate_json_schema_map(&tool.input_schema, &tool.name);
-            assert!(
-                result.is_ok(),
-                "Built-in tool '{}' has invalid JSON Schema: {}",
-                tool.name,
-                result.unwrap_err()
-            );
-        }
-    }
-
-    client.cancel().await.unwrap();
+    let schema = generate_schema_for_tool_config(tool_config, &None);
+    let result = validate_json_schema_map(&schema, "sandboxed_shell");
+    assert!(
+        result.is_ok(),
+        "Built-in tool 'sandboxed_shell' has invalid JSON Schema: {}",
+        result.unwrap_err()
+    );
 }
 
-/// Test that all user-defined tools have valid JSON Schema input schemas
+/// Test that all user-defined tools have valid JSON Schema input schemas.
+///
+/// This test loads tool configs in-memory (no subprocess) from the `.ahma/`
+/// directory and validates each generated schema. Execution time: <10 ms.
 #[tokio::test]
 async fn test_all_tools_have_valid_json_schema() {
-    init_test_logging();
-
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
+    let config = AppConfig::default();
+    let tools_dir = Path::new(".ahma");
+    let tools = load_tool_configs(&config, Some(tools_dir))
         .await
-        .unwrap();
-    let tools = client.list_tools(None).await.unwrap();
+        .expect("Failed to load tool configs from .ahma/");
 
     let mut errors = Vec::new();
 
-    for tool in tools.tools.iter() {
-        if let Err(e) = validate_json_schema_map(&tool.input_schema, &tool.name) {
+    for (tool_name, tool_config) in &tools {
+        let schema = generate_schema_for_tool_config(tool_config, &None);
+        if let Err(e) = validate_json_schema_map(&schema, tool_name) {
             errors.push(e);
         }
     }
@@ -145,31 +156,27 @@ async fn test_all_tools_have_valid_json_schema() {
         "The following tools have invalid JSON Schema:\n{}",
         errors.join("\n")
     );
-
-    client.cancel().await.unwrap();
 }
 
-/// Test specifically that sandboxed_shell schema is valid
-/// This test catches the specific bug where `required: true` was placed inside property definitions
+/// Test specifically that sandboxed_shell schema is valid.
+///
+/// This test catches the specific bug where `required: true` was placed inside
+/// property definitions. Loads the synthetic config via `load_tool_configs` —
+/// no subprocess needed.
 #[tokio::test]
 async fn test_sandboxed_shell_schema_no_required_in_properties() {
-    init_test_logging();
-
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
+    let config = AppConfig::default();
+    let tools = load_tool_configs(&config, None)
         .await
-        .unwrap();
-    let tools = client.list_tools(None).await.unwrap();
+        .expect("Failed to load built-in tool configs");
 
-    let sandboxed_shell = tools
-        .tools
-        .iter()
-        .find(|t| t.name == "sandboxed_shell")
-        .expect("sandboxed_shell tool should exist");
+    let tool_config = tools
+        .get("sandboxed_shell")
+        .expect("sandboxed_shell tool config should exist");
+
+    let schema = generate_schema_for_tool_config(tool_config, &None);
 
     // Check that the schema has required as an array at the top level
-    let schema = &sandboxed_shell.input_schema;
     let required = schema
         .get("required")
         .expect("Schema should have 'required' field");
@@ -194,6 +201,4 @@ async fn test_sandboxed_shell_schema_no_required_in_properties() {
             }
         }
     }
-
-    client.cancel().await.unwrap();
 }
