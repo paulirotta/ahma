@@ -356,6 +356,7 @@ fn apply_platform_sandbox_enforcement(
 
     #[cfg(target_os = "windows")]
     {
+        let _ = (policy, cfg);
         if let Err(e) = sandbox::enforce_windows_sandbox(&sandbox.scopes()) {
             tracing::warn!("Windows Job Object enforcement failed: {}", e);
         }
