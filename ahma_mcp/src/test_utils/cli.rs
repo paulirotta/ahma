@@ -1,6 +1,6 @@
 use super::fs::get_workspace_dir;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
@@ -89,7 +89,7 @@ pub fn build_binary_cached(package: &str, binary: &str) -> PathBuf {
 /// Create a command for a binary with test mode enabled (bypasses sandbox checks).
 /// Disables the sandbox and skips probes via environment variables.
 /// The caller must add the appropriate subcommand (e.g., `serve stdio`, `run`, `tool list`).
-pub fn test_command(binary: &PathBuf) -> Command {
+pub fn test_command(binary: &Path) -> Command {
     let mut cmd = Command::new(binary);
     cmd.env("AHMA_DISABLE_SANDBOX", "1");
     cmd.env("AHMA_SKIP_PROBES", "1");

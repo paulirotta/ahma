@@ -550,9 +550,9 @@ mod validate_flag_extended_tests {
     }
 
     fn validate_tool_file(
-        binary: &std::path::PathBuf,
-        workspace: &std::path::PathBuf,
-        tools_dir: &std::path::PathBuf,
+        binary: &std::path::Path,
+        workspace: &std::path::Path,
+        tools_dir: &std::path::Path,
         tool_name: &str,
     ) {
         let tool_path = tools_dir.join(tool_name);

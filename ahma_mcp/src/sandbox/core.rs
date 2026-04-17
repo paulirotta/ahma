@@ -145,9 +145,7 @@ impl Sandbox {
              Example: --sandbox-scope /home/user/project",
         )?;
 
-        let read_scopes = (livelog && mode != SandboxMode::Test)
-            .then(|| resolve_livelog_scopes(&canonicalized))
-            .unwrap_or_default();
+        let read_scopes = if livelog && mode != SandboxMode::Test { resolve_livelog_scopes(&canonicalized) } else { Default::default() };
 
         Ok(Self {
             scopes: std::sync::RwLock::new(canonicalized),
