@@ -51,7 +51,8 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   SCCACHE_CACHE_SIZE: 1G # Limit sccache size to prevent GitHub Actions cache eviction
 jobs:
-  job-cargo-test:
+  job-cargo-nextest:
+    name: Cargo Nextest (${{ matrix.os }})
     defaults:
       run:
         shell: bash
@@ -146,13 +147,13 @@ jobs:
       - name: Install cargo-nextest
         run: cargo binstall cargo-nextest --no-confirm --force
 
-      - name: Cargo Test (excluding Android/Kotlin tests)
+      - name: Cargo Nextest (excluding Android/Kotlin tests)
         timeout-minutes: 20
         run: |
           echo "--- cargo --version" && cargo --version
           echo "--- cargo nextest --version" && cargo nextest --version
           echo "--- Running cargo nextest run --profile ci"
-          # Exclude kotlin/android tests - they run in job-android only
+          # Exclude kotlin/android tests - they run in job-android-nextest only
           cargo nextest run --profile ci --locked --no-default-features -E 'not (test(kotlin) or test(android))'
 
       - name: Cargo Clippy
@@ -179,7 +180,8 @@ jobs:
 
   #######################################
 
-  job-android:
+  job-android-nextest:
+    name: Android Nextest
     runs-on: macos-latest
     env:
       TERM: xterm-256color
@@ -251,6 +253,9 @@ jobs:
 
       - uses: cargo-bins/cargo-binstall@v1.16.6
 
+      - name: Install cargo-nextest
+        run: cargo binstall cargo-nextest --no-confirm --force
+
       - name: Check for cargo-ndk and install if missing
         run: |
           if ! cargo ndk --version &> /dev/null; then
@@ -280,10 +285,10 @@ jobs:
           restore-keys: |
             gradle-android-${{ runner.os }}-
 
-      - name: Run Android/Kotlin tests only
+      - name: Run Android/Kotlin nextest only
         run: |
           # Run ONLY kotlin/android tests (feature-gated and name-filtered for clarity)
-          cargo test --locked -p ahma_mcp --features android -- kotlin android
+          cargo nextest run --profile ci --locked -p ahma_mcp --features android -E 'test(kotlin) or test(android)'
 
       - name: Show sccache stats
         run: sccache --show-stats
@@ -612,7 +617,13 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [ job-cargo-test, job-android, job-release-binaries, job-coverage ]
+    needs:
+      [
+        job-cargo-nextest,
+        job-android-nextest,
+        job-release-binaries,
+        job-coverage,
+      ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

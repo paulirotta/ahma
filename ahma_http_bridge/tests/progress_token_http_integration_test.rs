@@ -26,13 +26,9 @@ async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> a
 
     // sandboxed_shell is a core built-in tool - no JSON config needed
 
-    // Handshake
-    client.initialize().await?;
-
-    // Start SSE + roots/list handshake
     let client_root_dir = TempDir::new().context("Failed to create temp dir (client_root)")?;
     let mut events_rx = client
-        .start_sse_events(vec![client_root_dir.path().to_path_buf()])
+        .initialize_with_roots_events(vec![client_root_dir.path().to_path_buf()])
         .await?;
 
     // Wait for sandbox to lock (platform-aware retry: Windows CI is 3-5x slower).
@@ -92,13 +88,9 @@ async fn test_http_progress_token_is_echoed_in_progress_notifications() -> anyho
 
     // sandboxed_shell is a core built-in tool - no JSON config needed
 
-    // Handshake
-    client.initialize().await?;
-
-    // Start SSE + roots/list handshake
     let client_root_dir = TempDir::new().context("Failed to create temp dir (client_root)")?;
     let mut events_rx = client
-        .start_sse_events(vec![client_root_dir.path().to_path_buf()])
+        .initialize_with_roots_events(vec![client_root_dir.path().to_path_buf()])
         .await?;
 
     // Wait for sandbox to lock (platform-aware retry: Windows CI is 3-5x slower).

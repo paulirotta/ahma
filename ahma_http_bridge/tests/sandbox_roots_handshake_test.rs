@@ -196,8 +196,8 @@ async fn send_mcp_request(
     Ok((body, new_session_id))
 }
 
-/// Complete MCP handshake and return session ID
-async fn complete_handshake(client: &Client, base_url: &str) -> Result<String, String> {
+/// Send only initialize and return the session ID.
+async fn initialize_session(client: &Client, base_url: &str) -> Result<String, String> {
     let init_request = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -210,16 +210,20 @@ async fn complete_handshake(client: &Client, base_url: &str) -> Result<String, S
     });
 
     let (_, session_id) = send_mcp_request(client, base_url, &init_request, None).await?;
-    let session_id = session_id.ok_or("No session ID received")?;
+    session_id.ok_or_else(|| "No session ID received".to_string())
+}
 
-    // Send initialized notification
+async fn send_initialized_notification(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+) -> Result<(), String> {
     let initialized = json!({
         "jsonrpc": "2.0",
         "method": "notifications/initialized"
     });
-    let _ = send_mcp_request(client, base_url, &initialized, Some(&session_id)).await;
-
-    Ok(session_id)
+    let _ = send_mcp_request(client, base_url, &initialized, Some(session_id)).await;
+    Ok(())
 }
 
 /// Wait for sandbox readiness by polling a known-good tool call.
@@ -274,28 +278,13 @@ async fn wait_for_tool_ready(
     ))
 }
 
-/// Wait for roots/list request over SSE and respond with provided URIs
-async fn answer_roots_list_with_uris(
+async fn process_roots_list_response(
+    resp: reqwest::Response,
     client: &Client,
     base_url: &str,
     session_id: &str,
     root_uris: &[String],
 ) -> Result<(), String> {
-    let url = format!("{}/mcp", base_url);
-    let resp = client
-        .get(&url)
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache")
-        .header("Mcp-Session-Id", session_id)
-        .timeout(roots_handshake_timeout())
-        .send()
-        .await
-        .map_err(|e| format!("SSE connection failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("SSE stream failed: HTTP {}", resp.status()));
-    }
-
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
     let deadline = tokio::time::Instant::now() + roots_handshake_timeout();
@@ -354,7 +343,7 @@ async fn answer_roots_list_with_uris(
                 let id = value
                     .get("id")
                     .cloned()
-                    .ok_or("roots/list must include id")?;
+                    .ok_or_else(|| "roots/list must include id".to_string())?;
 
                 let roots_json: Vec<Value> = root_uris
                     .iter()
@@ -374,6 +363,58 @@ async fn answer_roots_list_with_uris(
     }
 }
 
+/// Open SSE after the client has already sent notifications/initialized and answer roots/list.
+async fn answer_roots_list_with_uris(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    root_uris: &[String],
+) -> Result<(), String> {
+    let url = format!("{}/mcp", base_url);
+    let resp = client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", session_id)
+        .timeout(roots_handshake_timeout())
+        .send()
+        .await
+        .map_err(|e| format!("SSE connection failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("SSE stream failed: HTTP {}", resp.status()));
+    }
+
+    process_roots_list_response(resp, client, base_url, session_id, root_uris).await
+}
+
+/// Complete the normal roots handshake in the safe order: open SSE first, then send initialized.
+async fn complete_roots_handshake_with_uris(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    root_uris: &[String],
+) -> Result<(), String> {
+    let url = format!("{}/mcp", base_url);
+    let resp = client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Mcp-Session-Id", session_id)
+        .timeout(roots_handshake_timeout())
+        .send()
+        .await
+        .map_err(|e| format!("SSE connection failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("SSE stream failed: HTTP {}", resp.status()));
+    }
+
+    sleep(TestTimeouts::short_delay()).await;
+    send_initialized_notification(client, base_url, session_id).await?;
+    process_roots_list_response(resp, client, base_url, session_id, root_uris).await
+}
+
 // =============================================================================
 // Test: Empty Roots Rejection
 // =============================================================================
@@ -389,7 +430,6 @@ async fn test_empty_roots_rejection() {
     let tools_dir = temp_dir.path().join("tools");
     std::fs::create_dir_all(&tools_dir).expect("Failed to create tools dir");
 
-    // Create a simple tool to test with
     let tool_config = json!({
         "name": "pwd",
         "description": "Print working directory",
@@ -407,17 +447,15 @@ async fn test_empty_roots_rejection() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    // Complete handshake
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
-    // Answer roots/list with empty array
     let sse_client = client.clone();
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[]).await
+        complete_roots_handshake_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[]).await
     });
 
     // Give time for roots/list exchange
@@ -552,9 +590,9 @@ async fn test_session_with_only_malformed_uris() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Answer roots/list with only malformed URIs
     let malformed_uris = vec![
@@ -567,8 +605,13 @@ async fn test_session_with_only_malformed_uris() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &malformed_uris)
-            .await
+        complete_roots_handshake_with_uris(
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            &malformed_uris,
+        )
+        .await
     });
 
     sleep(TestTimeouts::short_delay()).await;
@@ -635,9 +678,9 @@ async fn test_multi_root_workspace_scoping() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Answer roots/list with both roots
     let root_uris = vec![encode_file_uri(root1.path()), encode_file_uri(root2.path())];
@@ -646,7 +689,8 @@ async fn test_multi_root_workspace_scoping() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &root_uris).await
+        complete_roots_handshake_with_uris(&sse_client, &sse_base_url, &sse_session_id, &root_uris)
+            .await
     });
 
     // Wait for roots exchange
@@ -742,9 +786,9 @@ async fn test_url_encoded_path_in_roots() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Create properly encoded URI with space
     let root_uri = encode_file_uri(&special_path);
@@ -758,7 +802,8 @@ async fn test_url_encoded_path_in_roots() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[root_uri]).await
+        complete_roots_handshake_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[root_uri])
+            .await
     });
 
     let sse_result = sse_task.await.expect("SSE task panicked");
@@ -1005,9 +1050,9 @@ async fn test_mixed_valid_invalid_uris() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Mix of valid and invalid URIs
     let root_uris = vec![
@@ -1021,7 +1066,8 @@ async fn test_mixed_valid_invalid_uris() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &root_uris).await
+        complete_roots_handshake_with_uris(&sse_client, &sse_base_url, &sse_session_id, &root_uris)
+            .await
     });
 
     let sse_result = sse_task.await.expect("SSE task panicked");
@@ -1098,9 +1144,9 @@ async fn test_post_lock_roots_change_rejected() {
     let client = common::make_h2_client();
 
     // Complete handshake with initial root
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Answer roots/list with initial root (locks sandbox)
     let initial_uri = encode_file_uri(initial_root.path());
@@ -1108,8 +1154,13 @@ async fn test_post_lock_roots_change_rejected() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[initial_uri])
-            .await
+        complete_roots_handshake_with_uris(
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            &[initial_uri],
+        )
+        .await
     });
 
     let sse_result = sse_task.await.expect("SSE task panicked");
@@ -1234,9 +1285,9 @@ async fn test_working_directory_outside_sandbox_rejected() {
     let base_url = format!("http://127.0.0.1:{}", server.port());
     let client = common::make_h2_client();
 
-    let session_id = complete_handshake(&client, &base_url)
+    let session_id = initialize_session(&client, &base_url)
         .await
-        .expect("Handshake failed");
+        .expect("Initialize failed");
 
     // Lock sandbox to ONLY allowed_root
     let allowed_uri = encode_file_uri(allowed_root.path());
@@ -1244,8 +1295,13 @@ async fn test_working_directory_outside_sandbox_rejected() {
     let sse_base_url = base_url.clone();
     let sse_session_id = session_id.clone();
     let sse_task = tokio::spawn(async move {
-        answer_roots_list_with_uris(&sse_client, &sse_base_url, &sse_session_id, &[allowed_uri])
-            .await
+        complete_roots_handshake_with_uris(
+            &sse_client,
+            &sse_base_url,
+            &sse_session_id,
+            &[allowed_uri],
+        )
+        .await
     });
 
     let sse_result = sse_task.await.expect("SSE task panicked");

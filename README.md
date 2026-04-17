@@ -1,31 +1,57 @@
 # Ahma
 
-_Create MCP tools agents from your command line tools with one JSON file, then watch them complete your work faster with **true multi-threaded tool-use agentic AI workflows**. Built with a **security-first** philosophy, enforcing hard kernel-level boundaries by default._
+_Use your existing command line workflows through MCP with a repo-scoped sandbox, async execution, and less pressure to fall back to insecure terminal access._
 
-## Ahma solves
+## Why Ahma helps
 
-- **Unsafe AI terminal access**: Most AI terminal workflows rely on trust prompts, not real containment. Ahma enforces kernel-level sandbox boundaries so AI can operate inside your project scope without unrestricted filesystem access.
-- **Agents and LLMs blocked by long-running synchronous commands**: Build, test, and deploy tasks can stall an agent for minutes. Ahma runs tool calls async-first, so agents can keep planning and executing while work completes in the background.
-- **Slow tool onboarding for AI workflows**: Ahma makes your custom tools AI-friendly. It gives you no-code JSON definitions for CLI tools, with optional hot reload during tool development when you explicitly enable `--hot-reload-tools`.
-- **Too much privilege by default**: Generic shell access is often broader than needed. Ahma supports least-privilege tool definitions so you can constrain arguments and reduce blast radius.
-- **Do more work in less time**: Light up the full capabilities of your command line tools by telling AI to split your deterministic work into multiple background operations and fire them all at once. Ahma provides operation IDs, progress notifications, and built-in controls (`status`, `await`, `cancel`) for deterministic orchestration. Max concurrency is equal to the number of cores on your CPU.
+- **When the agent only needs the repo, broad terminal access is too much**: ahma starts inside a kernel-enforced workspace boundary, so normal project work does not require wider filesystem access.
+- **When builds, tests, and checks take time, blocked agents waste time**: ahma runs commands async-first so long-running work can continue in the background while the agent keeps moving.
+- **When independent tasks are forced through one terminal, work gets serialized**: ahma can start separate operations concurrently and track them cleanly.
+- **When safety is noisy, people disable it**: ahma aims to make the safe path the practical path, reducing pressure to use broad or insecure override modes just to get work done.
 
 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |                                     |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------: |
 | [![CI](https://github.com/paulirotta/ahma/actions/workflows/build.yml/badge.svg)](https://github.com/paulirotta/ahma/actions/workflows/build.yml) [![Coverage Report](https://img.shields.io/badge/Coverage-Report-blue)](https://paulirotta.github.io/ahma/html/) [![Rust Docs](https://img.shields.io/badge/Rust-Docs-blue)](https://paulirotta.github.io/ahma/doc/) [![Code Simplicity](https://img.shields.io/badge/Code-Simplicity-green)](https://paulirotta.github.io/ahma/CODE_SIMPLICITY.html) [![Prebuilt Binaries](https://img.shields.io/badge/Prebuilt-Binaries-blueviolet)](https://github.com/paulirotta/ahma/actions/workflows/build.yml?query=branch%3Amain+event%3Apush+is%3Asuccess) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: Apache: 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2020) [![Rust](https://img.shields.io/badge/Rust-1.93%2B-B7410E.svg)](https://www.rust-lang.org/) | ![Ahma Logo](./assets/ahma.png) |
 
-## Ahma is
-- **secure by default**: this is a toolbox for AI to use command line tools safely. It helps move past the  'do you trust this tool/author?' prompts. Trust is not a security model. Asking the user working fast on several tasks for permission to `rm -rf ~` is irresponsible, not a security model.
-- **fast by default**: command line tool calls become *deterministic and asynchronous subagents*. HTTP/3 (QUIC) is the preferred transport for all HTTP clients, delivering lower latency through 0-RTT connection establishment and improved multiplexing. HTTP streaming (MCP Streamable HTTP) is the default transport for the HTTP bridge, enabling full-duplex communication with event replay. AI agents continue thinking and planning while awaiting one or more long-running command line tasks.
-- **principle of least privilege (PoLP)**: You may optionally disalbe direct calls to `sandboxed_shell` and instead specify the allowed arguments to each command line tool by creating a `.ahma/toolname.json` file.
-- **batteries included**: Bundled tools can be selectively enabled, e.g. `--simplify` in your `mcp.json` for vibe code complexity reduction to improve maintainability.
-- **flexible**: Supporting agentic development workflows or powering business agents are just two use cases. The rest is up to your creative imagination.
-- **actively developed**: We are currently smoothing out the edges and adding features like deterministic tool  use, progressive tool disclosure and live log monitoring to proactively inform AI agents of issues as they occur.
+Ahma is an MCP server for running real project work through existing CLI tools with tighter filesystem boundaries and less blocking. It is aimed at the common case: builds, tests, formatters, git operations, log inspection, and other deterministic command-line tasks that agents already try to run.
+
+## Quickstart
+
+**Linux / macOS**
+
+```bash
+curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell 5.1+)**
+
+```powershell
+irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
+```
+
+The installer downloads `ahma-mcp`, offers to configure your MCP client, and can install optional extras. See [docs/installation.md](docs/installation.md) for platform details, source installation, and what the setup wizard changes.
+
+### Example workflow
+
+Ask your agent to run a normal project task such as:
+
+> Run formatters, linting, tests, and a build for this repo. Start independent steps concurrently where possible and keep me updated on failures.
+
+With ahma, that workflow stays inside the repo boundary and the long-running steps can begin immediately as background operations. The agent can inspect results, continue other work, or start additional safe commands without waiting on one giant terminal session.
+
+### Without ahma / with ahma
+
+| Workflow detail | Without ahma | With ahma |
+|---|---|---|
+| **Filesystem access** | Often tied to a broad terminal with a larger blast radius | Kernel-enforced to the workspace scope |
+| **Approval friction** | Repeated trust decisions or pressure to relax safety settings | Repo-scoped access is established up front |
+| **Long-running work** | One blocked terminal session at a time | Async-first operations with status tracking |
+| **Parallel tasks** | Often serialized | Independent tasks can start and run concurrently |
+| **Operational visibility** | Raw terminal output | Operation IDs, progress notifications, and structured tool calls |
 
 ### What Ahma does
 
-Ahma complements developer and business agent tools by adding security and async execution.
-MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor, Open Code, Roo, VS Code, etc.) often have a built-in terminal that the AI can use. That terminal is powerful but often not sandboxed or easy to by default scope down the blast radius of AI errors and attacks. Business agent frameworks generally do not offer a terminal for AI to use.
+Ahma complements IDE and CLI MCP clients by making normal command-line work safer and less blocking. It is most useful where the client either exposes a broad terminal directly or has no terminal model at all.
 
 | Capability | Native IDE/CLI terminal | Ahma `sandboxed_shell` |
 |---|---|---|
@@ -44,66 +70,11 @@ MCP Clients such as developer IDEs and CLIs (Antigravity, Claude, Codex, Cursor,
 - **Raspberry Pi** — 64-bit and 32-bit. Use `--disable-sandbox` until kernel-level sandboxing is supported (Landlock requires kernel ≥ 5.13)
 - **Windows** — Full support. Uses the built-in PowerShell (5.1+) included with Windows 10/11
 
-## Installation Script
-
-The installation script detects your OS and architecture, downloads the latest release from GitHub, and installs `ahma-mcp` and `ahma-simplify` to your local bin directory.
-
-**Supported platforms:** Linux x86_64, Linux ARM64, Linux ARMv7 (Raspberry Pi 2/3), macOS ARM64 (Apple Silicon), Windows x86_64 (in-progress). Musl builds are available for Linux x86_64 and ARM64 (auto-detected on Alpine/musl systems, or set `AHMA_PREFER_MUSL=1`). Windows releases are distributed as `.zip` archives.
-
-**Linux / macOS** — installs to `~/.local/bin`:
-
-```bash
-curl -sSf https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.sh | bash
-```
-
-**Windows (PowerShell 5.1+)** — installs to `$HOME\.local\bin`:
-
-```powershell
-irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
-```
-
-After installing, the script offers an **interactive MCP setup wizard** that configures ahma as a global MCP server for your AI tools. You choose which platforms to configure (VS Code, Claude Code, Cursor, Antigravity), select stdio or HTTP connection mode, and the script creates or updates each tool's global `mcp.json` for you — showing the proposed changes and asking for confirmation before writing anything.
-
-The script then offers to install the **ahma-simplify agent skill** (see below).
-
-## Agent Skills
-
-The `ahma-simplify` skill teaches AI agents how to analyze code complexity, identify the worst
-hotspot functions, fix them with minimal targeted changes, and verify improvement — all using
-the `simplify` MCP tool or `ahma-simplify` CLI.
-
-The skill file (`skills/ahma-simplify/SKILL.md`) follows the universal `.agents/skills/` format
-recognized by **VS Code (GitHub Copilot)**, **Cursor**, and **Claude Code**. One file, all
-platforms.
-
-**The install script installs it automatically** (prompted after the MCP wizard). To install
-manually:
-
-```bash
-# Linux / macOS
-mkdir -p ~/.agents/skills/ahma-simplify
-cp skills/ahma-simplify/SKILL.md ~/.agents/skills/ahma-simplify/SKILL.md
-```
-
-```powershell
-# Windows
-New-Item -ItemType Directory -Force "$HOME\.agents\skills\ahma-simplify"
-Copy-Item skills\ahma-simplify\SKILL.md "$HOME\.agents\skills\ahma-simplify\SKILL.md"
-```
-
-Once installed, agents load the skill automatically when you ask about complexity, maintainability,
-or simplification. In Cursor you can also attach it explicitly with `@ahma-simplify` in chat.
-
-To enable the skill per-project (committed to the repo, so all collaborators benefit):
-
-```bash
-mkdir -p .agents/skills/ahma-simplify
-cp skills/ahma-simplify/SKILL.md .agents/skills/ahma-simplify/SKILL.md
-```
-
 ## Source Installation
 
-**Linux / macOS:**
+If you prefer to build from source:
+
+**Linux / macOS**
 
 ```bash
 git clone https://github.com/paulirotta/ahma.git
@@ -113,7 +84,7 @@ mv target/release/ahma-mcp /usr/local/bin/
 mv target/release/ahma-simplify /usr/local/bin/
 ```
 
-**Windows (PowerShell):**
+**Windows (PowerShell)**
 
 ```powershell
 git clone https://github.com/paulirotta/ahma.git
@@ -122,19 +93,7 @@ cargo build --release
 Copy-Item target\release\ahma-mcp.exe, target\release\ahma-simplify.exe "$HOME\.local\bin\"
 ```
 
-## Concepts
-
-If you are an AI agent interacting with this repository:
-- **Sandbox Boundary**: You have full access within `${workspaceFolder}` but zero access outside it. Use `sandboxed_shell` for multi-step tasks.
-- **Async Concurrency**: Most tools are async by default. Use `status` to monitor progress and continue with other tasks.
-- **MTDF Schema**: Reference [docs/mtdf-schema.json](docs/mtdf-schema.json) defines the schema for creating or modifying tool configurations in `.ahma/*.json`.
-
-## Key Features
-
-- **Kernel-Level Sandboxing**: Security by default. Hard kernel boundaries prevent accessing any files outside the workspace, regardless of how an AI constructs its commands.
-- **Asynchronous By Default with Sync Override**: Operations run asynchronously by default, allowing the LLM to continue work while awaiting results. **Automatic async** reduces round-trips for fast commands: if an async operation completes within 5 seconds, its result is returned inline without requiring a separate `await` call. Use `--sync` flag or set `"synchronous": true` in tool config for operations that must complete before proceeding. Supports multiple concurrent long-running operations (builds, tests).
-- **Easy Tool Definition**: Add any command-line tool to your AI's arsenal by creating a single JSON file. No recompilation needed.
-- **Multi-Step Workflows (Preferred)**: Run multi-command pipelines via `sandboxed_shell` (e.g., `cargo fmt --all && cargo clippy --all-targets && cargo nextest run`).
+See [docs/installation.md](docs/installation.md) for supported binary platforms and installer behavior.
 
 ## Security Sandbox
 
@@ -151,6 +110,11 @@ Sandbox scope, logging, execution behaviour, and HTTP transport options are all 
 Ahma can run any streaming command (e.g. `adb logcat`, `tail -f`, `docker logs -f`) through an LLM to detect issues in real time. The tool returns an operation ID immediately; alerts are pushed as MCP progress notifications whenever the LLM finds a problem matching your description.
 
 See [docs/live-log-monitoring.md](docs/live-log-monitoring.md) for setup, the Android logcat example, and how to use cloud or local LLM providers.
+
+## Optional advanced topics
+
+- **Custom tools**: If you want to expose your own command-line tools through ahma, start with [docs/custom-tools.md](docs/custom-tools.md).
+- **Agent skills**: Optional agent-specific setup such as `ahma-simplify` is documented in [docs/agent-skills.md](docs/agent-skills.md).
 
 ## MCP Server Connection Modes
 

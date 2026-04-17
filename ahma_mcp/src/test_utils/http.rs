@@ -1,4 +1,5 @@
 use super::cli;
+use ahma_common::timeouts::TestTimeouts;
 use anyhow::Context;
 use reqwest::Client;
 use std::path::Path;
@@ -204,7 +205,8 @@ impl HttpMcpTestClient {
         Ok((body, session_id))
     }
 
-    pub async fn initialize(&mut self) -> anyhow::Result<()> {
+    /// Send only the MCP initialize request and capture the session ID.
+    pub async fn initialize_only(&mut self) -> anyhow::Result<()> {
         let init_request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -222,13 +224,46 @@ impl HttpMcpTestClient {
         }
         self.session_id = sid;
 
+        Ok(())
+    }
+
+    /// Send notifications/initialized for the current session.
+    pub async fn send_initialized(&self) -> anyhow::Result<()> {
+        self.session_id.as_ref().context("Not initialized")?;
+
         let initialized = serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"});
         self.send_request(&initialized).await?;
 
         Ok(())
     }
 
-    pub async fn start_sse_events(
+    /// Complete the HTTP roots handshake in the safe protocol order and return an SSE receiver.
+    ///
+    /// This is the preferred API for tests that need an event stream plus automatic roots/list
+    /// handling. It makes the correct ordering explicit and difficult to misuse:
+    /// initialize -> open SSE -> short delay -> initialized -> answer roots/list.
+    pub async fn initialize_with_roots_events(
+        &mut self,
+        roots: Vec<std::path::PathBuf>,
+    ) -> anyhow::Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
+        self.initialize_only().await?;
+        let rx = self.start_sse_events(roots).await?;
+        sleep(TestTimeouts::short_delay()).await;
+        self.send_initialized().await?;
+        Ok(rx)
+    }
+
+    /// Complete a minimal MCP handshake when explicit client roots are not required.
+    pub async fn initialize(&mut self) -> anyhow::Result<()> {
+        self.initialize_only().await?;
+        self.send_initialized().await
+    }
+
+    /// Open an SSE stream for an existing session and auto-answer roots/list requests.
+    ///
+    /// Callers should prefer `initialize_with_roots_events()` unless they intentionally need
+    /// low-level control over handshake sequencing.
+    async fn start_sse_events(
         &self,
         roots: Vec<std::path::PathBuf>,
     ) -> anyhow::Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
