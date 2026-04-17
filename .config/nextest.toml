@@ -23,7 +23,7 @@ slow-timeout = { period = "120s", terminate-after = 2 }
 # Equals the number of available cores on the runner (2 on GitHub Actions).
 # This is the primary throttle for CI; the default profile does NOT set this
 # so developers run with full parallelism on powerful local machines.
-test-threads = "num-cpus"
+test-threads = "1" #"num-cpus"
 # Show output immediately for better CI diagnostics
 failure-output = "immediate"
 success-output = "immediate"
