@@ -444,10 +444,28 @@ fn print_verification(path: &str, before: &FileSimplicity, after: &FileSimplicit
 
     print_metric_row("Simplicity", before.score, after.score, "%", true);
     print_metric_row("  MI 40%", before.mi, after.mi, "", true);
-    print_metric_row("  Cognitive density 30%", before.cognitive, after.cognitive, "", false);
-    print_metric_row("  Peak cognitive 20%", before.peak_cognitive, after.peak_cognitive, "", false);
+    print_metric_row(
+        "  Cognitive density 30%",
+        before.cognitive,
+        after.cognitive,
+        "",
+        false,
+    );
+    print_metric_row(
+        "  Peak cognitive 20%",
+        before.peak_cognitive,
+        after.peak_cognitive,
+        "",
+        false,
+    );
     print_metric_row("  SLOC / length 10%", before.sloc, after.sloc, "", false);
-    print_metric_row("Cyclomatic (info only)", before.cyclomatic, after.cyclomatic, "", false);
+    print_metric_row(
+        "Cyclomatic (info only)",
+        before.cyclomatic,
+        after.cyclomatic,
+        "",
+        false,
+    );
 
     println!();
     print_verdict(before.score, after.score);

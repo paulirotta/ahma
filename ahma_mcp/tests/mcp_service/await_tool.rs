@@ -159,12 +159,16 @@ async fn test_await_tool_no_pending_ops_after_timeout() -> Result<()> {
     match tokio::time::timeout(op_timeout, client.call_tool(call_param)).await {
         Ok(Ok(_)) => {}
         Ok(Err(e)) => {
-            eprintln!("WARNING  test_await_tool_no_pending_ops_after_timeout: call_tool failed: {e}. Skipping.");
+            eprintln!(
+                "WARNING  test_await_tool_no_pending_ops_after_timeout: call_tool failed: {e}. Skipping."
+            );
             let _ = tokio::time::timeout(op_timeout, client.cancel()).await;
             return Ok(());
         }
         Err(_) => {
-            eprintln!("WARNING  test_await_tool_no_pending_ops_after_timeout: call_tool timed out. Skipping.");
+            eprintln!(
+                "WARNING  test_await_tool_no_pending_ops_after_timeout: call_tool timed out. Skipping."
+            );
             let _ = tokio::time::timeout(op_timeout, client.cancel()).await;
             return Ok(());
         }
@@ -179,12 +183,16 @@ async fn test_await_tool_no_pending_ops_after_timeout() -> Result<()> {
     let await_result = match tokio::time::timeout(op_timeout, client.call_tool(await_param)).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
-            eprintln!("WARNING  test_await_tool_no_pending_ops_after_timeout: await failed: {e}. Skipping.");
+            eprintln!(
+                "WARNING  test_await_tool_no_pending_ops_after_timeout: await failed: {e}. Skipping."
+            );
             let _ = tokio::time::timeout(op_timeout, client.cancel()).await;
             return Ok(());
         }
         Err(_) => {
-            eprintln!("WARNING  test_await_tool_no_pending_ops_after_timeout: await timed out. Skipping.");
+            eprintln!(
+                "WARNING  test_await_tool_no_pending_ops_after_timeout: await timed out. Skipping."
+            );
             let _ = tokio::time::timeout(op_timeout, client.cancel()).await;
             return Ok(());
         }

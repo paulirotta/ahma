@@ -371,12 +371,14 @@ async fn answer_roots_list_with_uris(
     root_uris: &[String],
 ) -> Result<(), String> {
     let url = format!("{}/mcp", base_url);
+    // No reqwest .timeout() here: SSE is an infinite stream, so a reqwest timeout fires on the
+    // body read phase and aborts the connection before roots/list arrives. The internal deadline
+    // inside process_roots_list_response handles the per-test time budget.
     let resp = client
         .get(&url)
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Mcp-Session-Id", session_id)
-        .timeout(roots_handshake_timeout())
         .send()
         .await
         .map_err(|e| format!("SSE connection failed: {}", e))?;
@@ -396,12 +398,14 @@ async fn complete_roots_handshake_with_uris(
     root_uris: &[String],
 ) -> Result<(), String> {
     let url = format!("{}/mcp", base_url);
+    // No reqwest .timeout() here: SSE is an infinite stream, so a reqwest timeout fires on the
+    // body read phase and aborts the connection before roots/list arrives. The internal deadline
+    // inside process_roots_list_response handles the per-test time budget.
     let resp = client
         .get(&url)
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Mcp-Session-Id", session_id)
-        .timeout(roots_handshake_timeout())
         .send()
         .await
         .map_err(|e| format!("SSE connection failed: {}", e))?;

@@ -356,8 +356,8 @@ mod skill_version_invariants {
 
         // Read canonical skill versions
         let ahma_skill_path = get_workspace_path("skills/ahma/SKILL.md");
-        let ahma_skill = std::fs::read_to_string(&ahma_skill_path)
-            .expect("Failed to read skills/ahma/SKILL.md");
+        let ahma_skill =
+            std::fs::read_to_string(&ahma_skill_path).expect("Failed to read skills/ahma/SKILL.md");
         let ahma_skill_ver = ahma_skill
             .lines()
             .find(|l| l.starts_with("version:"))
@@ -381,8 +381,8 @@ mod skill_version_invariants {
 
         // Read install.sh AHMA_VERSION
         let install_sh_path = get_workspace_path("scripts/install.sh");
-        let install_sh = std::fs::read_to_string(&install_sh_path)
-            .expect("Failed to read scripts/install.sh");
+        let install_sh =
+            std::fs::read_to_string(&install_sh_path).expect("Failed to read scripts/install.sh");
         let install_sh_ver = install_sh
             .lines()
             .find(|l| l.starts_with("AHMA_VERSION="))
@@ -393,8 +393,8 @@ mod skill_version_invariants {
 
         // Read install.ps1 embedded version strings (both skill templates must match)
         let install_ps1_path = get_workspace_path("scripts/install.ps1");
-        let install_ps1 = std::fs::read_to_string(&install_ps1_path)
-            .expect("Failed to read scripts/install.ps1");
+        let install_ps1 =
+            std::fs::read_to_string(&install_ps1_path).expect("Failed to read scripts/install.ps1");
         let ps1_versions: Vec<&str> = install_ps1
             .lines()
             .filter(|l| l.trim_start().starts_with("version: ") && !l.contains("__AHMA_VERSION__"))
@@ -428,7 +428,10 @@ mod skill_version_invariants {
         println!("   skills/ahma/SKILL.md: v{ahma_skill_ver}");
         println!("   skills/ahma-simplify/SKILL.md: v{simplify_skill_ver}");
         println!("   scripts/install.sh AHMA_VERSION: v{install_sh_ver}");
-        println!("   scripts/install.ps1 embedded versions: {} occurrences", ps1_versions.len());
+        println!(
+            "   scripts/install.ps1 embedded versions: {} occurrences",
+            ps1_versions.len()
+        );
     }
 
     /// INVARIANT 9: Skill author consistency — all installer templates use canonical author
@@ -438,8 +441,8 @@ mod skill_version_invariants {
 
         // Check install.sh ahma-simplify template
         let install_sh_path = get_workspace_path("scripts/install.sh");
-        let install_sh = std::fs::read_to_string(&install_sh_path)
-            .expect("Failed to read scripts/install.sh");
+        let install_sh =
+            std::fs::read_to_string(&install_sh_path).expect("Failed to read scripts/install.sh");
         let sh_bad_author_lines: Vec<_> = install_sh
             .lines()
             .enumerate()
@@ -453,12 +456,14 @@ mod skill_version_invariants {
 
         // Check install.ps1 skill templates
         let install_ps1_path = get_workspace_path("scripts/install.ps1");
-        let install_ps1 = std::fs::read_to_string(&install_ps1_path)
-            .expect("Failed to read scripts/install.ps1");
+        let install_ps1 =
+            std::fs::read_to_string(&install_ps1_path).expect("Failed to read scripts/install.ps1");
         let ps1_bad_author_lines: Vec<_> = install_ps1
             .lines()
             .enumerate()
-            .filter(|(_, l)| l.trim_start().starts_with("author: ") && !l.contains(CANONICAL_AUTHOR))
+            .filter(|(_, l)| {
+                l.trim_start().starts_with("author: ") && !l.contains(CANONICAL_AUTHOR)
+            })
             .collect();
         assert!(
             ps1_bad_author_lines.is_empty(),

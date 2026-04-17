@@ -618,12 +618,10 @@ jobs:
   job-publish-release:
     name: Publish Release
     needs:
-      [
-        job-cargo-nextest,
-        job-android-nextest,
-        job-release-binaries,
-        job-coverage,
-      ]
+      - job-cargo-nextest
+      - job-android-nextest
+      - job-release-binaries
+      - job-coverage
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

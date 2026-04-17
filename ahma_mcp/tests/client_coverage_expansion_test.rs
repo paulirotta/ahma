@@ -10,7 +10,7 @@
 //!
 //! These tests use the real ahma_mcp binary to ensure full integration coverage.
 
-use ahma_common::timeouts::TestTimeouts;
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::skip_if_disabled_async_result;
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::test_utils::project::{TestProjectOptions, create_rust_project};
@@ -29,11 +29,10 @@ async fn call_test_tool(
         params = params.with_arguments(arguments);
     }
 
-    Ok(
-        tokio::time::timeout(TestTimeouts::scale_secs(15), client.call_tool(params))
-            .await
-            .map_err(|_| anyhow::anyhow!("call_tool timed out after scaled 15s"))??,
-    )
+    let timeout = TestTimeouts::get(TimeoutCategory::ToolCall);
+    Ok(tokio::time::timeout(timeout, client.call_tool(params))
+        .await
+        .map_err(|_| anyhow::anyhow!("call_tool timed out after {:?}", timeout))??)
 }
 
 fn get_result_text(result: &rmcp::model::CallToolResult) -> &str {
@@ -352,7 +351,7 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
     .await?;
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
+    client.cancel().await.ok();
     Ok(())
 }
 

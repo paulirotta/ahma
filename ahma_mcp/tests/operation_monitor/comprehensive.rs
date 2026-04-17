@@ -196,10 +196,18 @@ async fn run_query_task(
 
     while start_time.elapsed() < Duration::from_millis(duration_ms) {
         match query_count % 4 {
-            0 => { let _ = monitor.get_active_operations().await; }
-            1 => { let _ = monitor.get_completed_operations().await; }
-            2 => { let _ = monitor.get_all_active_operations().await; }
-            _ => { let _ = monitor.get_shutdown_summary().await; }
+            0 => {
+                let _ = monitor.get_active_operations().await;
+            }
+            1 => {
+                let _ = monitor.get_completed_operations().await;
+            }
+            2 => {
+                let _ = monitor.get_all_active_operations().await;
+            }
+            _ => {
+                let _ = monitor.get_shutdown_summary().await;
+            }
         }
         query_count += 1;
     }

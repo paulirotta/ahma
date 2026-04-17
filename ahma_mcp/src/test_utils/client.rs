@@ -107,11 +107,7 @@ fn configure_sandbox_env(
     }
 }
 
-fn configure_tools_dir_env(
-    cmd: &mut Command,
-    tools_dir: Option<PathBuf>,
-    working_dir: &Path,
-) {
+fn configure_tools_dir_env(cmd: &mut Command, tools_dir: Option<PathBuf>, working_dir: &Path) {
     let Some(dir) = tools_dir else { return };
     let tools_path = if dir.is_absolute() {
         dir
