@@ -148,6 +148,7 @@ async fn open_roots_sse_stream(
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Mcp-Session-Id", session_id)
+        .timeout(roots_handshake_timeout())
         .send()
         .await
         .expect("Failed to open SSE stream");

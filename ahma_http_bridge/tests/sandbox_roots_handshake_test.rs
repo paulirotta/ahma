@@ -282,6 +282,7 @@ async fn answer_roots_list_with_uris(
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Mcp-Session-Id", session_id)
+        .timeout(roots_handshake_timeout())
         .send()
         .await
         .map_err(|e| format!("SSE connection failed: {}", e))?;
