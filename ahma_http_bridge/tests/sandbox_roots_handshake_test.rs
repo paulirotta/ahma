@@ -67,9 +67,14 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_DEFER", "1") // Key: sandbox is deferred until roots/list
         .env("AHMA_LOG_TARGET", "stderr")
-        // Use a generous handshake timeout so slow CI runners (especially Windows)
-        // complete the SSE roots exchange before the server-side timer fires.
-        .env("AHMA_HANDSHAKE_TIMEOUT", "300");
+        // Match the server-side handshake timeout to the client-side TestTimeouts::Handshake
+        // so both sides give up at the same time (60s on Linux/macOS, 240s on Windows).
+        .env(
+            "AHMA_HANDSHAKE_TIMEOUT",
+            TestTimeouts::get(TimeoutCategory::Handshake)
+                .as_secs()
+                .to_string(),
+        );
 
     // CRITICAL: Remove bypass env vars for real sandbox testing
     SandboxTestEnv::configure(&mut cmd);

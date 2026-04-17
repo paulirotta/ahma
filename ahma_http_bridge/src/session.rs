@@ -426,7 +426,8 @@ impl Session {
         self.sender.lock().await.send(json_str).await.map_err(|e| {
             BridgeError::Communication(format!("Failed to send roots/list_changed: {}", e))
         })?;
-        info!(session_id = %self.id, "Sent roots/list_changed notification to subprocess");
+        let sse_receivers = self.broadcast_tx.receiver_count();
+        info!(session_id = %self.id, sse_receivers = sse_receivers, "Sent roots/list_changed to subprocess; waiting for roots/list response via broadcast");
         Ok(())
     }
 }
@@ -1091,6 +1092,12 @@ impl SessionManager {
                                 }
 
                                 // Not a response to a pending request - broadcast as SSE event
+                                let receiver_count = session.broadcast_tx.receiver_count();
+                                if receiver_count == 0 {
+                                    warn!(session_id = %session.id, method = %value.get("method").and_then(|m| m.as_str()).unwrap_or("<none>"), "Broadcasting to 0 SSE subscribers - event will be dropped (SSE stream not yet open)");
+                                } else {
+                                    debug!(session_id = %session.id, receiver_count = receiver_count, "Broadcasting to SSE subscribers");
+                                }
                                 let id = session.assign_event_id(&line);
                                 let _ = session.broadcast_tx.send((id, line));
                             } else {

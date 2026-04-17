@@ -32,9 +32,9 @@ concurrency:
 
 on:
   push:
-    branches: [main, production]
+    branches: [ main, production ]
   pull_request:
-    branches: [main, production]
+    branches: [ main, production ]
 
 env:
   RUSTUP_MAX_RETRIES: 10
@@ -59,7 +59,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        os: [ ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -124,7 +124,8 @@ jobs:
             ~/.cargo/git
             ~/.cargo/.package-cache
             ~/.cargo/bin
-          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
+          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{
+            steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
@@ -142,12 +143,17 @@ jobs:
       - name: Add Cargo Bin to PATH
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Install cargo-nextest
+        run: cargo binstall cargo-nextest --no-confirm --force
+
       - name: Cargo Test (excluding Android/Kotlin tests)
+        timeout-minutes: 20
         run: |
           echo "--- cargo --version" && cargo --version
-          echo "--- Running cargo test (lower concurrency, more stable in CI)"
+          echo "--- cargo nextest --version" && cargo nextest --version
+          echo "--- Running cargo nextest run --profile ci"
           # Exclude kotlin/android tests - they run in job-android only
-          cargo test --locked --no-default-features -- --skip kotlin --skip android
+          cargo nextest run --profile ci --locked --no-default-features -E 'not (test(kotlin) or test(android))'
 
       - name: Cargo Clippy
         if: runner.os == 'Linux' && runner.arch == 'X64'
@@ -230,7 +236,8 @@ jobs:
             ~/.cargo/git
             ~/.cargo/.package-cache
             ~/.cargo/bin
-          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
+          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{
+            steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
@@ -322,7 +329,8 @@ jobs:
             ~/.cargo/git
             ~/.cargo/.package-cache
             ~/.cargo/bin
-          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{ steps.day-number.outputs.day }}
+          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-day${{
+            steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
 
@@ -371,11 +379,14 @@ jobs:
           cargo ndk --version
 
       - name: Install cargo-llvm-cov
-        run: cargo binstall cargo-llvm-cov --no-confirm --force
+        run: |
+          cargo binstall cargo-nextest --no-confirm --force
+          cargo binstall cargo-llvm-cov --no-confirm --force
 
       - name: Generate coverage report
+        timeout-minutes: 40
         run: |
-          cargo llvm-cov --locked --no-default-features --html --output-dir ./coverage -- --skip kotlin --skip android --test-threads=2
+          cargo llvm-cov nextest --profile coverage --locked --no-default-features --html --output-dir ./coverage -E 'not (test(kotlin) or test(android))'
 
       - name: Generate code simplicity report
         run: |
@@ -519,7 +530,8 @@ jobs:
             ~/.cargo/git
             ~/.cargo/.package-cache
             ~/.cargo/bin
-          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-day${{ steps.day-number.outputs.day }}
+          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target
+            }}-day${{ steps.day-number.outputs.day }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-
             cargo-registry-${{ runner.os }}-${{ runner.arch }}-
@@ -600,7 +612,7 @@ jobs:
 
   job-publish-release:
     name: Publish Release
-    needs: [job-cargo-test, job-android, job-release-binaries, job-coverage]
+    needs: [ job-cargo-test, job-android, job-release-binaries, job-coverage ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -644,7 +656,7 @@ jobs:
   # --------------------------------------------------------------------------
   job-publish-winget:
     name: Publish Winget Manifest
-    needs: [job-publish-release]
+    needs: [ job-publish-release ]
     # Enable by defining repository variable WINGET_PUBLISH_ENABLED=true.
     if: ${{ vars.WINGET_PUBLISH_ENABLED == 'true' }}
     runs-on: windows-latest

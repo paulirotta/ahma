@@ -19,7 +19,7 @@ success-output = "immediate"
 # contention, and process-spawn storms on low-core runners.
 [profile.ci]
 retries = 0
-slow-timeout = { period = "180s", terminate-after = 3 }
+slow-timeout = { period = "120s", terminate-after = 2 }
 # Equals the number of available cores on the runner (2 on GitHub Actions).
 # This is the primary throttle for CI; the default profile does NOT set this
 # so developers run with full parallelism on powerful local machines.
@@ -45,7 +45,7 @@ threads-required = 2
 [[profile.ci.overrides]]
 filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(shell_tool_tests::) | test(file_tool_tests::) | test(git_tool_tests::) | test(python_tool_tests::) | test(tool_integration_test::) | test(request_handler_coverage_test::) | test(sandbox_lifecycle_notification_test::) | test(sse_streaming_test::) | test(sse_endpoint_test::) | test(cargo_tool_integration_test::) | test(fast_error_response_test::) | test(handshake_replay_test::) | test(http3_integration_test::) | test(http_initialize_validation_integration_test::) | test(progress_token_http_integration_test::) | test(sandbox_roots_handshake_stress_test::) | test(sandbox_security_test::) | test(session_coverage_test::) | test(session_sandbox_test::) | test(session_stress_test::)"
 threads-required = 2
-slow-timeout = { period = "180s", terminate-after = 3 }
+slow-timeout = { period = "120s", terminate-after = 2 }
 
 # HTTP bridge integration tests spawn ahma-mcp server subprocesses.
 # Locally (default profile) these run with full parallelism — the M4 Ultra
