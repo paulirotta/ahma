@@ -63,7 +63,11 @@ async fn test_http_no_progress_token_does_not_emit_progress_notifications() -> a
         }
         sleep(TestTimeouts::poll_interval()).await;
     };
-    assert!(tool_resp.get("error").is_none(), "tools/call must succeed");
+    assert!(
+        tool_resp.get("error").is_none(),
+        "tools/call must succeed: {}",
+        serde_json::to_string_pretty(&tool_resp).unwrap_or_default()
+    );
 
     // Assert: no notifications/progress arrive within a short window.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
@@ -126,7 +130,11 @@ async fn test_http_progress_token_is_echoed_in_progress_notifications() -> anyho
         }
         sleep(TestTimeouts::poll_interval()).await;
     };
-    assert!(tool_resp.get("error").is_none(), "tools/call must succeed");
+    assert!(
+        tool_resp.get("error").is_none(),
+        "tools/call must succeed: {}",
+        serde_json::to_string_pretty(&tool_resp).unwrap_or_default()
+    );
 
     // Expect at least one notifications/progress with matching token.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);

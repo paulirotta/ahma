@@ -136,12 +136,20 @@ async fn test_error_handling_malformed_call_tool_params() -> Result<()> {
     init_test_logging();
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    // Test with missing required parameters for cancel tool
-    let missing_params = CallToolRequestParams::new("cancel")
+    // Test with missing required parameters for sandboxed_shell (no command provided).
+    // Note: We avoid calling the "cancel" tool name directly via tools/call because
+    // rmcp 1.4+ (MCP protocol 2025-06-18) may intercept that name at the library
+    // level, causing the call to hang instead of returning a McpError. The
+    // cancel-requires-id invariant is already verified by the unit test
+    // `handle_cancel_requires_id` in mcp_service/mod.rs.
+    let missing_params = CallToolRequestParams::new("sandboxed_shell")
         .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let result = client.call_tool(missing_params).await;
-    assert!(result.is_err(), "Cancel tool should require id parameter");
+    assert!(
+        result.is_err(),
+        "sandboxed_shell should require command parameter"
+    );
 
     // Test with invalid parameter types for await tool (no timeout_seconds accepted)
     let invalid_types_params = CallToolRequestParams::new("await").with_arguments(
@@ -165,7 +173,12 @@ async fn test_error_handling_unknown_tools() -> Result<()> {
     init_test_logging();
     let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
 
-    let unknown_tool_params = CallToolRequestParams::new("unknown_tool");
+    // Always provide an explicit (empty) arguments map. With rmcp 1.4+ (MCP
+    // protocol 2025-06-18), leaving arguments as None can cause the call to
+    // hang rather than returning a McpError; passing Some({}) uses the
+    // synchronous response path that correctly returns an error.
+    let unknown_tool_params = CallToolRequestParams::new("unknown_tool")
+        .with_arguments(json!({}).as_object().cloned().unwrap_or_default());
 
     let result = client.call_tool(unknown_tool_params).await;
     assert!(result.is_err(), "Unknown tools should return error");
