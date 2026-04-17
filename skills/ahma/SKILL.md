@@ -1,5 +1,7 @@
 ---
 name: ahma
+version: 0.5.6
+author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
   to understand how to run tools, activate bundles, use the sandbox, monitor logs, author custom
@@ -10,7 +12,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 1.0.0 | author: Paul Houghton -->
+<!-- version: 0.5.6 | author: Paul Houghton -->
 
 # Ahma Skill — Comprehensive AI Usage Guide
 

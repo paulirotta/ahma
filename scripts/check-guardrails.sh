@@ -73,6 +73,34 @@ if [[ -n "$SKILL_LINK_VIOLATIONS" ]]; then
 fi
 echo "OK No relative docs/ links in SKILL.md files"
 
+echo "=== Guardrail: skill version consistency with Cargo.toml ==="
+# AHMA_VERSION in install.sh and version: in skill files must match [workspace.package] version.
+CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+INSTALL_VER=$(grep '^AHMA_VERSION=' scripts/install.sh | head -1 | sed 's/AHMA_VERSION="\(.*\)"/\1/')
+AHMA_SKILL_VER=$(grep '^version:' skills/ahma/SKILL.md | head -1 | awk '{print $2}')
+SIMPLIFY_SKILL_VER=$(grep '^version:' skills/ahma-simplify/SKILL.md | head -1 | awk '{print $2}')
+
+SKILL_VER_FAIL=0
+if [ "$INSTALL_VER" != "$CARGO_VER" ]; then
+  echo "FAIL install.sh AHMA_VERSION=\"${INSTALL_VER}\" != Cargo.toml version \"${CARGO_VER}\""
+  SKILL_VER_FAIL=1
+fi
+if [ "$AHMA_SKILL_VER" != "$CARGO_VER" ]; then
+  echo "FAIL skills/ahma/SKILL.md version: ${AHMA_SKILL_VER} != Cargo.toml version ${CARGO_VER}"
+  SKILL_VER_FAIL=1
+fi
+if [ "$SIMPLIFY_SKILL_VER" != "$CARGO_VER" ]; then
+  echo "FAIL skills/ahma-simplify/SKILL.md version: ${SIMPLIFY_SKILL_VER} != Cargo.toml version ${CARGO_VER}"
+  SKILL_VER_FAIL=1
+fi
+if [ "$SKILL_VER_FAIL" -ne 0 ]; then
+  echo ""
+  echo "  Bump AHMA_VERSION in scripts/install.sh and version: in skills/*/SKILL.md"
+  echo "  to match [workspace.package] version = \"${CARGO_VER}\" in Cargo.toml."
+  exit 1
+fi
+echo "OK Skill versions consistent (v${CARGO_VER})"
+
 echo "=== Guardrail: crate root preflight (src/lib.rs or src/main.rs) ==="
 missing=0
 while IFS= read -r manifest; do

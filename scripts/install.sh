@@ -13,6 +13,10 @@
 
 set -euo pipefail
 
+# Skill version — keep in sync with [workspace.package] version in Cargo.toml.
+# CI guardrails verify this matches. Bump alongside Cargo.toml on every release.
+AHMA_VERSION="0.5.6"
+
 # Detect OS and Architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -535,6 +539,8 @@ _ahma_main_skill_content() {
     cat << 'AHMA_SKILL_EOF'
 ---
 name: ahma
+version: __AHMA_VERSION__
+author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
   to understand how to run tools, activate bundles, use the sandbox, monitor logs, author custom
@@ -545,7 +551,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 1.0.0 | author: Paul Houghton -->
+<!-- version: __AHMA_VERSION__ | author: Paul Houghton -->
 
 # Ahma Skill — Comprehensive AI Usage Guide
 
@@ -1012,6 +1018,8 @@ _ahma_skill_content() {
     cat << 'SKILL_EOF'
 ---
 name: ahma-simplify
+version: __AHMA_VERSION__
+author: ahma project
 description: >
   Use this skill when the user asks about code complexity, simplification, maintainability, or
   refactoring. Trigger phrases: "simplify", "reduce complexity", "too complex", "hard to read",
@@ -1020,8 +1028,6 @@ description: >
   Runs ahma-simplify (via the simplify MCP tool or CLI) to score every file 0-100%, identifies
   the worst hotspot functions, and returns a structured prompt to fix them with minimal, targeted
   changes. Always verifies improvement after editing.
-version: 1.0.0
-author: ahma project
 user-invocable: true
 ---
 
@@ -1260,6 +1266,41 @@ setup_skill() {
         [Nn]*) return 0 ;;
     esac
 
+    # ── Semver parser: outputs MAJOR MINOR PATCH (space-separated) ──────────
+    _ahma_parse_semver() {
+        local VER="$1"
+        # Strip leading 'v' if present
+        VER="${VER#v}"
+        local MAJOR MINOR PATCH
+        MAJOR="$(echo "$VER" | cut -d. -f1)"
+        MINOR="$(echo "$VER" | cut -d. -f2)"
+        PATCH="$(echo "$VER" | cut -d. -f3)"
+        # Validate all three parts are numeric
+        case "$MAJOR$MINOR$PATCH" in
+            *[!0-9]*) return 1 ;;
+        esac
+        echo "$MAJOR $MINOR $PATCH"
+    }
+
+    # ── Semver comparator: returns 0=equal, 1=first>second, 2=first<second ──
+    _ahma_semver_compare() {
+        local A="$1" B="$2"
+        local A_PARTS B_PARTS
+        A_PARTS="$(_ahma_parse_semver "$A")" || return 3
+        B_PARTS="$(_ahma_parse_semver "$B")" || return 3
+        local A_MAJ A_MIN A_PAT B_MAJ B_MIN B_PAT
+        read -r A_MAJ A_MIN A_PAT <<< "$A_PARTS"
+        read -r B_MAJ B_MIN B_PAT <<< "$B_PARTS"
+        if   [ "$A_MAJ" -gt "$B_MAJ" ]; then return 1
+        elif [ "$A_MAJ" -lt "$B_MAJ" ]; then return 2
+        elif [ "$A_MIN" -gt "$B_MIN" ]; then return 1
+        elif [ "$A_MIN" -lt "$B_MIN" ]; then return 2
+        elif [ "$A_PAT" -gt "$B_PAT" ]; then return 1
+        elif [ "$A_PAT" -lt "$B_PAT" ]; then return 2
+        else return 0
+        fi
+    }
+
     # ── Helper: install one skill by name, content function, and version ──────
     _ahma_install_one_skill() {
         local NAME="$1"
@@ -1272,31 +1313,75 @@ setup_skill() {
         if [ -f "$SKILL_PATH" ]; then
             local EXISTING_VER
             EXISTING_VER=$(grep '^version:' "$SKILL_PATH" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"'"'" )
-            if [ "$EXISTING_VER" = "$VERSION" ]; then
+
+            if [ -z "$EXISTING_VER" ]; then
+                # No parseable version — treat as upgrade
                 echo ""
-                echo "  ${NAME} skill v${VERSION} is already installed."
-                printf "  Reinstall (overwrite)? [y/N]: "
-                local CONFIRM
-                IFS= read -r CONFIRM < /dev/tty
-                case "$CONFIRM" in
-                    [Yy]*) ;;
-                    *) echo "  Skipped."; return 0 ;;
-                esac
+                echo "  Existing ${NAME} skill has no version tag. Installing v${VERSION}."
             else
-                echo ""
-                echo "  Existing ${NAME} skill v${EXISTING_VER:-unknown} found. Installing v${VERSION}."
+                local CMP_RESULT
+                _ahma_semver_compare "$VERSION" "$EXISTING_VER" && CMP_RESULT=$? || CMP_RESULT=$?
+
+                local NEW_MAJ
+                NEW_MAJ="$(echo "${VERSION#v}" | cut -d. -f1)"
+                local OLD_MAJ
+                OLD_MAJ="$(echo "${EXISTING_VER#v}" | cut -d. -f1)"
+
+                case "$CMP_RESULT" in
+                    0)  # Same version
+                        echo ""
+                        echo "  ${NAME} skill v${VERSION} is already installed."
+                        printf "  Reinstall (overwrite)? [y/N]: "
+                        local CONFIRM
+                        IFS= read -r CONFIRM < /dev/tty
+                        case "$CONFIRM" in
+                            [Yy]*) ;;
+                            *) echo "  Skipped."; return 0 ;;
+                        esac
+                        ;;
+                    1)  # New > old (upgrade)
+                        if [ "$NEW_MAJ" != "$OLD_MAJ" ]; then
+                            # Major version bump — ask
+                            echo ""
+                            printf "  Major version upgrade for ${NAME} skill: v${EXISTING_VER} → v${VERSION}. Install? [Y/n]: "
+                            local CONFIRM
+                            IFS= read -r CONFIRM < /dev/tty
+                            case "$CONFIRM" in
+                                [Nn]*) echo "  Skipped."; return 0 ;;
+                            esac
+                        else
+                            # Minor/patch upgrade — auto-install
+                            echo ""
+                            echo "  Upgrading ${NAME} skill v${EXISTING_VER} → v${VERSION}..."
+                        fi
+                        ;;
+                    2)  # New < old (downgrade)
+                        echo ""
+                        printf "  Downgrade ${NAME} skill v${EXISTING_VER} → v${VERSION}? [y/N]: "
+                        local CONFIRM
+                        IFS= read -r CONFIRM < /dev/tty
+                        case "$CONFIRM" in
+                            [Yy]*) ;;
+                            *) echo "  Skipped."; return 0 ;;
+                        esac
+                        ;;
+                    3)  # Unparseable version — treat as upgrade
+                        echo ""
+                        echo "  Existing ${NAME} skill v${EXISTING_VER:-unknown} found. Installing v${VERSION}."
+                        ;;
+                esac
             fi
         fi
 
         mkdir -p "$SKILL_DIR"
-        "$CONTENT_FN" > "$SKILL_PATH"
+        "$CONTENT_FN" | sed "s/__AHMA_VERSION__/${VERSION}/g" > "$SKILL_PATH"
         echo "  ✓ ${SKILL_PATH}"
     }
 
     echo ""
     echo "  Installing skills..."
-    _ahma_install_one_skill "ahma"          "1.0.0" "_ahma_main_skill_content"
-    _ahma_install_one_skill "ahma-simplify" "1.0.0" "_ahma_skill_content"
+    _ahma_install_one_skill "ahma"          "$AHMA_VERSION" "_ahma_main_skill_content"
+    _ahma_install_one_skill "ahma-simplify" "$AHMA_VERSION" "_ahma_skill_content"
 
     echo ""
     echo "  Skills are automatically available in:"

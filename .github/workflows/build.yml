@@ -375,7 +375,7 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          cargo llvm-cov --profile coverage --locked --no-default-features --html --output-dir ./coverage -- --skip kotlin --skip android --test-threads=2
+          cargo llvm-cov --locked --no-default-features --html --output-dir ./coverage -- --skip kotlin --skip android --test-threads=2
 
       - name: Generate code simplicity report
         run: |

@@ -1,5 +1,7 @@
 ---
 name: ahma-simplify
+version: 0.5.6
+author: Paul Houghton
 description: >
   Use this skill when the user asks about code complexity, simplification, maintainability, or
   refactoring. Trigger phrases: "simplify", "reduce complexity", "too complex", "hard to read",
@@ -11,7 +13,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 1.0.0 | author: Paul Houghton -->
+<!-- version: 0.5.6 | author: Paul Houghton -->
 
 # ahma-simplify Skill
 
