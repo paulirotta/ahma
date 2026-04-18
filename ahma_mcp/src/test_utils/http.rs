@@ -106,6 +106,13 @@ pub async fn spawn_http_bridge() -> anyhow::Result<HttpBridgeTestInstance> {
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_SCOPE", &*temp_dir.path().to_string_lossy())
         .env("AHMA_LOG_TARGET", "stderr")
+        // Give the bridge server a generous handshake window so slow CI runners
+        // (especially Linux with Landlock sandbox setup) have enough time to complete
+        // the roots/list exchange before the server declares a timeout (-32002).
+        .env(
+            "AHMA_HANDSHAKE_TIMEOUT",
+            TestTimeouts::scale_secs(120).as_secs().to_string(),
+        )
         .env_remove("NEXTEST")
         .env_remove("NEXTEST_EXECUTION_MODE")
         .env_remove("CARGO_TARGET_DIR")
@@ -242,14 +249,26 @@ impl HttpMcpTestClient {
     /// This is the preferred API for tests that need an event stream plus automatic roots/list
     /// handling. It makes the correct ordering explicit and difficult to misuse:
     /// initialize -> open SSE -> short delay -> initialized -> answer roots/list.
+    ///
+    /// Returns only after the roots/list exchange is complete (the server has received the
+    /// client's roots and is in the process of locking the sandbox).
     pub async fn initialize_with_roots_events(
         &mut self,
         roots: Vec<std::path::PathBuf>,
     ) -> anyhow::Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
         self.initialize_only().await?;
-        let rx = self.start_sse_events(roots).await?;
+        let (rx, roots_ready_rx) = self.start_sse_events(roots).await?;
         sleep(TestTimeouts::short_delay()).await;
         self.send_initialized().await?;
+        // Wait until the SSE background task has sent the roots/list response.
+        // This ensures that when the caller starts polling tools/call the sandbox
+        // handshake is already in flight, avoiding a race where tools/call polls
+        // that trigger the server's 45-second handshake timeout before the roots
+        // exchange finishes (particularly on slow Linux CI with Landlock setup).
+        tokio::time::timeout(TestTimeouts::scale_secs(60), roots_ready_rx)
+            .await
+            .context("Timed out waiting for roots/list exchange to complete")?
+            .context("roots_ready channel closed before roots/list exchange completed")?;
         Ok(rx)
     }
 
@@ -261,12 +280,18 @@ impl HttpMcpTestClient {
 
     /// Open an SSE stream for an existing session and auto-answer roots/list requests.
     ///
+    /// Returns an event receiver and a one-shot receiver that fires once the roots/list
+    /// POST response has been sent (i.e. the sandbox handshake is in flight).
+    ///
     /// Callers should prefer `initialize_with_roots_events()` unless they intentionally need
     /// low-level control over handshake sequencing.
     async fn start_sse_events(
         &self,
         roots: Vec<std::path::PathBuf>,
-    ) -> anyhow::Result<tokio::sync::mpsc::Receiver<serde_json::Value>> {
+    ) -> anyhow::Result<(
+        tokio::sync::mpsc::Receiver<serde_json::Value>,
+        tokio::sync::oneshot::Receiver<()>,
+    )> {
         use futures::StreamExt;
 
         let sid = self.session_id.as_ref().context("Not initialized")?.clone();
@@ -286,10 +311,12 @@ impl HttpMcpTestClient {
 
         let mut stream = resp.bytes_stream();
         let (tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(256);
+        let (roots_ready_tx, roots_ready_rx) = tokio::sync::oneshot::channel::<()>();
         let client = self.client.clone();
         let base_url = self.base_url.clone();
 
         tokio::spawn(async move {
+            let mut roots_ready_tx = Some(roots_ready_tx);
             let mut buffer = String::new();
             loop {
                 let chunk = match stream.next().await {
@@ -342,12 +369,18 @@ impl HttpMcpTestClient {
                             .json(&response)
                             .send()
                             .await;
+
+                        // Signal that the roots/list response has been sent.  The server
+                        // will now proceed to lock the sandbox.
+                        if let Some(tx) = roots_ready_tx.take() {
+                            let _ = tx.send(());
+                        }
                     }
                     let _ = tx.send(value).await;
                 }
             }
         });
 
-        Ok(rx)
+        Ok((rx, roots_ready_rx))
     }
 }
