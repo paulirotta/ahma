@@ -488,11 +488,7 @@ async fn test_call_tool_disabled_subcommand() -> Result<()> {
         serde_json::to_string_pretty(&tool_json)?,
     )?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     // Call with disabled subcommand
     let mut params = Map::new();
@@ -500,12 +496,12 @@ async fn test_call_tool_disabled_subcommand() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("test_disabled_sub").with_arguments(params);
 
-    let result = client.call_tool(call_param).await;
+    let result = mcp.client.call_tool(call_param).await;
 
     // Should fail because subcommand is disabled
     assert!(result.is_err());
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 

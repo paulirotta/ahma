@@ -8,8 +8,8 @@
 //!
 //! These tests spawn the actual ahma_mcp binary and use real tool configs.
 
-use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::test_utils::concurrency::wait_for_condition;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_from_dir;
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -188,15 +188,12 @@ async fn setup_sequence_tool_config() -> Result<TempDir> {
 async fn test_sync_sequence_tool_execution() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_sequence_tool_config().await?;
+    let tools_dir = temp_dir.path().join(".ahma");
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     // List tools to verify our sequence tool is loaded
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
 
     assert!(
@@ -209,7 +206,7 @@ async fn test_sync_sequence_tool_execution() -> Result<()> {
     let params = CallToolRequestParams::new(Cow::Borrowed("sync_sequence"))
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     // Should complete with all steps
     assert!(!result.content.is_empty());
@@ -225,7 +222,7 @@ async fn test_sync_sequence_tool_execution() -> Result<()> {
     }
     assert!(found_completion, "Sync sequence should show completion");
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -238,18 +235,15 @@ async fn test_sync_sequence_tool_execution() -> Result<()> {
 async fn test_async_sequence_tool_execution() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_sequence_tool_config().await?;
+    let tools_dir = temp_dir.path().join(".ahma");
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     // Call the asynchronous sequence tool
     let params = CallToolRequestParams::new(Cow::Borrowed("async_sequence"))
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     // Should return with operation IDs or inline results (automatic async)
     assert!(!result.content.is_empty());
@@ -276,7 +270,7 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
         std::time::Duration::from_secs(5),
         std::time::Duration::from_millis(50),
         || {
-            let client = client.clone();
+            let client = mcp.client.clone();
             async move {
                 let status_params = CallToolRequestParams::new(Cow::Borrowed("status"))
                     .with_arguments(json!({}).as_object().unwrap().clone());
@@ -294,10 +288,10 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
     // Check status to verify completion
     let status_params = CallToolRequestParams::new(Cow::Borrowed("status"))
         .with_arguments(json!({}).as_object().unwrap().clone());
-    let status_result = client.call_tool(status_params).await?;
+    let status_result = mcp.client.call_tool(status_params).await?;
     assert!(!status_result.content.is_empty());
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -310,15 +304,12 @@ async fn test_async_sequence_tool_execution() -> Result<()> {
 async fn test_subcommand_sequence_execution() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_sequence_tool_config().await?;
+    let tools_dir = temp_dir.path().join(".ahma");
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     // List tools to verify our tool is loaded
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_multi_step = tools
         .iter()
         .any(|t| t.name.as_ref().starts_with("multi_step"));
@@ -332,13 +323,13 @@ async fn test_subcommand_sequence_execution() -> Result<()> {
                 .clone(),
         );
 
-        let result = client.call_tool(params).await?;
+        let result = mcp.client.call_tool(params).await?;
 
         // Should return with operation IDs or completion info
         assert!(!result.content.is_empty());
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -374,26 +365,22 @@ async fn test_sequence_with_missing_tool_reference() -> Result<()> {
 "#;
     fs::write(tools_dir.join("bad_sequence.json"), bad_sequence_config).await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_bad_seq = tools.iter().any(|t| t.name.as_ref() == "bad_sequence");
 
     if has_bad_seq {
         let params = CallToolRequestParams::new(Cow::Borrowed("bad_sequence"))
             .with_arguments(json!({}).as_object().unwrap().clone());
 
-        let result = client.call_tool(params).await;
+        let result = mcp.client.call_tool(params).await;
 
         // Should fail with an error about missing tool
         assert!(result.is_err(), "Sequence with missing tool should error");
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -446,13 +433,9 @@ async fn test_sequence_skip_if_file_exists() -> Result<()> {
     );
     fs::write(tools_dir.join("skip_sequence.json"), skip_sequence).await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_skip_seq = tools.iter().any(|t| t.name.as_ref() == "skip_sequence");
 
     if has_skip_seq {
@@ -463,7 +446,7 @@ async fn test_sequence_skip_if_file_exists() -> Result<()> {
                 .clone(),
         );
 
-        let result = client.call_tool(params).await?;
+        let result = mcp.client.call_tool(params).await?;
 
         let all_text: String = result
             .content
@@ -479,7 +462,7 @@ async fn test_sequence_skip_if_file_exists() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -525,13 +508,9 @@ async fn test_sequence_skip_if_file_missing_with_default_wd() -> Result<()> {
     )
     .await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_skip_miss_seq = tools
         .iter()
         .any(|t| t.name.as_ref() == "skip_missing_sequence");
@@ -540,7 +519,7 @@ async fn test_sequence_skip_if_file_missing_with_default_wd() -> Result<()> {
         let params = CallToolRequestParams::new(Cow::Borrowed("skip_missing_sequence"))
             .with_arguments(json!({}).as_object().unwrap().clone());
 
-        let result = client.call_tool(params).await?;
+        let result = mcp.client.call_tool(params).await?;
 
         let all_text: String = result
             .content
@@ -556,7 +535,7 @@ async fn test_sequence_skip_if_file_missing_with_default_wd() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -622,11 +601,7 @@ async fn test_sequence_skip_if_file_exists_with_wd() -> Result<()> {
 "#;
     fs::write(tools_dir.join("skip_sequence.json"), skip_sequence_config).await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     let params = CallToolRequestParams::new(Cow::Borrowed("skip_sequence")).with_arguments(
         json!({"working_directory": temp_dir.path().to_string_lossy()})
@@ -635,7 +610,7 @@ async fn test_sequence_skip_if_file_exists_with_wd() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     let all_text: String = result
         .content
@@ -648,7 +623,7 @@ async fn test_sequence_skip_if_file_exists_with_wd() -> Result<()> {
     assert!(all_text.contains("skipped") || all_text.contains("Step 2"));
     assert!(!all_text.contains("step2_should_not_run"));
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -710,11 +685,7 @@ async fn test_sequence_skip_if_file_missing_explicit_wd() -> Result<()> {
     )
     .await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     let params = CallToolRequestParams::new(Cow::Borrowed("missing_skip_sequence")).with_arguments(
         json!({"working_directory": temp_dir.path().to_string_lossy()})
@@ -723,7 +694,7 @@ async fn test_sequence_skip_if_file_missing_explicit_wd() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     let all_text: String = result
         .content
@@ -736,7 +707,7 @@ async fn test_sequence_skip_if_file_missing_explicit_wd() -> Result<()> {
     assert!(all_text.contains("skipped"));
     assert!(!all_text.contains("step2_should_not_run"));
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
