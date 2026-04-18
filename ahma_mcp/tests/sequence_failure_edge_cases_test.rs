@@ -8,8 +8,8 @@
 //!
 //! These are real integration tests using tempdir and actual binary execution.
 
-use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::test_utils::concurrency::wait_for_condition;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_from_dir;
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -175,15 +175,12 @@ async fn setup_failure_test_configs() -> Result<TempDir> {
 async fn test_sequence_step_failure_stops_subsequent_steps() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_failure_test_configs().await?;
+    let tools_dir = temp_dir.path().join(".ahma");
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     // List tools to verify our sequence is loaded
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_failing_seq = tools.iter().any(|t| t.name.as_ref() == "failing_sequence");
 
     assert!(
@@ -196,7 +193,7 @@ async fn test_sequence_step_failure_stops_subsequent_steps() -> Result<()> {
     let params = CallToolRequestParams::new("failing_sequence")
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     // Collect all text content
     let mut all_text = String::new();
@@ -229,7 +226,7 @@ async fn test_sequence_step_failure_stops_subsequent_steps() -> Result<()> {
         all_text
     );
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -242,28 +239,25 @@ async fn test_sequence_step_failure_stops_subsequent_steps() -> Result<()> {
 async fn test_sequence_with_missing_subcommand_reference() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_failure_test_configs().await?;
+    let tools_dir = temp_dir.path().join(".ahma");
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_seq = tools
         .iter()
         .any(|t| t.name.as_ref() == "missing_subcommand_seq");
 
     if !has_seq {
         // Tool might not load due to validation - this is also acceptable behavior
-        client.cancel().await?;
+        mcp.client.cancel().await?;
         return Ok(());
     }
 
     let params = CallToolRequestParams::new("missing_subcommand_seq")
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
 
     // This should fail with an error about the missing subcommand
     match result {
@@ -286,7 +280,7 @@ async fn test_sequence_with_missing_subcommand_reference() -> Result<()> {
         }
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -349,25 +343,21 @@ async fn test_sequence_failure_with_filesystem_markers() -> Result<()> {
     )
     .await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_marker_seq = tools.iter().any(|t| t.name.as_ref() == "marker_sequence");
 
     if !has_marker_seq {
         eprintln!("marker_sequence not loaded, skipping filesystem marker test");
-        client.cancel().await?;
+        mcp.client.cancel().await?;
         return Ok(());
     }
 
     let params = CallToolRequestParams::new("marker_sequence")
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let _result = client.call_tool(params).await;
+    let _result = mcp.client.call_tool(params).await;
 
     // Wait for filesystem operations to complete
     let _ = wait_for_condition(
@@ -393,7 +383,7 @@ async fn test_sequence_failure_with_filesystem_markers() -> Result<()> {
         "Step 3 marker file should NOT exist - step 3 should not have run after step 2 failed"
     );
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -422,20 +412,16 @@ async fn test_empty_sequence_handling() -> Result<()> {
 "#;
     fs::write(tools_dir.join("empty_sequence.json"), empty_sequence_config).await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let has_empty_seq = tools.iter().any(|t| t.name.as_ref() == "empty_sequence");
 
     if has_empty_seq {
         let params = CallToolRequestParams::new("empty_sequence")
             .with_arguments(json!({}).as_object().unwrap().clone());
 
-        let result = client.call_tool(params).await?;
+        let result = mcp.client.call_tool(params).await?;
 
         // Should complete without error (0 steps completed successfully)
         assert!(
@@ -444,7 +430,7 @@ async fn test_empty_sequence_handling() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }
 
@@ -490,16 +476,12 @@ async fn test_sequence_all_steps_succeed() -> Result<()> {
 "#;
     fs::write(tools_dir.join("success_sequence.json"), success_sequence).await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
 
     let params = CallToolRequestParams::new("success_sequence")
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await?;
+    let result = mcp.client.call_tool(params).await?;
 
     // Should succeed
     assert!(
@@ -523,6 +505,6 @@ async fn test_sequence_all_steps_succeed() -> Result<()> {
         "Should show step 3 ran"
     );
 
-    client.cancel().await?;
+    mcp.client.cancel().await?;
     Ok(())
 }

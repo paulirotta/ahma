@@ -3,7 +3,7 @@
 //! These tests target low-coverage areas in mcp_service.rs to improve overall
 //! code coverage. Based on coverage analysis showing 25.73% line coverage.
 
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_from_dir;
 use ahma_mcp::utils::logging::init_test_logging;
 use serde_json::json;
 use tempfile::tempdir;
@@ -44,14 +44,9 @@ async fn test_schema_generation_normalizes_option_types() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_types");
     assert!(test_tool.is_some(), "test_types tool should be registered");
 
@@ -150,14 +145,9 @@ async fn test_schema_generation_array_with_items() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_arrays");
     assert!(test_tool.is_some(), "test_arrays tool should be registered");
 
@@ -234,14 +224,9 @@ async fn test_schema_generation_positional_args() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_positional");
     assert!(
         test_tool.is_some(),
@@ -337,14 +322,9 @@ async fn test_schema_generation_multiple_subcommands() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
 
     // Subcommands are flattened into individual tools: <parent>_<subcommand>
     let build_tool = tools
@@ -441,14 +421,9 @@ async fn test_schema_generation_nested_subcommands() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
 
     // Nested subcommands flatten to <parent>_<sub>_<child> tools
     let child1_tool = tools
@@ -529,14 +504,9 @@ async fn test_disabled_tools_not_in_list() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
 
     let disabled = tools.iter().find(|t| t.name.as_ref() == "disabled_tool");
     let enabled = tools.iter().find(|t| t.name.as_ref() == "enabled_tool");
@@ -578,14 +548,9 @@ async fn test_disabled_subcommands_skipped() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
 
     // Subcommands are flattened into individual tools: <parent>_<subcommand>
     let enabled_tool = tools
@@ -633,14 +598,9 @@ async fn test_default_subcommand_no_enum() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools
         .iter()
         .find(|t| t.name.as_ref() == "test_default_only");
@@ -688,14 +648,9 @@ async fn test_working_directory_added_for_non_cargo_tools() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_wd");
     assert!(test_tool.is_some());
 
@@ -722,14 +677,9 @@ async fn test_hardwired_tools_always_present() {
     let tools_dir = temp_dir.path().join(".ahma");
     std::fs::create_dir_all(&tools_dir).unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
 
     let await_tool = tools.iter().find(|t| t.name.as_ref() == "await");
     let status_tool = tools.iter().find(|t| t.name.as_ref() == "status");
@@ -787,14 +737,9 @@ async fn test_required_options_in_schema() {
     )
     .unwrap();
 
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await.unwrap();
 
-    let tools = client.list_all_tools().await.unwrap();
+    let tools = mcp.client.list_all_tools().await.unwrap();
     let test_tool = tools.iter().find(|t| t.name.as_ref() == "test_required");
     assert!(test_tool.is_some());
 
