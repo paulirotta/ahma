@@ -277,6 +277,96 @@ impl McpTestClient {
         }
     }
 
+    async fn process_roots_handshake_stream_owned(
+        client: Client,
+        mcp_url: String,
+        sse_resp: reqwest::Response,
+        session_id: String,
+        roots: Vec<PathBuf>,
+    ) -> Result<(), String> {
+        let mut stream = sse_resp.bytes_stream();
+        let mut buffer = String::new();
+        let mut roots_answered = false;
+        let deadline = Instant::now() + Self::roots_handshake_timeout();
+
+        loop {
+            if Instant::now() > deadline {
+                return Err(
+                    "Timeout waiting for roots/list + sandbox/configured over SSE".to_string(),
+                );
+            }
+
+            let Some(chunk) = tokio::time::timeout(TestTimeouts::poll_interval(), stream.next())
+                .await
+                .ok()
+                .flatten()
+            else {
+                continue;
+            };
+
+            let bytes = chunk.map_err(|e| format!("SSE read error: {}", e))?;
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+            while let Some(raw_event) = Self::pop_next_sse_event(&mut buffer) {
+                let Some(value) = Self::event_data_to_json(&raw_event) else {
+                    continue;
+                };
+
+                let method = value.get("method").and_then(|m| m.as_str());
+
+                if method == Some("notifications/sandbox/failed") {
+                    let error = value
+                        .get("params")
+                        .and_then(|p| p.get("error"))
+                        .and_then(|e| e.as_str())
+                        .unwrap_or("unknown");
+                    return Err(format!("Sandbox configuration failed: {}", error));
+                }
+
+                if method == Some("notifications/sandbox/configured") && roots_answered {
+                    return Ok(());
+                }
+
+                if method == Some("roots/list") {
+                    let request_id = value
+                        .get("id")
+                        .cloned()
+                        .ok_or_else(|| "roots/list must include id".to_string())?;
+
+                    let roots_json: Vec<Value> = roots
+                        .iter()
+                        .map(|path| {
+                            json!({
+                                "uri": encode_file_uri(path),
+                                "name": path.file_name().and_then(|n| n.to_str()).unwrap_or("root")
+                            })
+                        })
+                        .collect();
+
+                    let roots_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "roots": roots_json
+                        }
+                    });
+
+                    let _ = client
+                        .post(&mcp_url)
+                        .header("Content-Type", "application/json")
+                        .header("Mcp-Session-Id", &session_id)
+                        .json(&roots_response)
+                        .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
+                        .send()
+                        .await
+                        .map_err(|e| format!("Failed to send roots response: {}", e))?;
+
+                    roots_answered = true;
+                }
+            }
+        }
+    }
+
     async fn send_roots_response(
         &self,
         session_id: &str,
@@ -351,12 +441,23 @@ impl McpTestClient {
     pub async fn complete_handshake_with_roots(&self, roots: &[PathBuf]) -> Result<(), String> {
         let session_id = self.required_session_id()?;
         let sse_resp = self.open_handshake_sse(session_id).await?;
+
+        let handshake_task = tokio::spawn(Self::process_roots_handshake_stream_owned(
+            self.client.clone(),
+            self.mcp_url(),
+            sse_resp,
+            session_id.to_string(),
+            roots.to_vec(),
+        ));
+
         // Avoid a race where initialized is processed before SSE subscription
         // registration is fully active in the bridge.
         sleep(TestTimeouts::short_delay()).await;
         self.send_initialized_notification(session_id).await?;
-        self.process_roots_handshake_stream(sse_resp, session_id, roots)
+
+        handshake_task
             .await
+            .map_err(|e| format!("roots handshake task panicked: {}", e))?
     }
 
     /// Complete the MCP handshake with a custom client name.
@@ -379,12 +480,23 @@ impl McpTestClient {
         let session_id = self.required_session_id()?;
 
         let sse_resp = self.open_handshake_sse(session_id).await?;
+
+        let handshake_task = tokio::spawn(Self::process_roots_handshake_stream_owned(
+            self.client.clone(),
+            self.mcp_url(),
+            sse_resp,
+            session_id.to_string(),
+            roots.to_vec(),
+        ));
+
         // Avoid a race where initialized is processed before SSE subscription
         // registration is fully active in the bridge.
         sleep(TestTimeouts::short_delay()).await;
         self.send_initialized().await?;
-        self.process_roots_handshake_stream(sse_resp, session_id, roots)
-            .await?;
+
+        handshake_task
+            .await
+            .map_err(|e| format!("roots handshake task panicked: {}", e))??;
 
         Ok(init_response)
     }
@@ -575,15 +687,14 @@ mod tests {
 
     #[test]
     fn pop_next_sse_event_accepts_lf_delimiter() {
-        let mut buffer = "data: {\"method\":\"roots/list\"}\n\ndata: {\"method\":\"next\"}\n\n"
-            .to_string();
+        let mut buffer =
+            "data: {\"method\":\"roots/list\"}\n\ndata: {\"method\":\"next\"}\n\n".to_string();
 
         let first = McpTestClient::pop_next_sse_event(&mut buffer);
 
         assert_eq!(first.as_deref(), Some("data: {\"method\":\"roots/list\"}"));
         assert_eq!(
-            buffer,
-            "data: {\"method\":\"next\"}\n\n",
+            buffer, "data: {\"method\":\"next\"}\n\n",
             "buffer should retain subsequent SSE frames"
         );
     }
@@ -596,13 +707,9 @@ mod tests {
 
         let first = McpTestClient::pop_next_sse_event(&mut buffer);
 
+        assert_eq!(first.as_deref(), Some("data: {\"method\":\"roots/list\"}"));
         assert_eq!(
-            first.as_deref(),
-            Some("data: {\"method\":\"roots/list\"}")
-        );
-        assert_eq!(
-            buffer,
-            "data: {\"method\":\"next\"}\r\n\r\n",
+            buffer, "data: {\"method\":\"next\"}\r\n\r\n",
             "buffer should retain subsequent CRLF-framed SSE events"
         );
     }
