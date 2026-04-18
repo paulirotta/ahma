@@ -1,76 +1,87 @@
-# Nextest configuration for ahma_mcp
+# .config/nextest.toml
 #
-# All profiles use immediate output by default for better CI diagnostics
-# and to avoid buffering issues with subprocess-spawning tests.
+# STABILITY DESIGN — read before modifying.
+#
+# History: the previous configuration maintained a hand-written list of individual
+# test() name overrides to throttle subprocess-spawning tests on CI (2 CPUs). That
+# list was always incomplete — new tests were added without being listed — causing
+# un-throttled subprocess tests to run concurrently, starving the scheduler, and
+# producing SSE handshake timeouts (the classic "works on M5, breaks on CI" pattern).
+#
+# Current approach uses STRUCTURAL filters (package / binary_id) so every test in
+# scope is automatically covered without maintaining a name list.
+#
+# THROTTLING POLICY:
+#
+#   ahma_http_bridge
+#     ALL tests in this package spawn an ahma-mcp HTTP server subprocess.
+#     Covered by: package(ahma_http_bridge)
+#
+#   ahma_mcp integration tests
+#     Integration test binaries have binary_id "ahma_mcp::<file-name>".
+#     Many of them spawn ahma-mcp subprocess. Throttle all of them.
+#     Covered by: binary_id(~ahma_mcp::)
+#     NOT matched: the lib unit test binary "ahma_mcp" (no :: separator).
+#     That binary runs in parallel — it is in-process and fast.
+#
+#   Everything else
+#     Runs with full parallelism; no throttle needed.
+#
+# ADDING A NEW SUBPROCESS-SPAWNING TEST:
+#   - In ahma_http_bridge/tests/:  nothing to do, package filter covers it.
+#   - In ahma_mcp/tests/:          nothing to do, binary_id filter covers it.
+#   - In a NEW package:            add a package() or binary_id() filter below.
+#     Do NOT add individual test() name overrides — they break as the codebase grows.
+
+# ---------------------------------------------------------------------------
+# Default profile (developer machines — full parallelism, no throttle)
+# ---------------------------------------------------------------------------
 
 [profile.default]
-# Default timeout is 60s
 slow-timeout = { period = "60s", terminate-after = 2 }
-# Use reasonable retry settings
-retries = 0
-# Show output immediately - improves debugging and prevents issues with subprocess tests
 failure-output = "immediate"
-success-output = "immediate"
+success-output = "never"
 
-# CI profile — activated with `cargo nextest run --profile ci` in build.yml.
-# On GitHub Actions runners (2 CPUs), test-threads = "num-cpus" = 2, which
-# combined with threads-required = 2 below means only 1 resource-heavy test
-# runs at a time.  This prevents port conflicts, cargo target-dir lock
-# contention, and process-spawn storms on low-core runners.
+# Bridge tests spawn server subprocesses and need longer slow-timeout headroom
+# even on fast developer machines under load.
+[[profile.default.overrides]]
+filter = "package(ahma_http_bridge)"
+slow-timeout = { period = "120s", terminate-after = 2 }
+
+# ---------------------------------------------------------------------------
+# CI profile — activated by: cargo nextest run --profile ci
+# On GitHub Actions, test-threads = "num-cpus" = 2.
+# ---------------------------------------------------------------------------
+
 [profile.ci]
-retries = 0
-slow-timeout = { period = "120s", terminate-after = 2 }
-# Equals the number of available cores on the runner (2 on GitHub Actions).
-# This is the primary throttle for CI; the default profile does NOT set this
-# so developers run with full parallelism on powerful local machines.
 test-threads = "num-cpus"
-# Show output immediately for better CI diagnostics
-failure-output = "immediate"
-success-output = "immediate"
-
-# Timing-sensitive handshake tests benefit from reduced parallelism
-# These tests rely on precise timing (waiting for timeout expiration)
-[[profile.ci.overrides]]
-filter = "test(handshake_timeout_test::)"
-threads-required = 2
-retries = 0
-
-# Subprocess-spawning tests each start an ahma_mcp child process.  On 2-CPU
-# CI runners (test-threads = 2) reserving 2 slots means only 1 runs at a
-# time, avoiding cargo target-dir lock contention and process-spawn storms.
-[[profile.ci.overrides]]
-filter = "test(path_security) | test(mcp_service_coverage_improvement) | test(mcp_callback_coverage) | test(mcp_integration_tests) | test(logging_coverage) | test(mcp_service_edge_cases) | test(mcp_service_integration_coverage) | test(sequence_failure_edge_cases) | test(tools_dir_auto_detection) | test(client_coverage_expansion_test)"
-threads-required = 2
-
-[[profile.ci.overrides]]
-filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(request_handler_coverage_test::) | test(sandbox_lifecycle_notification_test::) | test(sse_streaming_test::) | test(sse_endpoint_test::) | test(fast_error_response_test::) | test(handshake_replay_test::) | test(http3_integration_test::) | test(http_initialize_validation_integration_test::) | test(sandbox_roots_handshake_stress_test::) | test(sandbox_security_test::) | test(session_coverage_test::) | test(session_sandbox_test::) | test(session_stress_test::)"
-threads-required = 2
 slow-timeout = { period = "120s", terminate-after = 2 }
-
-# HTTP bridge integration tests spawn ahma-mcp server subprocesses.
-# Locally (default profile) these run with full parallelism — the M4 Ultra
-# and similar developer machines have enough resources to handle concurrent
-# servers.  Throttling via threads-required only happens in the ci profile
-# (see [[profile.ci.overrides]] below), where GitHub Actions runners have 2
-# CPUs and parallel server startups cause lock contention and handshake
-# timeouts.
-[[profile.default.overrides]]
-filter = "test(sandbox_roots_handshake_test::) | test(session_delete_test::) | test(handshake_concurrency_test::) | test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(bridge_stress_tests::) | test(request_handler_coverage_test::) | test(sandbox_lifecycle_notification_test::) | test(sse_streaming_test::) | test(sse_endpoint_test::) | test(fast_error_response_test::) | test(handshake_replay_test::) | test(http3_integration_test::) | test(http_initialize_validation_integration_test::) | test(sandbox_roots_handshake_stress_test::) | test(sandbox_security_test::) | test(session_coverage_test::) | test(session_sandbox_test::) | test(session_stress_test::)"
-slow-timeout = { period = "120s", terminate-after = 3 }
-
-# SSE-based handshake tests exchange roots/list over spawned subprocesses.
-# Under peak parallel load (especially when handshake_concurrency_test::t_handshake
-# runs concurrently for 60+ seconds), SSE delivery can be delayed past the 60 s
-# deadline producing a false failure. One retry lets transient overload pass
-# without hiding real session-isolation bugs (which would fail both attempts).
-[[profile.default.overrides]]
-filter = "test(http_bridge_integration_test::) | test(http_roots_handshake_integration_test::) | test(test_tool_call_before_roots_handshake)"
-retries = 1
-
-# Coverage profile for cargo llvm-cov (instrumentation makes tests much slower)
-[profile.coverage]
-retries = 0
-slow-timeout = { period = "1800s", terminate-after = 2 }
-# Show output immediately - critical for coverage builds where subprocess tests can timeout
 failure-output = "immediate"
-success-output = "immediate"
+success-output = "never"
+retries = 0
+
+# Every test in ahma_http_bridge spawns a server subprocess.
+# threads-required = 2 with test-threads = 2 => only 1 bridge test at a time.
+# This prevents port conflicts, CPU starvation, and SSE handshake timeouts.
+[[profile.ci.overrides]]
+filter = "package(ahma_http_bridge)"
+threads-required = 2
+slow-timeout = { period = "180s", terminate-after = 2 }
+
+# Many ahma_mcp integration test binaries spawn ahma-mcp subprocess.
+# Throttle all integration tests (binary_id "ahma_mcp::*") to 1 at a time.
+# The main lib test binary ("ahma_mcp", no :: separator) is NOT matched and
+# runs in parallel with other non-subprocess tests.
+[[profile.ci.overrides]]
+filter = "binary_id(~ahma_mcp::)"
+threads-required = 2
+
+# ---------------------------------------------------------------------------
+# Coverage profile (cargo llvm-cov) — instrumentation slows tests significantly
+# ---------------------------------------------------------------------------
+
+[profile.coverage]
+slow-timeout = { period = "1800s", terminate-after = 2 }
+failure-output = "immediate"
+success-output = "never"
+retries = 0
