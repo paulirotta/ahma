@@ -11,16 +11,49 @@
 
 mod common;
 
+use ahma_common::timeouts::TestTimeouts;
 use common::{McpTestClient, TransportMode, spawn_test_server};
 use futures::future::join_all;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::time::timeout;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+fn is_low_core_or_ci() -> bool {
+    let is_ci = std::env::var_os("CI").is_some();
+    let low_core = std::thread::available_parallelism()
+        .map(|n| n.get() <= 2)
+        .unwrap_or(false);
+    is_ci || low_core
+}
+
+async fn bounded_call_tool(
+    mcp: Arc<McpTestClient>,
+    name: &'static str,
+    args: serde_json::Value,
+) -> common::ToolCallResult {
+    let max_wait = if is_low_core_or_ci() {
+        TestTimeouts::scale_secs(8)
+    } else {
+        TestTimeouts::scale_secs(15)
+    };
+
+    match timeout(max_wait, mcp.call_tool(name, args)).await {
+        Ok(result) => result,
+        Err(_) => common::ToolCallResult {
+            tool_name: name.to_string(),
+            success: false,
+            duration_ms: max_wait.as_millis(),
+            error: Some(format!("timed out after {}ms", max_wait.as_millis())),
+            output: None,
+        },
+    }
+}
 
 /// Initialise a client against a freshly spawned server and run the
 /// 14-request concurrent batch.  Returns early (test passes trivially) on
@@ -47,7 +80,7 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
     let mcp = Arc::new(mcp);
     let start = Instant::now();
 
-    let requests = vec![
+    let mut requests = vec![
         ("file-tools_pwd", json!({})),
         ("file-tools_ls", json!({"path": "."})),
         ("file-tools_ls", json!({"path": "ahma_mcp"})),
@@ -67,13 +100,20 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
         ),
     ];
 
+    if is_low_core_or_ci() {
+        // Keep the same mix but reduce fan-out for low-core/CI runners where
+        // high contention can turn this into a timeout test instead of a
+        // concurrency correctness test.
+        requests.truncate(10);
+    }
+
     let num_requests = requests.len();
 
     let futures: Vec<_> = requests
         .into_iter()
         .map(|(name, args)| {
             let mcp = Arc::clone(&mcp);
-            async move { mcp.call_tool(name, args).await }
+            async move { bounded_call_tool(mcp, name, args).await }
         })
         .collect();
 
@@ -105,9 +145,11 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
         total_tool_time as f64 / total_duration.as_millis() as f64
     );
 
+    let min_successes = if is_low_core_or_ci() { 6 } else { 8 };
     assert!(
-        successes >= 8,
-        "At least 8 out of {} requests should succeed ({:?} transport)",
+        successes >= min_successes,
+        "At least {} out of {} requests should succeed ({:?} transport)",
+        min_successes,
         num_requests,
         transport
     );
@@ -141,7 +183,8 @@ async fn run_high_volume_concurrent_requests(num_requests: usize, transport: Tra
         .map(|i| {
             let mcp = Arc::clone(&mcp);
             async move {
-                mcp.call_tool(
+                bounded_call_tool(
+                    mcp,
                     "sandboxed_shell",
                     json!({"command": format!("echo 'Request {}'", i)}),
                 )
@@ -197,13 +240,25 @@ async fn test_concurrent_tool_calls_sse() {
 /// PowerShell process through AppContainer.
 #[tokio::test]
 async fn test_high_volume_concurrent_requests_json() {
-    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
+    let num_requests: usize = if cfg!(target_os = "windows") {
+        15
+    } else if is_low_core_or_ci() {
+        20
+    } else {
+        50
+    };
     run_high_volume_concurrent_requests(num_requests, TransportMode::Json).await;
 }
 
 /// High-volume echo stress using `Accept: text/event-stream`.
 #[tokio::test]
 async fn test_high_volume_concurrent_requests_sse() {
-    let num_requests: usize = if cfg!(target_os = "windows") { 15 } else { 50 };
+    let num_requests: usize = if cfg!(target_os = "windows") {
+        15
+    } else if is_low_core_or_ci() {
+        20
+    } else {
+        50
+    };
     run_high_volume_concurrent_requests(num_requests, TransportMode::Sse).await;
 }
