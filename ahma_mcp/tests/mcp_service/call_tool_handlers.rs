@@ -7,7 +7,9 @@
 //!
 //! These tests target untested paths to improve coverage from 36.71% to 65%+.
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::client::{ClientBuilder, setup_test_environment};
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -214,22 +216,28 @@ async fn test_await_tool_empty_params() -> Result<()> {
 }
 
 // ============= CANCEL TOOL TESTS =============
-
-/// Test cancel tool with missing id
+///
+/// Uses in-process transport: the test only exercises `handle_cancel` error logic,
+/// so there is no need to spawn a subprocess.  Subprocess tests for this error path
+/// have been observed to hang on loaded Ubuntu CI runners when the JSON-RPC error
+/// response path stalls in the pipe layer.
 #[tokio::test]
 async fn test_cancel_tool_missing_id() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     // Cancel requires id
     let call_param = CallToolRequestParams::new("cancel").with_arguments(Map::new());
 
-    let result = client.call_tool(call_param).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool for cancel (missing id) timed out"))?;
 
     // Should fail with missing parameter error
-    assert!(result.is_err());
-
-    client.cancel().await?;
+    assert!(result.is_err(), "Expected Err for missing id, got: {:?}", result);
     Ok(())
 }
 
@@ -282,10 +290,12 @@ async fn test_cancel_tool_with_reason() -> Result<()> {
 }
 
 /// Test cancel tool with invalid id type
+///
+/// Uses in-process transport for the same reason as `test_cancel_tool_missing_id`.
 #[tokio::test]
 async fn test_cancel_tool_invalid_id_type() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let mut params = Map::new();
     // Pass number instead of string
@@ -293,12 +303,15 @@ async fn test_cancel_tool_invalid_id_type() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("cancel").with_arguments(params);
 
-    let result = client.call_tool(call_param).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool for cancel (invalid id type) timed out"))?;
 
     // Should fail with type error
-    assert!(result.is_err());
-
-    client.cancel().await?;
+    assert!(result.is_err(), "Expected Err for non-string id, got: {:?}", result);
     Ok(())
 }
 
