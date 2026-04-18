@@ -982,7 +982,28 @@ impl SessionManager {
         stderr: Option<tokio::process::ChildStderr>,
         colored_output: bool,
     ) {
-        let mut stdout_reader = BufReader::new(stdout).lines();
+        // Spawn a dedicated stdout reader to make stdout reading cancel-safe.
+        // `Lines::next_line()` is NOT cancel-safe inside `tokio::select!` — when
+        // another branch wins (e.g. stderr), the stdout future is cancelled and
+        // partially-read data can be lost (causing `roots/list` to be silently
+        // dropped). An mpsc channel receive IS cancel-safe, so we forward lines
+        // through one here.
+        let (stdout_line_tx, mut stdout_line_rx) =
+            mpsc::channel::<std::io::Result<Option<String>>>(64);
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            loop {
+                let line = reader.next_line().await;
+                let done = matches!(&line, Ok(None) | Err(_));
+                if stdout_line_tx.send(line).await.is_err() {
+                    break;
+                }
+                if done {
+                    break;
+                }
+            }
+        });
+
         let mut stderr_reader = stderr.map(|s| BufReader::new(s).lines());
 
         loop {
@@ -1016,10 +1037,10 @@ impl SessionManager {
                     }
                 }
 
-                // Handle incoming messages (Stdio -> HTTP/SSE)
-                stdout_result = stdout_reader.next_line() => {
+                // Handle incoming messages (Stdio -> HTTP/SSE) via cancel-safe channel
+                stdout_result = stdout_line_rx.recv() => {
                     match stdout_result {
-                        Ok(Some(line)) => {
+                        Some(Ok(Some(line))) => {
                             if line.is_empty() { continue; }
                             debug!(session_id = %session.id, "Received from subprocess: {}", line);
 
@@ -1104,11 +1125,11 @@ impl SessionManager {
                                 warn!(session_id = %session.id, "Failed to parse JSON from subprocess: {}", line);
                             }
                         }
-                        Ok(None) => {
+                        Some(Ok(None)) | None => {
                             warn!(session_id = %session.id, "Subprocess stdout closed - assuming crash or exit");
                             break;
                         }
-                        Err(e) => {
+                        Some(Err(e)) => {
                             error!(session_id = %session.id, "Failed to read stdout: {}", e);
                             break;
                         }

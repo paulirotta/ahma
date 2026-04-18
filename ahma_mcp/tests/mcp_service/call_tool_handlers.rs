@@ -9,7 +9,9 @@
 
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::client::{ClientBuilder, setup_test_environment};
-use ahma_mcp::test_utils::in_process::{create_in_process_mcp_empty, create_in_process_mcp_from_dir};
+use ahma_mcp::test_utils::in_process::{
+    create_in_process_mcp_empty, create_in_process_mcp_from_dir,
+};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -293,7 +295,7 @@ async fn test_cancel_tool_with_reason() -> Result<()> {
     )
     .await
     .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
-    
+
     assert!(!result.content.is_empty());
 
     Ok(())

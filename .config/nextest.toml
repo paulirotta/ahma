@@ -34,8 +34,14 @@
 #     Do NOT add individual test() name overrides — they break as the codebase grows.
 
 # ---------------------------------------------------------------------------
-# Default profile (developer machines — full parallelism, no throttle)
+# Default profile (developer machines — threads-required throttle, no global cap)
 # ---------------------------------------------------------------------------
+#
+# Note: `threads-required` is set on subprocess-heavy test packages to
+# throttle concurrent subprocess count.  This prevents IPC pipe back-pressure
+# and SSE handshake timeouts that occur when all bridge / ahma_mcp integration
+# tests run simultaneously.  It is NOT a global `test-threads` cap — other
+# tests (unit tests, etc.) still run with full parallelism.
 
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2 }
@@ -44,9 +50,21 @@ success-output = "never"
 
 # Bridge tests spawn server subprocesses and need longer slow-timeout headroom
 # even on fast developer machines under load.
+# threads-required = 4 caps concurrent bridge tests at (num-cpus / 4) without
+# adding a global test-threads limit, preventing IPC pipe starvation.
+# Using 4 (not 2) so that on a 10-CPU machine only ~2 bridge tests run at once;
+# this prevents handshake timeouts when --run-ignored all adds extra load.
 [[profile.default.overrides]]
 filter = "package(ahma_http_bridge)"
+threads-required = 4
 slow-timeout = { period = "120s", terminate-after = 2 }
+
+# Many ahma_mcp integration test binaries spawn ahma-mcp subprocess.
+# Throttle all integration tests (binary_id "ahma_mcp::*") to prevent
+# scheduler starvation when running concurrently with bridge tests.
+[[profile.default.overrides]]
+filter = "binary_id(~ahma_mcp::)"
+threads-required = 2
 
 # ---------------------------------------------------------------------------
 # CI profile — activated by: cargo nextest run --profile ci

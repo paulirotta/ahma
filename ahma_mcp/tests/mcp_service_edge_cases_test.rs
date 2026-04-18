@@ -6,11 +6,11 @@
 //! 3. Sandboxed Shell (validation, timeouts, execution modes)
 //! 4. Await tool (empty states)
 
-use ahma_mcp::test_utils::client::McpClientFixture;
-use ahma_mcp::utils::logging::init_test_logging;
-use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
-use anyhow::Result;
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+use ahma_mcp::test_utils::client::McpClientFixture;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
+use ahma_mcp::utils::logging::init_test_logging;
+use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
 use std::time::Duration;
@@ -94,7 +94,7 @@ async fn test_cancel_missing_id() -> Result<()> {
     )
     .await
     .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
-    
+
     assert_required_param_error(result, "required");
 
     Ok(())

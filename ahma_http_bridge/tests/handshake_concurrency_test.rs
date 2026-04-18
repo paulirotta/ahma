@@ -470,7 +470,11 @@ async fn test_slow_client_handshake() {
 
 /// Test that rapid connect/disconnect cycles don't leave the server in a bad state.
 /// A failed handshake should not prevent subsequent connections from working.
-#[tokio::test]
+///
+/// Uses a multi-threaded Tokio runtime so that the HTTP/2 connection driver,
+/// the SSE handshake task, and the main test code can all run concurrently
+/// without scheduler starvation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_rapid_connect_disconnect() {
     if should_skip_in_nested_sandbox() {
         eprintln!("Skipping strict sandbox handshake test in nested sandbox environment");
@@ -497,10 +501,12 @@ async fn test_rapid_connect_disconnect() {
     let port = find_available_port();
     let _server = ServerGuard::new(start_deferred_sandbox_server(port, &tools_dir).await, port);
     let base_url = format!("http://127.0.0.1:{}", port);
-    let client = common::make_h2_client();
 
-    // Attempt 1: Connect, Initialize, then Abandon
+    // Attempt 1: Connect, Initialize, then Abandon.
+    // The client is scoped to this block so its HTTP/2 connection is dropped
+    // (and the abandoned session's load is released) before Attempt 2 starts.
     {
+        let client = common::make_h2_client();
         let init_request = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -513,8 +519,11 @@ async fn test_rapid_connect_disconnect() {
         });
 
         let _ = send_mcp_request(&client, &base_url, &init_request, None).await;
-        // Abandon session without completing handshake
+        // client dropped here — HTTP/2 connection released, abandoned session unloaded
     }
+
+    // Let the bridge settle after the abandoned session before starting Attempt 2.
+    sleep(TestTimeouts::short_delay()).await;
 
     // Attempt 2: Connect immediately
     {
