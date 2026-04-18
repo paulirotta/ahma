@@ -148,10 +148,22 @@ impl McpTestClient {
         TestTimeouts::get(TimeoutCategory::Handshake)
     }
 
+    fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
+        let lf = buffer.find("\n\n").map(|idx| (idx, 2));
+        let crlf = buffer.find("\r\n\r\n").map(|idx| (idx, 4));
+
+        match (lf, crlf) {
+            (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
+    }
+
     fn pop_next_sse_event(buffer: &mut String) -> Option<String> {
-        let idx = buffer.find("\n\n")?;
+        let (idx, delimiter_len) = Self::first_sse_event_boundary(buffer)?;
         let raw_event = buffer[..idx].to_string();
-        *buffer = buffer[idx + 2..].to_string();
+        *buffer = buffer[idx + delimiter_len..].to_string();
         Some(raw_event)
     }
 
@@ -553,5 +565,57 @@ impl McpTestClient {
     /// Check if the client has been initialized.
     pub fn is_initialized(&self) -> bool {
         self.session_id.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::McpTestClient;
+    use serde_json::json;
+
+    #[test]
+    fn pop_next_sse_event_accepts_lf_delimiter() {
+        let mut buffer = "data: {\"method\":\"roots/list\"}\n\ndata: {\"method\":\"next\"}\n\n"
+            .to_string();
+
+        let first = McpTestClient::pop_next_sse_event(&mut buffer);
+
+        assert_eq!(first.as_deref(), Some("data: {\"method\":\"roots/list\"}"));
+        assert_eq!(
+            buffer,
+            "data: {\"method\":\"next\"}\n\n",
+            "buffer should retain subsequent SSE frames"
+        );
+    }
+
+    #[test]
+    fn pop_next_sse_event_accepts_crlf_delimiter() {
+        let mut buffer =
+            "data: {\"method\":\"roots/list\"}\r\n\r\ndata: {\"method\":\"next\"}\r\n\r\n"
+                .to_string();
+
+        let first = McpTestClient::pop_next_sse_event(&mut buffer);
+
+        assert_eq!(
+            first.as_deref(),
+            Some("data: {\"method\":\"roots/list\"}")
+        );
+        assert_eq!(
+            buffer,
+            "data: {\"method\":\"next\"}\r\n\r\n",
+            "buffer should retain subsequent CRLF-framed SSE events"
+        );
+    }
+
+    #[test]
+    fn event_data_to_json_parses_crlf_framed_event() {
+        let raw_event = "data: {\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"roots/list\"}\r\n";
+
+        let parsed = McpTestClient::event_data_to_json(raw_event);
+
+        assert_eq!(
+            parsed,
+            Some(json!({"jsonrpc":"2.0","id":0,"method":"roots/list"}))
+        );
     }
 }
