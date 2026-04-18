@@ -2,7 +2,7 @@ use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use notify::{Event, RecursiveMode, Watcher};
 use rmcp::service::{Peer, RoleServer};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing;
 
@@ -10,6 +10,23 @@ use crate::utils::stdio::emit_stdout_notification;
 
 use super::AhmaMcpService;
 use crate::config::{ToolConfig, load_tool_configs};
+
+/// Snapshot of JSON files in a directory for polling-based change detection.
+/// Tracks file names and sizes to detect additions, removals, and modifications.
+async fn snapshot_json_files(dir: &Path) -> Vec<(String, u64)> {
+    let mut files = Vec::new();
+    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                let size = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
+                files.push((entry.file_name().to_string_lossy().into_owned(), size));
+            }
+        }
+    }
+    files.sort();
+    files
+}
 
 impl AhmaMcpService {
     /// Updates the tool configurations and notifies clients.
@@ -78,7 +95,11 @@ impl AhmaMcpService {
 
             tracing::info!("Started watching tools directory: {:?}", tools_dir);
 
-            // Debounce logic
+            // Take initial snapshot for polling fallback (covers platforms where
+            // fs-event delivery is unreliable, e.g. macOS CI VMs with FSEvents).
+            let mut last_snapshot = snapshot_json_files(&tools_dir).await;
+
+            // Debounce + polling-fallback loop
             loop {
                 tokio::select! {
                     recv = rx.recv() => {
@@ -102,12 +123,30 @@ impl AhmaMcpService {
                                 tracing::error!("Failed to reload tool configurations: {}", e);
                             }
                         }
+                        last_snapshot = snapshot_json_files(&tools_dir).await;
                     }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
                         // Check if the service (via its monitor) is still alive
                         if weak_monitor.upgrade().is_none() {
                             tracing::debug!("AhmaMcpService dropped, stopping config watcher task");
                             break;
+                        }
+
+                        // Polling fallback: detect changes even when OS file-system
+                        // events are not delivered (common on macOS CI runners).
+                        let current = snapshot_json_files(&tools_dir).await;
+                        if current != last_snapshot {
+                            tracing::info!("Polling fallback detected tools directory change, reloading...");
+                            match load_tool_configs(&config, Some(&tools_dir)).await {
+                                Ok(new_configs) => {
+                                    service.update_tools(new_configs).await;
+                                    tracing::info!("Successfully reloaded tool configurations (polling fallback)");
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to reload tool configurations: {}", e);
+                                }
+                            }
+                            last_snapshot = current;
                         }
                     }
                 }
