@@ -236,6 +236,96 @@ function Invoke-AhmaMcpPlatform {
     }
 }
 
+function Get-AhmaCodexToml {
+    param([string]$Transport)
+    if ($Transport -eq 'http') {
+        return @"
+[mcp_servers.Ahma]
+url = "http://localhost:3000/mcp"
+"@
+    } else {
+        return @"
+[mcp_servers.Ahma]
+command = "ahma-mcp"
+args = ["serve", "stdio", "--tools", "rust,simplify", "--tmp", "--log-monitor"]
+"@
+    }
+}
+
+function Invoke-AhmaCodexPlatform {
+    param(
+        [string]$Transport,
+        [ref]$ConfiguredTools
+    )
+    $configPath = Join-Path $HOME '.codex' 'config.toml'
+    $tomlEntry  = Get-AhmaCodexToml -Transport $Transport
+
+    Write-Host ""
+    Write-Host "  --- Codex CLI ---"
+    Write-Host "  Config: $configPath"
+
+    if (-not (Test-Path $configPath)) {
+        # New file
+        Write-Host ""
+        Write-Host "  File does not exist. Proposed new file:"
+        Write-Host ""
+        $tomlEntry -split "`n" | ForEach-Object { Write-Host "    $_" }
+        Write-Host ""
+        $confirm = Read-Host "  Create this file? [Y/n]"
+        if ($confirm -match '^[Nn]') { Write-Host "  Skipped."; return }
+
+        New-Item -ItemType Directory -Force -Path (Split-Path $configPath) | Out-Null
+        $tomlEntry | Set-Content -Encoding UTF8 -Path $configPath
+        Write-Host "  Created."
+        $ConfiguredTools.Value += "|Codex CLI"
+
+    } else {
+        $content    = Get-Content -Raw -Path $configPath
+        $hasSection = $content -match '(?m)^\[mcp_servers\.Ahma\]'
+
+        if ($hasSection) {
+            # Section already exists -- propose replacement
+            Write-Host ""
+            Write-Host "  [mcp_servers.Ahma] entry already exists in $configPath."
+            Write-Host ""
+            Write-Host "  Proposed replacement:"
+            Write-Host ""
+            $tomlEntry -split "`n" | ForEach-Object { Write-Host "    $_" }
+            Write-Host ""
+            $confirm = Read-Host "  Replace existing entry? [y/N]"
+            if ($confirm -notmatch '^[Yy]') { Write-Host "  Skipped."; return }
+
+            # Remove old section line-by-line, then append new entry
+            $lines  = $content -split '\r?\n'
+            $result = [System.Collections.Generic.List[string]]::new()
+            $skip   = $false
+            foreach ($line in $lines) {
+                if ($skip -and $line -match '^\[') { $skip = $false }
+                if ($line -match '^\[mcp_servers\.Ahma\]') { $skip = $true; continue }
+                if (-not $skip) { $result.Add($line) }
+            }
+            $newContent = (($result -join "`n").TrimEnd("`n")) + "`n`n" + $tomlEntry + "`n"
+            $newContent | Set-Content -Encoding UTF8 -Path $configPath
+            Write-Host "  Updated."
+            $ConfiguredTools.Value += "|Codex CLI"
+
+        } else {
+            # File exists but no [mcp_servers.Ahma] -- append
+            Write-Host ""
+            Write-Host "  Appending [mcp_servers.Ahma] to ${configPath}:"
+            Write-Host ""
+            $tomlEntry -split "`n" | ForEach-Object { Write-Host "    $_" }
+            Write-Host ""
+            $confirm = Read-Host "  Add to file? [Y/n]"
+            if ($confirm -match '^[Nn]') { Write-Host "  Skipped."; return }
+
+            Add-Content -Encoding UTF8 -Path $configPath -Value "`n$tomlEntry"
+            Write-Host "  Updated."
+            $ConfiguredTools.Value += "|Codex CLI"
+        }
+    }
+}
+
 function Invoke-AhmaMcpSetup {
     Write-Host ""
     Write-Host "======================================================="
@@ -252,9 +342,10 @@ function Invoke-AhmaMcpSetup {
     Write-Host "  2) Claude Code  ($HOME\.claude.json)"
     Write-Host "  3) Cursor       ($HOME\.cursor\mcp.json)"
     Write-Host "  4) Antigravity  ($HOME\.antigravity\mcp.json)"
+    Write-Host "  5) Codex CLI    ($HOME\.codex\config.toml)"
     Write-Host ""
-    $platformsInput = Read-Host "  Selection [default: 1,2,3,4 -- all]"
-    if ([string]::IsNullOrWhiteSpace($platformsInput)) { $platformsInput = '1,2,3,4' }
+    $platformsInput = Read-Host "  Selection [default: 1,2,3,4,5 -- all]"
+    if ([string]::IsNullOrWhiteSpace($platformsInput)) { $platformsInput = '1,2,3,4,5' }
     # Accept flexible formats: "1,2,4" or "124" or "1 2 4" or mixed "1, 2,4" etc.
     # Extract all individual digits from the input
     $selectedNums = [regex]::Matches($platformsInput, '\d') | ForEach-Object { $_.Value }
@@ -266,6 +357,7 @@ function Invoke-AhmaMcpSetup {
     if ($selectedNums -contains '2') { Write-Host "    * Claude Code" }
     if ($selectedNums -contains '3') { Write-Host "    * Cursor" }
     if ($selectedNums -contains '4') { Write-Host "    * Antigravity" }
+    if ($selectedNums -contains '5') { Write-Host "    * Codex CLI" }
 
     # ── Transport selection ─────────────────────────────────────────────────
     Write-Host ""
@@ -312,6 +404,9 @@ function Invoke-AhmaMcpSetup {
                 -Transport     $transport `
                 -ConfiguredTools $configuredTools
         }
+    }
+    if ($selectedNums -contains '5') {
+        Invoke-AhmaCodexPlatform -Transport $transport -ConfiguredTools $configuredTools
     }
 
     # ── Summary ─────────────────────────────────────────────────────────────
@@ -401,6 +496,7 @@ who opens the project gets Ahma configured automatically (prompted to trust once
 | **Cursor** | `~/.cursor/mcp.json` |
 | **Claude Code** | `~/.claude.json` -> `"mcpServers"` key |
 | **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Codex CLI** | `~/.codex/config.toml` -> `[mcp_servers.Ahma]` |
 
 Same JSON structure as above. The server starts automatically when chat is opened.
 

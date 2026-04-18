@@ -377,6 +377,105 @@ _ahma_configure_platform() {
     fi
 }
 
+# ── Generate TOML config for Codex CLI ─────────────────────────────────────
+# Codex uses ~/.codex/config.toml with TOML [mcp_servers.<name>] tables.
+# Args: transport ("stdio"|"http")
+# Output: TOML block on stdout
+_ahma_new_codex_toml() {
+    local TRANS="$1"
+    if [ "$TRANS" = "http" ]; then
+        cat <<'EOF'
+[mcp_servers.Ahma]
+url = "http://localhost:3000/mcp"
+EOF
+    else
+        cat <<'EOF'
+[mcp_servers.Ahma]
+command = "ahma-mcp"
+args = ["serve", "stdio", "--tools", "rust,simplify", "--tmp", "--log-monitor"]
+EOF
+    fi
+}
+
+# Configure Codex CLI's ~/.codex/config.toml (TOML format, not JSON).
+# Reads global: AHMA_TRANSPORT
+# Writes global: AHMA_CONFIGURED_TOOLS (appends "|Codex CLI")
+_ahma_configure_codex() {
+    local CPATH="${HOME}/.codex/config.toml"
+    local TOML_ENTRY
+    TOML_ENTRY=$(_ahma_new_codex_toml "$AHMA_TRANSPORT")
+
+    echo ""
+    echo "  ─── Codex CLI ──────────────────────────────────────────"
+    echo "  Config: ${CPATH}"
+
+    local CONFIRM
+    if [ ! -f "$CPATH" ]; then
+        # New file
+        echo ""
+        echo "  File does not exist. Proposed new file:"
+        echo ""
+        echo "$TOML_ENTRY" | sed 's/^/    /'
+        echo ""
+        printf "  Create this file? [Y/n]: "
+        IFS= read -r CONFIRM < /dev/tty
+        case "$CONFIRM" in
+            [Nn]*) echo "  Skipped."; return 0 ;;
+        esac
+        mkdir -p "$(dirname "$CPATH")"
+        printf '%s\n' "$TOML_ENTRY" > "$CPATH"
+        echo "  ✓ Created ${CPATH}:"
+        echo ""
+        echo "$TOML_ENTRY" | sed 's/^/    /'
+        echo ""
+        AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|Codex CLI"
+
+    elif grep -q "^\[mcp_servers\.Ahma\]" "$CPATH" 2>/dev/null; then
+        # Section already exists — propose replacement
+        echo ""
+        echo "  [mcp_servers.Ahma] entry already exists in ${CPATH}."
+        echo ""
+        echo "  Proposed replacement:"
+        echo ""
+        echo "$TOML_ENTRY" | sed 's/^/    /'
+        echo ""
+        printf "  Replace existing entry? [y/N]: "
+        IFS= read -r CONFIRM < /dev/tty
+        case "$CONFIRM" in
+            [Yy]*)
+                # Remove old section with awk, then append new entry
+                awk '
+                    skip && substr($0, 1, 1) == "[" { skip = 0 }
+                    index($0, "[mcp_servers.Ahma]") == 1 { skip = 1; next }
+                    !skip { print }
+                ' "$CPATH" > "${CPATH}.tmp" && mv "${CPATH}.tmp" "$CPATH"
+                printf '\n%s\n' "$TOML_ENTRY" >> "$CPATH"
+                echo "  ✓ Updated ${CPATH}"
+                AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|Codex CLI"
+                ;;
+            *)
+                echo "  Skipped."
+                ;;
+        esac
+
+    else
+        # File exists but no [mcp_servers.Ahma] section — append
+        echo ""
+        echo "  Appending [mcp_servers.Ahma] to ${CPATH}:"
+        echo ""
+        echo "$TOML_ENTRY" | sed 's/^/    /'
+        echo ""
+        printf "  Add to file? [Y/n]: "
+        IFS= read -r CONFIRM < /dev/tty
+        case "$CONFIRM" in
+            [Nn]*) echo "  Skipped."; return 0 ;;
+        esac
+        printf '\n%s\n' "$TOML_ENTRY" >> "$CPATH"
+        echo "  ✓ Updated ${CPATH}"
+        AHMA_CONFIGURED_TOOLS="${AHMA_CONFIGURED_TOOLS}|Codex CLI"
+    fi
+}
+
 setup_mcp() {
     set +e  # Wizard exit codes must not abort the script
 
@@ -415,12 +514,13 @@ setup_mcp() {
     echo "  2) Claude Code   (${HOME}/.claude.json)"
     echo "  3) Cursor        (${HOME}/.cursor/mcp.json)"
     echo "  4) Antigravity   (${HOME}/.antigravity/mcp.json)"
+    echo "  5) Codex CLI     (${HOME}/.codex/config.toml)"
     echo ""
-    printf "  Selection [default: 1,2,3,4 — all]: "
+    printf "  Selection [default: 1,2,3,4,5 — all]: "
     local PLATFORMS
     IFS= read -r PLATFORMS < /dev/tty
     case "$PLATFORMS" in
-        ""|all|ALL|All) PLATFORMS="1,2,3,4" ;;
+        ""|all|ALL|All) PLATFORMS="1,2,3,4,5" ;;
     esac
 
     # Confirm platform selection
@@ -430,6 +530,7 @@ setup_mcp() {
     [ "$(_ahma_list_has "$PLATFORMS" 2 && echo y)" = "y" ] && echo "    • Claude Code"
     [ "$(_ahma_list_has "$PLATFORMS" 3 && echo y)" = "y" ] && echo "    • Cursor"
     [ "$(_ahma_list_has "$PLATFORMS" 4 && echo y)" = "y" ] && echo "    • Antigravity"
+    [ "$(_ahma_list_has "$PLATFORMS" 5 && echo y)" = "y" ] && echo "    • Codex CLI"
 
     # ── Step 2: Transport selection ─────────────────────────────────────────
     echo ""
@@ -506,6 +607,9 @@ PYEOF
     fi
     if _ahma_list_has "$PLATFORMS" 4; then
         _ahma_configure_platform "Antigravity" "${HOME}/.antigravity/mcp.json" "mcpServers" "antigravity"
+    fi
+    if _ahma_list_has "$PLATFORMS" 5; then
+        _ahma_configure_codex
     fi
 
     rm -f "$AHMA_PY_SCRIPT"
@@ -597,6 +701,7 @@ who opens the project gets Ahma configured automatically (prompted to trust once
 | **Cursor** | `~/.cursor/mcp.json` |
 | **Claude Code** | `~/.claude.json` → `"mcpServers"` key |
 | **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Codex CLI** | `~/.codex/config.toml` → `[mcp_servers.Ahma]` |
 
 Same JSON structure as above. The server starts automatically when chat is opened.
 

@@ -237,7 +237,11 @@ async fn test_cancel_tool_missing_id() -> Result<()> {
     .map_err(|_| anyhow::anyhow!("call_tool for cancel (missing id) timed out"))?;
 
     // Should fail with missing parameter error
-    assert!(result.is_err(), "Expected Err for missing id, got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Expected Err for missing id, got: {:?}",
+        result
+    );
     Ok(())
 }
 
@@ -311,7 +315,11 @@ async fn test_cancel_tool_invalid_id_type() -> Result<()> {
     .map_err(|_| anyhow::anyhow!("call_tool for cancel (invalid id type) timed out"))?;
 
     // Should fail with type error
-    assert!(result.is_err(), "Expected Err for non-string id, got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Expected Err for non-string id, got: {:?}",
+        result
+    );
     Ok(())
 }
 
