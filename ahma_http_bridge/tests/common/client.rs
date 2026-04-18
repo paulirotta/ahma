@@ -205,6 +205,7 @@ impl McpTestClient {
         session_id: &str,
         roots: &[PathBuf],
         roots_answered: &mut bool,
+        configured_seen: &mut bool,
     ) -> Result<bool, String> {
         let method = value.get("method").and_then(|m| m.as_str());
 
@@ -217,8 +218,11 @@ impl McpTestClient {
             return Err(format!("Sandbox configuration failed: {}", error));
         }
 
-        if method == Some("notifications/sandbox/configured") && *roots_answered {
-            return Ok(true);
+        if method == Some("notifications/sandbox/configured") {
+            *configured_seen = true;
+            if *roots_answered {
+                return Ok(true);
+            }
         }
 
         if method == Some("roots/list") {
@@ -229,6 +233,9 @@ impl McpTestClient {
             self.send_roots_response(session_id, request_id, roots)
                 .await?;
             *roots_answered = true;
+            if *configured_seen {
+                return Ok(true);
+            }
         }
 
         Ok(false)
@@ -243,6 +250,7 @@ impl McpTestClient {
         let mut stream = sse_resp.bytes_stream();
         let mut buffer = String::new();
         let mut roots_answered = false;
+        let mut configured_seen = false;
         let deadline = Instant::now() + Self::roots_handshake_timeout();
 
         loop {
@@ -268,7 +276,13 @@ impl McpTestClient {
                     continue;
                 };
                 if self
-                    .handle_sse_event(&value, session_id, roots, &mut roots_answered)
+                    .handle_sse_event(
+                        &value,
+                        session_id,
+                        roots,
+                        &mut roots_answered,
+                        &mut configured_seen,
+                    )
                     .await?
                 {
                     return Ok(());
@@ -287,6 +301,7 @@ impl McpTestClient {
         let mut stream = sse_resp.bytes_stream();
         let mut buffer = String::new();
         let mut roots_answered = false;
+        let mut configured_seen = false;
         let deadline = Instant::now() + Self::roots_handshake_timeout();
 
         loop {
@@ -323,8 +338,11 @@ impl McpTestClient {
                     return Err(format!("Sandbox configuration failed: {}", error));
                 }
 
-                if method == Some("notifications/sandbox/configured") && roots_answered {
-                    return Ok(());
+                if method == Some("notifications/sandbox/configured") {
+                    configured_seen = true;
+                    if roots_answered {
+                        return Ok(());
+                    }
                 }
 
                 if method == Some("roots/list") {
@@ -362,6 +380,9 @@ impl McpTestClient {
                         .map_err(|e| format!("Failed to send roots response: {}", e))?;
 
                     roots_answered = true;
+                    if configured_seen {
+                        return Ok(());
+                    }
                 }
             }
         }
