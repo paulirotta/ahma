@@ -11,6 +11,7 @@
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::skip_if_disabled_async_result;
 use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use ahma_mcp::test_utils::project::{TestProjectOptions, create_rust_project};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::{Result, bail};
@@ -262,19 +263,22 @@ fn extract_id(result: &rmcp::model::CallToolResult) -> Option<String> {
 #[tokio::test]
 async fn test_cancel_tool_missing_id() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
     if !client_has_tool(&client, "cancel").await? {
-        client.cancel().await?;
         return Ok(());
     }
 
-    let result = client
-        .call_tool(make_params("cancel", Some(json!({}))))
-        .await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(make_params("cancel", Some(json!({}))))
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
+    
     assert!(result.is_err(), "Cancel without id should fail with error");
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -291,19 +295,22 @@ async fn client_has_tool(
 #[tokio::test]
 async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
     if !client_has_tool(&client, "cancel").await? {
-        client.cancel().await?;
         return Ok(());
     }
 
-    let result = client
-        .call_tool(make_params(
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(make_params(
             "cancel",
             Some(json!({"id": "nonexistent_op_999"})),
         ))
-        .await?;
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
 
     assert_text_contains_any(
         &result,
@@ -311,7 +318,6 @@ async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
         "Cancel should report operation not found",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 

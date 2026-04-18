@@ -9,7 +9,7 @@
 
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::client::{ClientBuilder, setup_test_environment};
-use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
+use ahma_mcp::test_utils::in_process::{create_in_process_mcp_empty, create_in_process_mcp_from_dir};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -278,7 +278,8 @@ async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_tool_with_reason() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
     let mut params = Map::new();
     params.insert("id".to_string(), json!("op_test_cancel"));
@@ -286,10 +287,15 @@ async fn test_cancel_tool_with_reason() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("cancel").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
+    
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -329,17 +335,22 @@ async fn test_cancel_tool_invalid_id_type() -> Result<()> {
 #[tokio::test]
 async fn test_call_nonexistent_tool() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
     let call_param =
         CallToolRequestParams::new("definitely_not_a_real_tool").with_arguments(Map::new());
 
-    let result = client.call_tool(call_param).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
 
     // Should return error for unknown tool
     assert!(result.is_err());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -371,21 +382,22 @@ async fn test_call_disabled_tool() -> Result<()> {
         serde_json::to_string_pretty(&tool_json)?,
     )?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
+    let client = &mcp.client;
 
     // Try to call the disabled tool
     let call_param = CallToolRequestParams::new("disabled_echo").with_arguments(Map::new());
 
-    let result = client.call_tool(call_param).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
 
     // Should fail because tool is disabled
     assert!(result.is_err());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -419,11 +431,8 @@ async fn test_call_tool_invalid_subcommand() -> Result<()> {
         serde_json::to_string_pretty(&tool_json)?,
     )?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&tools_dir).await?;
+    let client = &mcp.client;
 
     // Call with invalid subcommand
     let mut params = Map::new();
@@ -431,12 +440,16 @@ async fn test_call_tool_invalid_subcommand() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("test_subcmd").with_arguments(params);
 
-    let result = client.call_tool(call_param).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(call_param),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
 
     // Should fail with subcommand not found error
     assert!(result.is_err());
 
-    client.cancel().await?;
     Ok(())
 }
 

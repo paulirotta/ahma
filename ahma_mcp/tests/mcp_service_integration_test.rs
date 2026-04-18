@@ -290,11 +290,8 @@ async fn test_mcp_call_tool_with_no_args() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&temp_dir.path().join(".ahma")).await?;
+    let client = &mcp.client;
 
     let params = CallToolRequestParams::new(Cow::Borrowed("test_echo"))
         .with_arguments(json!({}).as_object().unwrap().clone());
@@ -312,7 +309,6 @@ async fn test_mcp_call_tool_with_no_args() -> Result<()> {
         "Tool call with optional args should succeed"
     );
 
-    client.cancel().await?;
     Ok(())
 }
 

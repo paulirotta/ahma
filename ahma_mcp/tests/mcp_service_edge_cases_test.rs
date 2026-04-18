@@ -8,7 +8,9 @@
 
 use ahma_mcp::test_utils::client::McpClientFixture;
 use ahma_mcp::utils::logging::init_test_logging;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use anyhow::Result;
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
 use std::time::Duration;
@@ -83,13 +85,18 @@ async fn test_status_nonexistent_id() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_missing_id() -> Result<()> {
     init_test_logging();
-    let fixture = setup_client_fixture().await?;
-    let client = &fixture.client;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
-    let result = call_test_tool(client, "cancel", json!({})).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        call_test_tool(client, "cancel", json!({})),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
+    
     assert_required_param_error(result, "required");
 
-    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -114,15 +121,19 @@ fn assert_required_param_error<E: std::fmt::Debug>(
 #[tokio::test]
 async fn test_cancel_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let fixture = setup_client_fixture().await?;
-    let client = &fixture.client;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
-    let result = call_test_tool(client, "cancel", json!({"id": "op_999999"})).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        call_test_tool(client, "cancel", json!({"id": "op_999999"})),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
     let text = assert_success_and_get_text(&result);
 
     assert!(text.contains("not found") || text.contains("completed"));
 
-    fixture.client.cancel().await?;
     Ok(())
 }
 
@@ -130,8 +141,8 @@ async fn test_cancel_nonexistent_operation() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_with_reason() -> Result<()> {
     init_test_logging();
-    let fixture = setup_client_fixture().await?;
-    let client = &fixture.client;
+    let mcp = create_in_process_mcp_empty().await?;
+    let client = &mcp.client;
 
     // First start a long running operation (must exceed AUTOMATIC_ASYNC_TIMEOUT_SECS)
     let start_result = call_test_tool(
@@ -169,7 +180,6 @@ async fn test_cancel_with_reason() -> Result<()> {
     assert!(cancel_text.contains("cancelled successfully"));
     assert!(cancel_text.contains("Test cancellation reason"));
 
-    fixture.client.cancel().await?;
     Ok(())
 }
 
