@@ -11,6 +11,9 @@
 
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::{
+    create_in_process_mcp_empty, create_in_process_mcp_from_dir,
+};
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::{Result, bail};
 use rmcp::model::CallToolRequestParams;
@@ -167,12 +170,13 @@ async fn test_mcp_list_tools_returns_enabled_tools() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
-    let tools = client.list_all_tools().await?;
+    let mcp = create_in_process_mcp_from_dir(&temp_dir.path().join(".ahma")).await?;
+    let tools = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.list_all_tools(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("list_all_tools timed out"))??;
 
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
 
@@ -200,7 +204,6 @@ async fn test_mcp_list_tools_returns_enabled_tools() -> Result<()> {
         tool_names
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -210,12 +213,13 @@ async fn test_mcp_tool_descriptions_populated() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
-    let tools = client.list_all_tools().await?;
+    let mcp = create_in_process_mcp_from_dir(&temp_dir.path().join(".ahma")).await?;
+    let tools = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.list_all_tools(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("list_all_tools timed out"))??;
 
     // Find the test_echo tool
     let echo_tool = tools.iter().find(|t| t.name.as_ref().contains("test_echo"));
@@ -224,7 +228,6 @@ async fn test_mcp_tool_descriptions_populated() -> Result<()> {
     let tool = echo_tool.unwrap();
     assert!(tool.description.is_some(), "Tool should have a description");
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -296,7 +299,12 @@ async fn test_mcp_call_tool_with_no_args() -> Result<()> {
     let params = CallToolRequestParams::new(Cow::Borrowed("test_echo"))
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
 
     // Should succeed even with no args (message is optional)
     assert!(
@@ -332,7 +340,12 @@ async fn test_mcp_call_async_tool_returns_id() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
 
     // Async tools should return successfully
     assert!(
@@ -387,7 +400,12 @@ async fn test_mcp_subcommand_routing() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await?;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))??;
 
     // Should succeed
     assert!(
@@ -407,18 +425,19 @@ async fn test_mcp_subcommand_routing() -> Result<()> {
 #[tokio::test]
 async fn test_mcp_call_nonexistent_tool_error() -> Result<()> {
     init_test_logging();
-    let temp_dir = setup_mcp_service_test_tools().await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    // Use empty configs – the tool "nonexistent_tool_xyz" won't be found regardless.
+    let mcp = create_in_process_mcp_empty().await?;
 
     let params = CallToolRequestParams::new(Cow::Borrowed("nonexistent_tool_xyz"))
         .with_arguments(json!({}).as_object().unwrap().clone());
 
-    let result = client.call_tool(params).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
 
     // Should fail
     match result {
@@ -441,7 +460,8 @@ async fn test_mcp_call_nonexistent_tool_error() -> Result<()> {
         }
     }
 
-    client.cancel().await?;
+    // Gracefully close the connection to avoid leaked background tasks.
+    let _ = mcp.client.cancel().await;
     Ok(())
 }
 
@@ -451,11 +471,7 @@ async fn test_mcp_call_invalid_subcommand_error() -> Result<()> {
     init_test_logging();
     let temp_dir = setup_mcp_service_test_tools().await?;
 
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .working_dir(temp_dir.path())
-        .build()
-        .await?;
+    let mcp = create_in_process_mcp_from_dir(&temp_dir.path().join(".ahma")).await?;
 
     let params = CallToolRequestParams::new(Cow::Borrowed("test_echo")).with_arguments(
         json!({"subcommand": "nonexistent_subcommand"})
@@ -464,7 +480,12 @@ async fn test_mcp_call_invalid_subcommand_error() -> Result<()> {
             .clone(),
     );
 
-    let result = client.call_tool(params).await;
+    let result = tokio::time::timeout(
+        TestTimeouts::get(TimeoutCategory::ToolCall),
+        mcp.client.call_tool(params),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("call_tool timed out"))?;
 
     // Should fail or return error result
     match result {
@@ -487,7 +508,6 @@ async fn test_mcp_call_invalid_subcommand_error() -> Result<()> {
         }
     }
 
-    client.cancel().await?;
     Ok(())
 }
 

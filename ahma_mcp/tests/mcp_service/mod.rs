@@ -11,7 +11,6 @@ mod comprehensive_concurrency;
 mod comprehensive_resilience;
 mod comprehensive_schema;
 mod comprehensive_security;
-mod comprehensive_unknown_tool;
 mod coverage;
 mod coverage_expansion;
 mod integration;
