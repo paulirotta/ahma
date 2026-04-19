@@ -6,22 +6,16 @@ version = 4
 name = "ahma_common"
 version = "0.6.0"
 dependencies = [
+ "anyhow",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "ahma_coverage"
-version = "0.6.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
 ]
 
 [[package]]

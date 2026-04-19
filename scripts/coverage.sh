@@ -6,7 +6,7 @@ echo
 cargo llvm-cov --json --workspace --output-path coverage.json
 echo
 echo "Generating condensed report..."
-cargo run -p ahma_coverage --quiet
+cargo run -p ahma_common --features coverage --bin ahma_coverage --quiet
 echo
 echo "Code coverage reports generated:"
 echo " - Full JSON: coverage.json"

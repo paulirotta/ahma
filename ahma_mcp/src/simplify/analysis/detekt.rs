@@ -627,8 +627,8 @@ mod tests {
     #[test]
     fn test_setup_hint_gradlew_but_no_detekt() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // Create a gradlew file but no detekt config
-        std::fs::write(tmp.path().join("gradlew"), "#!/bin/sh\n").unwrap();
+        // Create the platform-correct gradlew file but no detekt config
+        std::fs::write(gradlew_path(tmp.path()), "#!/bin/sh\n").unwrap();
         let hint = DetektAnalyzer.setup_hint(tmp.path());
         assert!(
             hint.is_some(),
@@ -649,7 +649,7 @@ mod tests {
     fn test_setup_hint_none_when_detekt_configured() {
         let tmp = tempfile::TempDir::new().unwrap();
         // gradlew + build.gradle.kts mentioning detekt → available, no hint needed
-        std::fs::write(tmp.path().join("gradlew"), "#!/bin/sh\n").unwrap();
+        std::fs::write(gradlew_path(tmp.path()), "#!/bin/sh\n").unwrap();
         std::fs::write(
             tmp.path().join("build.gradle.kts"),
             r#"plugins { id("io.gitlab.arturbosch.detekt") version "1.23.7" }"#,

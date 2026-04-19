@@ -14,7 +14,6 @@ members = [
     "ahma_http_bridge",
     "ahma_http_mcp_client",
     "ahma_common",
-    "ahma_coverage",
     "ahma_llm_monitor",
 ]
 

@@ -7,14 +7,25 @@ readme.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+coverage = ["dep:anyhow", "dep:serde", "dep:serde_json"]
+
 [dependencies]
+anyhow = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "ahma_coverage"
+path = "src/bin/ahma_coverage.rs"
+required-features = ["coverage"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::Write;
@@ -36,7 +37,7 @@ struct Summary {
     lines: SummaryStats,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 struct SummaryStats {
     count: usize,
     covered: usize,
@@ -64,7 +65,6 @@ fn main() -> Result<()> {
 
     writeln!(output, "# Code Coverage Summary\n")?;
 
-    // Totals section
     if let Some(totals) = &cov_data.totals {
         writeln!(output, "## Totals\n")?;
         writeln!(output, "| Category | Count | Covered | Percent |")?;
@@ -84,10 +84,9 @@ fn main() -> Result<()> {
                 name, stats.count, stats.covered, stats.percent
             )?;
         }
-        writeln!(output, "")?;
+        writeln!(output)?;
     }
 
-    // Files table
     writeln!(output, "## File Coverage\n")?;
     writeln!(output, "| File | Coverage | Uncovered Lines |")?;
     writeln!(output, "|------|----------|-----------------|")?;
@@ -102,12 +101,11 @@ fn main() -> Result<()> {
         if line_cov < 100.0 {
             let mut uncovered_lines = BTreeSet::new();
             for seg in &file_entry.segments {
-                if let Some(line) = seg.get(0).and_then(|v| v.as_u64()) {
-                    if let Some(count) = seg.get(2).and_then(|v| v.as_u64()) {
-                        if count == 0 {
-                            uncovered_lines.insert(line);
-                        }
-                    }
+                if let Some(line) = seg.first().and_then(|v| v.as_u64())
+                    && let Some(count) = seg.get(2).and_then(|v| v.as_u64())
+                    && count == 0
+                {
+                    uncovered_lines.insert(line);
                 }
             }
 
@@ -156,7 +154,7 @@ fn main() -> Result<()> {
         }
     }
 
-    parsed_files.sort_by(|a, b| b.2.cmp(&a.2));
+    parsed_files.sort_by_key(|entry| Reverse(entry.2));
     let top_files = parsed_files.into_iter().take(20).collect::<Vec<_>>();
 
     let mut uncovered_details = Vec::new();
@@ -170,7 +168,6 @@ fn main() -> Result<()> {
         uncovered_details.push((filename.clone(), *line_cov, uncovered_ranges.clone()));
     }
 
-    // Detailed section
     if !uncovered_details.is_empty() {
         writeln!(output, "\n## Uncovered Line Details\n")?;
         for (filename, percent, ranges) in uncovered_details {
