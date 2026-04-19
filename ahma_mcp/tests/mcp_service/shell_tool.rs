@@ -1,9 +1,37 @@
 //! tests for shell_tool.rs
 use ahma_mcp::test_utils::client::ClientBuilder;
 use ahma_mcp::utils::logging::init_test_logging;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, json};
+use std::path::PathBuf;
+
+/// Extract a filesystem path from shell current-directory output.
+///
+/// Shells format `pwd`/`Get-Location` output differently:
+/// - Unix shells emit a single bare path line.
+/// - PowerShell emits a table with a "Path" header, a dashed separator, and then the path.
+///
+/// This helper drops header noise and returns the last non-empty, non-header,
+/// non-separator line as a `PathBuf`, preserving the original assertion semantics
+/// without requiring a platform-specific command string.
+///
+/// Returns an error containing the full raw output when no path line can be found.
+fn extract_shell_working_directory(output: &str) -> Result<PathBuf> {
+    let path_line = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                // PowerShell table header
+                && !line.eq_ignore_ascii_case("path")
+                // PowerShell dashed separator (e.g. "----")
+                && !line.chars().all(|c| c == '-')
+        })
+        .last()
+        .ok_or_else(|| anyhow!("no path line found in shell output: {:?}", output))?;
+    Ok(PathBuf::from(path_line))
+}
 
 #[tokio::test]
 async fn test_generate_input_schema_for_sandboxed_shell() -> Result<()> {
@@ -53,6 +81,51 @@ async fn test_build_shell_subcommand_config_no_timeout() -> Result<()> {
     assert_eq!(config.timeout_seconds, None);
     assert_eq!(config.synchronous, Some(true));
     Ok(())
+}
+
+#[cfg(test)]
+mod extract_shell_working_directory_tests {
+    use super::extract_shell_working_directory;
+
+    #[test]
+    fn plain_unix_path() {
+        let out = "/home/user/project\n";
+        assert_eq!(
+            extract_shell_working_directory(out).unwrap(),
+            std::path::PathBuf::from("/home/user/project")
+        );
+    }
+
+    #[test]
+    fn powershell_table_format() {
+        // PowerShell `pwd` typically emits: "Path\n\n----\n\nC:\Users\user\dir\n\n"
+        let out = "Path\n\n----\n\nC:\\Users\\user\\dir\n\n";
+        assert_eq!(
+            extract_shell_working_directory(out).unwrap(),
+            std::path::PathBuf::from("C:\\Users\\user\\dir")
+        );
+    }
+
+    #[test]
+    fn trailing_newline_noise() {
+        let out = "/tmp/my-dir\n\n";
+        assert_eq!(
+            extract_shell_working_directory(out).unwrap(),
+            std::path::PathBuf::from("/tmp/my-dir")
+        );
+    }
+
+    #[test]
+    fn empty_output_returns_error() {
+        assert!(extract_shell_working_directory("").is_err());
+        assert!(extract_shell_working_directory("\n\n").is_err());
+    }
+
+    #[test]
+    fn only_header_and_separator_returns_error() {
+        // Edge case: PowerShell header with no path body
+        assert!(extract_shell_working_directory("Path\n----\n").is_err());
+    }
 }
 
 #[tokio::test]
@@ -140,9 +213,10 @@ async fn test_handle_sandboxed_shell_working_directory() -> Result<()> {
     if let Some(content) = result.content.first()
         && let Some(text) = content.as_text()
     {
-        // On macOS, /var/folders/... may be a symlink to /private/var/folders/...
-        // so compare using canonical forms.
-        let actual = std::path::PathBuf::from(text.text.trim());
+        // On macOS, /var/folders/... may be a symlink to /private/var/folders/...;
+        // on Windows, PowerShell pwd emits a formatted table rather than a bare path.
+        // extract_shell_working_directory normalises both cases before canonicalization.
+        let actual = extract_shell_working_directory(&text.text)?;
         let expected = dunce::canonicalize(temp_dir.path())?;
         let actual_canon = dunce::canonicalize(&actual).unwrap_or(actual);
         assert_eq!(
