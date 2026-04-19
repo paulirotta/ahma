@@ -44,9 +44,9 @@ fn get_result_text(result: &rmcp::model::CallToolResult) -> &str {
         .unwrap_or("")
 }
 
-async fn build_test_client() -> Result<rmcp::service::RunningService<rmcp::service::RoleClient, ()>>
-{
-    ClientBuilder::new().tools_dir(".ahma").build().await
+async fn build_test_client() -> Result<ahma_mcp::test_utils::in_process::InProcessMcp> {
+    ahma_mcp::test_utils::in_process::create_in_process_mcp_from_dir(std::path::Path::new(".ahma"))
+        .await
 }
 
 // ============================================================================
@@ -57,7 +57,8 @@ async fn build_test_client() -> Result<rmcp::service::RunningService<rmcp::servi
 #[tokio::test]
 async fn test_client_start_process_with_tools_dir() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Verify client is functional by listing tools (using the MCP protocol)
     let tools = client.list_all_tools().await?;
@@ -72,7 +73,6 @@ async fn test_client_start_process_with_tools_dir() -> Result<()> {
         tool_names
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -144,7 +144,8 @@ async fn test_client_start_process_with_log_to_stderr() -> Result<()> {
 #[tokio::test]
 async fn test_client_status_no_operations() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     let result = call_test_tool(&client, "status", json!({})).await?;
     assert!(!result.content.is_empty());
@@ -159,7 +160,6 @@ async fn test_client_status_no_operations() -> Result<()> {
         "Expected status output, got: {}",
         text
     );
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -167,7 +167,7 @@ async fn test_client_status_no_operations() -> Result<()> {
 #[tokio::test]
 async fn test_client_status_with_id() -> Result<()> {
     init_test_logging();
-    let client = match build_test_client().await {
+    let mcp = match build_test_client().await {
         Ok(c) => c,
         Err(e) => {
             eprintln!(
@@ -177,13 +177,13 @@ async fn test_client_status_with_id() -> Result<()> {
             return Ok(());
         }
     };
+    let client = &mcp.client;
 
     // Query status for a nonexistent operation
     let result = call_test_tool(&client, "status", json!({ "id": "nonexistent_op_12345" })).await?;
 
     // Should handle gracefully - no crash, returns some response
     assert!(!result.content.is_empty());
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -195,12 +195,12 @@ async fn test_client_status_with_id() -> Result<()> {
 #[tokio::test]
 async fn test_client_await_no_pending() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     let result = call_test_tool(&client, "await", json!({})).await?;
     // Should return quickly indicating nothing to await
     assert!(!result.content.is_empty());
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -208,12 +208,12 @@ async fn test_client_await_no_pending() -> Result<()> {
 #[tokio::test]
 async fn test_client_await_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     let result = call_test_tool(&client, "await", json!({ "id": "nonexistent_op_67890" })).await?;
     // Should handle gracefully
     assert!(!result.content.is_empty());
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -226,7 +226,8 @@ async fn test_client_await_nonexistent_operation() -> Result<()> {
 async fn test_async_operation_lifecycle() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Start an async operation (short sleep)
     let start_result = call_test_tool(
@@ -253,7 +254,6 @@ async fn test_async_operation_lifecycle() -> Result<()> {
         let await_result = call_test_tool(&client, "await", json!({ "id": op_id })).await?;
         assert!(!await_result.content.is_empty());
     }
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -262,7 +262,8 @@ async fn test_async_operation_lifecycle() -> Result<()> {
 async fn test_multiple_async_operations() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Start two async operations
     let result1 = call_test_tool(
@@ -290,7 +291,6 @@ async fn test_multiple_async_operations() -> Result<()> {
     // Results should exist
     assert!(!result1.content.is_empty());
     assert!(!result2.content.is_empty());
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -303,7 +303,8 @@ async fn test_multiple_async_operations() -> Result<()> {
 async fn test_sandboxed_shell_execution() -> Result<()> {
     skip_if_disabled_async_result!("sandboxed_shell");
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Run a simple command
     let result = call_test_tool(
@@ -313,7 +314,6 @@ async fn test_sandboxed_shell_execution() -> Result<()> {
     )
     .await?;
     assert!(!result.content.is_empty());
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -326,7 +326,8 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
 
     init_test_logging();
 
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Use the workspace's target directory which is inside the sandbox
     let tools_dir = get_workspace_tools_dir();
@@ -351,7 +352,6 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
     .await?;
     assert!(!result.content.is_empty());
 
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -363,7 +363,8 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
 #[tokio::test]
 async fn test_call_nonexistent_tool() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     let result = call_test_tool(
         &client,
@@ -373,7 +374,6 @@ async fn test_call_nonexistent_tool() -> Result<()> {
     .await;
     // Should return an error
     assert!(result.is_err(), "Expected error for nonexistent tool");
-    client.cancel().await.ok();
     Ok(())
 }
 
@@ -381,7 +381,8 @@ async fn test_call_nonexistent_tool() -> Result<()> {
 #[tokio::test]
 async fn test_list_tools_format() -> Result<()> {
     init_test_logging();
-    let client = build_test_client().await?;
+    let mcp = build_test_client().await?;
+    let client = &mcp.client;
 
     // Verify by listing tools
     let tools = client.list_all_tools().await?;
@@ -397,7 +398,6 @@ async fn test_list_tools_format() -> Result<()> {
         tool_names
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
