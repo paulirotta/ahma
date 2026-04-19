@@ -1,8 +1,7 @@
 {
     "name": "simplify",
     "description": "Analyze source code complexity and get AI fix instructions for the most complex files. This tool runs ahma-mcp simplify to identify files with high cognitive/cyclomatic complexity, low maintainability, or excessive size, then returns a detailed report with per-function hotspots and actionable refactoring instructions. Always pass ai_fix set to the issue number you want to fix (1 = most complex file). The report identifies specific hotspot functions within each file. The structured prompt instructs you to focus changes on those hotspots only.",
-    "command": "ahma-mcp",
-    "args": ["simplify"],
+    "command": "ahma-mcp simplify",
     "enabled": true,
     "timeout_seconds": 600,
     "synchronous": true,
