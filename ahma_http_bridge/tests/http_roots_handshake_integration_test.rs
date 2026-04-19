@@ -16,6 +16,7 @@
 
 mod common;
 
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use common::uri::{encode_file_uri, paths_equivalent};
 use common::{TestServerInstance, spawn_test_server};
 use futures::StreamExt;
@@ -198,8 +199,8 @@ async fn http_roots_handshake_then_tool_call_defaults_to_root() {
         .send()
         .await;
 
-    // 4) Wait for roots/list over SSE
-    let roots_req = timeout(Duration::from_secs(60), async {
+    // 4) Wait for roots/lisTestTimeouts::get(TimeoutCategory::SseStream
+    let roots_req = timeout(TestTimeouts::get(TimeoutCategory::SseStream), async {
         loop {
             if let Some(msg) = rx.recv().await
                 && msg.get("method").and_then(|m| m.as_str()) == Some("roots/list")

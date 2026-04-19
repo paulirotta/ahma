@@ -24,22 +24,19 @@ use tempfile::tempdir;
 #[tokio::test]
 async fn test_status_tool_with_tool_name_filter() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    // Filter by multiple tool names
     let mut params = Map::new();
     params.insert("tools".to_string(), json!("cargo, git, echo"));
 
     let call_param = CallToolRequestParams::new("status").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Verify response mentions the filter
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
-        // Should show filter info in output
         assert!(
             text_content.text.contains("cargo")
                 || text_content.text.contains("Operations status")
@@ -47,7 +44,6 @@ async fn test_status_tool_with_tool_name_filter() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -55,25 +51,22 @@ async fn test_status_tool_with_tool_name_filter() -> Result<()> {
 #[tokio::test]
 async fn test_status_tool_with_id() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    // Query for a specific operation (non-existent)
     let mut params = Map::new();
     params.insert("id".to_string(), json!("op_nonexistent_12345"));
 
     let call_param = CallToolRequestParams::new("status").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Should indicate operation not found
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
         assert!(text_content.text.contains("not found") || text_content.text.contains("found"));
     }
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -81,18 +74,16 @@ async fn test_status_tool_with_id() -> Result<()> {
 #[tokio::test]
 async fn test_status_tool_empty_filter() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    // Empty tools parameter should show all operations
     let mut params = Map::new();
     params.insert("tools".to_string(), json!(""));
 
     let call_param = CallToolRequestParams::new("status").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -100,7 +91,7 @@ async fn test_status_tool_empty_filter() -> Result<()> {
 #[tokio::test]
 async fn test_status_tool_combined_filters() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let mut params = Map::new();
     params.insert("tools".to_string(), json!("cargo"));
@@ -108,10 +99,9 @@ async fn test_status_tool_combined_filters() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("status").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -121,17 +111,16 @@ async fn test_status_tool_combined_filters() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_with_id_not_found() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let mut params = Map::new();
     params.insert("id".to_string(), json!("op_does_not_exist"));
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Should indicate operation not found
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
@@ -140,7 +129,6 @@ async fn test_await_tool_with_id_not_found() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -177,17 +165,16 @@ async fn test_await_tool_with_tool_filter_no_pending() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_multiple_tool_filters() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let mut params = Map::new();
     params.insert("tools".to_string(), json!("cargo, git, npm"));
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -195,14 +182,13 @@ async fn test_await_tool_multiple_tool_filters() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_empty_params() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let call_param = CallToolRequestParams::new("await").with_arguments(Map::new());
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Should indicate no pending operations when none exist
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
@@ -213,7 +199,6 @@ async fn test_await_tool_empty_params() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -251,17 +236,16 @@ async fn test_cancel_tool_missing_id() -> Result<()> {
 #[tokio::test]
 async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     let mut params = Map::new();
     params.insert("id".to_string(), json!("op_does_not_exist"));
 
     let call_param = CallToolRequestParams::new("cancel").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
-    // Should indicate operation not found
     if let Some(content) = result.content.first()
         && let Some(text_content) = content.as_text()
     {
@@ -272,7 +256,6 @@ async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 

@@ -261,7 +261,7 @@ async fn test_my_tool_sse()  { run_my_tool(TransportMode::Sse).await; }
 
 **Setup** — use `common::setup_test_mcp(mode)` (in `tests/common/mod.rs`). It spawns a server, completes the full MCP handshake, and returns an `McpTestClient` wired to the requested transport. Do **not** use the old `sse_test_helpers::{ensure_server_available, call_tool}` functions — those are legacy and lack session handling.
 
-**Nextest** — add new test files to the `threads-required = 2` override filters in `.config/nextest.toml` (both `default` and `ci` profiles) so they don't storm 2-CPU CI runners.
+**Nextest** — the `.config/nextest.toml` override filters use structural predicates (`binary_id(~ahma_mcp::)`, `package(ahma_http_bridge)`) that automatically cover every test in those packages.  No manual per-file additions are needed.  Only add an override if you add tests to a **new package** that isn't already covered by an existing filter.
 
 **Exemptions** (keep SSE-only, no `_json`/`_sse` split):
 - `sse_streaming_test.rs`, `sse_endpoint_test.rs` — SSE protocol behaviour

@@ -1,5 +1,5 @@
 use super::cli;
-use ahma_common::timeouts::TestTimeouts;
+use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use anyhow::Context;
 use reqwest::Client;
 use std::path::Path;
@@ -265,7 +265,7 @@ impl HttpMcpTestClient {
         // handshake is already in flight, avoiding a race where tools/call polls
         // that trigger the server's 45-second handshake timeout before the roots
         // exchange finishes (particularly on slow Linux CI with Landlock setup).
-        tokio::time::timeout(TestTimeouts::scale_secs(60), roots_ready_rx)
+        tokio::time::timeout(TestTimeouts::get(TimeoutCategory::SseStream), roots_ready_rx)
             .await
             .context("Timed out waiting for roots/list exchange to complete")?
             .context("roots_ready channel closed before roots/list exchange completed")?;

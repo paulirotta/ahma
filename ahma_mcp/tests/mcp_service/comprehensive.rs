@@ -1,10 +1,10 @@
-use ahma_mcp::test_utils::client::ClientBuilder;
 /// Comprehensive integration tests for mcp_service.rs coverage improvement
 ///
 /// Target: Improve mcp_service.rs coverage from 59.44% to 85%+
 /// Focus: Hardcoded tools, schema generation, error handling, path validation
 ///
-/// Uses the integration test pattern from existing working tests
+/// Uses the in-process helper — no subprocess, full MCP handshake, runs in <50 ms.
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, json};
@@ -12,8 +12,8 @@ use serde_json::{Map, json};
 /// Test that hardcoded tools are properly listed
 #[tokio::test]
 async fn test_hardcoded_tools_listing() -> Result<()> {
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
-    let result = client.list_all_tools().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let result = mcp.client.list_all_tools().await?;
 
     // Should have the hardcoded tools (await, status)
     assert!(!result.is_empty());
@@ -34,21 +34,21 @@ async fn test_hardcoded_tools_listing() -> Result<()> {
         assert!(schema_value.is_ok());
     }
 
-    client.cancel().await?;
     Ok(())
 }
 
 /// Test await tool functionality and error handling
 #[tokio::test]
 async fn test_await_tool_comprehensive() -> Result<()> {
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     // Test valid await call with no timeout parameter (uses intelligent timeout)
     let params = Map::new();
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
     // Verify response contains operation information
@@ -68,24 +68,23 @@ async fn test_await_tool_comprehensive() -> Result<()> {
 
     let valid_call_param = CallToolRequestParams::new("await").with_arguments(valid_params);
 
-    let valid_result = client.call_tool(valid_call_param).await?;
+    let valid_result = mcp.client.call_tool(valid_call_param).await?;
     assert!(!valid_result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }
 
 /// Test status tool functionality
 #[tokio::test]
 async fn test_status_tool_comprehensive() -> Result<()> {
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     // Test basic status call
     let params = Map::new();
 
     let call_param = CallToolRequestParams::new("status").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 
     // Verify status provides operation information
@@ -105,9 +104,8 @@ async fn test_status_tool_comprehensive() -> Result<()> {
 
     let specific_call_param = CallToolRequestParams::new("status").with_arguments(specific_params);
 
-    let specific_result = client.call_tool(specific_call_param).await?;
+    let specific_result = mcp.client.call_tool(specific_call_param).await?;
     assert!(!specific_result.content.is_empty());
 
-    client.cancel().await?;
     Ok(())
 }

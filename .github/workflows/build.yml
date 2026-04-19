@@ -145,7 +145,7 @@ jobs:
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Install cargo-nextest
-        run: cargo binstall cargo-nextest --no-confirm --force
+        run: cargo binstall cargo-nextest --no-confirm --force --locked
 
       - name: Cargo Nextest (excluding Android/Kotlin tests)
         timeout-minutes: 20
@@ -254,7 +254,7 @@ jobs:
       - uses: cargo-bins/cargo-binstall@v1.16.6
 
       - name: Install cargo-nextest
-        run: cargo binstall cargo-nextest --no-confirm --force
+        run: cargo binstall cargo-nextest --no-confirm --force --locked
 
       - name: Check for cargo-ndk and install if missing
         run: |
@@ -385,7 +385,7 @@ jobs:
 
       - name: Install cargo-llvm-cov
         run: |
-          cargo binstall cargo-nextest --no-confirm --force
+          cargo binstall cargo-nextest --no-confirm --force --locked
           cargo binstall cargo-llvm-cov --no-confirm --force
 
       - name: Generate coverage report

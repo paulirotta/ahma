@@ -1,7 +1,7 @@
 //! Tests for path security and sandboxing
 use ahma_mcp::skip_if_disabled_async;
 
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_with_scope;
 use ahma_mcp::utils::logging::init_test_logging;
 use rmcp::{ServiceError, model::CallToolRequestParams};
 use serde_json::json;
@@ -11,12 +11,13 @@ use serde_json::json;
 async fn test_path_validation_success() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
-    // Use existing sandboxed_shell tool for path validation test
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
-        .await
-        .unwrap();
+    let scope = std::env::current_dir().unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &scope.join(".ahma"),
+        vec![scope],
+    )
+    .await
+    .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
@@ -26,9 +27,8 @@ async fn test_path_validation_success() {
         .unwrap(),
     );
 
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(result.is_ok());
-    client.cancel().await.unwrap();
 }
 
 /// Test path validation rejects absolute paths outside workspace
@@ -36,12 +36,13 @@ async fn test_path_validation_success() {
 async fn test_path_validation_failure_absolute() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
-    // Use existing sandboxed_shell tool for path validation test
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
-        .await
-        .unwrap();
+    let scope = std::env::current_dir().unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &scope.join(".ahma"),
+        vec![scope],
+    )
+    .await
+    .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
@@ -51,7 +52,7 @@ async fn test_path_validation_failure_absolute() {
         .unwrap(),
     );
 
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(result.is_err());
     let error = result.unwrap_err();
     match error {
@@ -67,7 +68,6 @@ async fn test_path_validation_failure_absolute() {
         }
         _ => panic!("Expected McpError, got {:?}", error),
     }
-    client.cancel().await.unwrap();
 }
 
 /// Test path validation rejects relative paths that escape workspace
@@ -75,12 +75,13 @@ async fn test_path_validation_failure_absolute() {
 async fn test_path_validation_failure_relative() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
-    // Use existing sandboxed_shell tool for path validation test
-    let client = ClientBuilder::new()
-        .tools_dir(".ahma")
-        .build()
-        .await
-        .unwrap();
+    let scope = std::env::current_dir().unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &scope.join(".ahma"),
+        vec![scope],
+    )
+    .await
+    .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
@@ -90,7 +91,7 @@ async fn test_path_validation_failure_relative() {
         .unwrap(),
     );
 
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(result.is_err());
     let error = result.unwrap_err();
     match error {
@@ -101,5 +102,4 @@ async fn test_path_validation_failure_relative() {
         }
         _ => panic!("Expected McpError, got {:?}", error),
     }
-    client.cancel().await.unwrap();
 }

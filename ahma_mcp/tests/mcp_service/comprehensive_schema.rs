@@ -1,4 +1,4 @@
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use anyhow::Result;
 
 fn assert_valid_tool_schema(schema_json: &serde_json::Value) {
@@ -14,8 +14,8 @@ fn assert_valid_tool_schema(schema_json: &serde_json::Value) {
 
 #[tokio::test]
 async fn test_tool_schema_validation() -> Result<()> {
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
-    let tools = client.list_all_tools().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let tools = mcp.client.list_all_tools().await?;
 
     for tool in &tools {
         assert!(!tool.name.is_empty());
@@ -29,6 +29,5 @@ async fn test_tool_schema_validation() -> Result<()> {
         assert_valid_tool_schema(&schema_json);
     }
 
-    client.cancel().await?;
     Ok(())
 }

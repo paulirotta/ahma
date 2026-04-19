@@ -13,6 +13,7 @@ use ahma_mcp::sandbox::check_sandbox_prerequisites;
 use ahma_mcp::sandbox::{Sandbox, SandboxMode};
 use ahma_mcp::test_utils as common;
 use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_with_scope;
 use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
 use rmcp::model::CallToolRequestParams;
@@ -131,14 +132,12 @@ macro_rules! skip_if_landlock_unavailable {
 async fn red_team_basic_path_traversal_blocked() {
     init_test_logging();
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Attempt to escape via simple ../
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
@@ -148,12 +147,11 @@ async fn red_team_basic_path_traversal_blocked() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "SECURITY: Basic path traversal should be blocked"
     );
-    client.cancel().await.unwrap();
 }
 
 /// Test that deeply nested path traversal is blocked
@@ -161,14 +159,12 @@ async fn red_team_basic_path_traversal_blocked() {
 async fn red_team_deep_path_traversal_blocked() {
     init_test_logging();
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Attempt to escape via deeply nested traversal
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
@@ -178,12 +174,11 @@ async fn red_team_deep_path_traversal_blocked() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "SECURITY: Deep path traversal should be blocked"
     );
-    client.cancel().await.unwrap();
 }
 
 /// Test that absolute path outside sandbox is blocked
@@ -191,14 +186,12 @@ async fn red_team_deep_path_traversal_blocked() {
 async fn red_team_absolute_path_escape_blocked() {
     init_test_logging();
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Attempt to use absolute path outside sandbox
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
@@ -208,12 +201,11 @@ async fn red_team_absolute_path_escape_blocked() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "SECURITY: Absolute path outside sandbox should be blocked"
     );
-    client.cancel().await.unwrap();
 }
 
 // =============================================================================
@@ -231,14 +223,12 @@ async fn red_team_symlink_escape_blocked() {
     use std::os::windows::fs::symlink_dir as symlink;
 
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Create a symlink inside sandbox pointing to root / C:\ (outside)
     let malicious_link = temp_dir.path().join("etc_link");
@@ -262,12 +252,11 @@ async fn red_team_symlink_escape_blocked() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "SECURITY: Symlink escape outside sandbox should be blocked"
     );
-    client.cancel().await.unwrap();
 }
 
 /// Test that symlinks to user home directory are blocked
@@ -281,14 +270,12 @@ async fn red_team_symlink_to_home_blocked() {
     use std::os::windows::fs::symlink_dir as symlink;
 
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Create symlink to home directory
     let home = std::env::var("USERPROFILE")
@@ -320,12 +307,11 @@ async fn red_team_symlink_to_home_blocked() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "SECURITY: Symlink escape to home directory should be blocked"
     );
-    client.cancel().await.unwrap();
 }
 
 // =============================================================================
@@ -337,14 +323,12 @@ async fn red_team_symlink_to_home_blocked() {
 async fn red_team_shell_metacharacters_in_path() {
     init_test_logging();
     let temp_dir = TempDir::new().unwrap();
-    let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .no_sandbox(false)
-        .build()
-        .await
-        .unwrap();
+    let mcp = create_in_process_mcp_with_scope(
+        &get_workspace_tools_dir(),
+        vec![temp_dir.path().to_path_buf()],
+    )
+    .await
+    .unwrap();
 
     // Attempt to inject shell commands via path
     // The path "; cat /etc/passwd #" doesn't exist as a directory
@@ -355,12 +339,11 @@ async fn red_team_shell_metacharacters_in_path() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     // The command may start async but should fail during execution
     // because the working directory doesn't exist.
     // We're documenting that the system handles this case safely.
     let _ = result;
-    client.cancel().await.unwrap();
 }
 
 // =============================================================================

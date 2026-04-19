@@ -11,12 +11,14 @@
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
 use ahma_mcp::skip_if_disabled_async_result;
 use ahma_mcp::test_utils::client::ClientBuilder;
-use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
+use ahma_mcp::test_utils::in_process::
+    {create_in_process_mcp_empty, create_in_process_mcp_from_dir};
 use ahma_mcp::test_utils::project::{TestProjectOptions, create_rust_project};
 use ahma_mcp::utils::logging::init_test_logging;
-use anyhow::{Result, bail};
+use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::json;
+use std::path::Path;
 
 // ============================================================================
 // Test Helpers - Reduce boilerplate and improve readability
@@ -63,9 +65,9 @@ fn assert_text_contains_any(
 #[tokio::test]
 async fn test_status_tool_no_filters() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params("status", Some(json!({}))))
         .await?;
 
@@ -76,7 +78,6 @@ async fn test_status_tool_no_filters() -> Result<()> {
         "Status should show operations summary",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -117,9 +118,9 @@ async fn test_status_tool_with_tool_filter() -> Result<()> {
 #[tokio::test]
 async fn test_status_tool_with_id_filter() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "status",
             Some(json!({"id": "nonexistent_op_12345"})),
@@ -133,7 +134,6 @@ async fn test_status_tool_with_id_filter() -> Result<()> {
         "Status should indicate operation not found",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -145,9 +145,9 @@ async fn test_status_tool_with_id_filter() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_no_pending_operations() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params("await", Some(json!({}))))
         .await?;
 
@@ -158,7 +158,6 @@ async fn test_await_tool_no_pending_operations() -> Result<()> {
         "Await should handle no pending ops",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -166,9 +165,9 @@ async fn test_await_tool_no_pending_operations() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_nonexistent_id() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "await",
             Some(json!({"id": "fake_operation_xyz"})),
@@ -182,7 +181,6 @@ async fn test_await_tool_nonexistent_id() -> Result<()> {
         "Await should handle non-existent operation",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -190,9 +188,9 @@ async fn test_await_tool_nonexistent_id() -> Result<()> {
 #[tokio::test]
 async fn test_await_tool_with_tool_filter() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "await",
             Some(json!({"tools": "nonexistent_tool"})),
@@ -206,7 +204,6 @@ async fn test_await_tool_with_tool_filter() -> Result<()> {
         "Await should handle empty filter results",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -329,9 +326,9 @@ async fn test_cancel_tool_nonexistent_operation() -> Result<()> {
 #[tokio::test]
 async fn test_call_nonexistent_tool() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "this_tool_definitely_does_not_exist_xyz123",
             Some(json!({})),
@@ -340,7 +337,6 @@ async fn test_call_nonexistent_tool() -> Result<()> {
 
     assert!(result.is_err(), "Non-existent tool should return error");
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -348,14 +344,13 @@ async fn test_call_nonexistent_tool() -> Result<()> {
 #[tokio::test]
 async fn test_call_tool_invalid_subcommand() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_from_dir(Path::new(".ahma")).await?;
 
-    if !client_has_tool_prefix(&client, "file-tools").await? {
-        client.cancel().await?;
+    if !client_has_tool_prefix(&mcp.client, "file-tools").await? {
         return Ok(());
     }
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "file-tools",
             Some(json!({"subcommand": "nonexistent_subcommand"})),
@@ -364,7 +359,6 @@ async fn test_call_tool_invalid_subcommand() -> Result<()> {
 
     assert!(result.is_err(), "Invalid subcommand should return error");
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -385,9 +379,9 @@ async fn client_has_tool_prefix(
 #[tokio::test]
 async fn test_list_tools_includes_builtin_tools() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
 
     assert!(
@@ -399,7 +393,6 @@ async fn test_list_tools_includes_builtin_tools() -> Result<()> {
         "Tools should include 'status'. Got: {tool_names:?}"
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -407,9 +400,9 @@ async fn test_list_tools_includes_builtin_tools() -> Result<()> {
 #[tokio::test]
 async fn test_list_tools_await_schema() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let tools = client.list_all_tools().await?;
+    let tools = mcp.client.list_all_tools().await?;
     let await_tool = tools
         .iter()
         .find(|t| t.name.as_ref() == "await")
@@ -426,7 +419,6 @@ async fn test_list_tools_await_schema() -> Result<()> {
         "Await schema should have tools or id properties"
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -434,59 +426,29 @@ async fn test_list_tools_await_schema() -> Result<()> {
 #[tokio::test]
 async fn test_list_tools_status_schema() -> Result<()> {
     init_test_logging();
-    let list_timeout = TestTimeouts::scale_secs(15);
-    let cleanup_timeout = TestTimeouts::get(TimeoutCategory::Cleanup);
-    let mut last_error = String::new();
+    let mcp = create_in_process_mcp_empty().await?;
 
-    for attempt in 1..=2 {
-        let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
-        let tools_result = tokio::time::timeout(list_timeout, client.list_all_tools()).await;
+    let tools = mcp.client.list_all_tools().await?;
+    let status_tool = tools
+        .iter()
+        .find(|t| t.name.as_ref() == "status")
+        .expect("Should find status tool");
 
-        match tools_result {
-            Ok(Ok(tools)) => {
-                let status_tool = tools
-                    .iter()
-                    .find(|t| t.name.as_ref() == "status")
-                    .expect("Should find status tool");
+    assert!(
+        status_tool.description.is_some(),
+        "Status tool should have description"
+    );
 
-                assert!(
-                    status_tool.description.is_some(),
-                    "Status tool should have description"
-                );
-
-                if let Some(desc) = &status_tool.description {
-                    assert!(
-                        desc.contains("poll")
-                            || desc.contains("anti-pattern")
-                            || desc.contains("automatically"),
-                        "Status description should warn about polling"
-                    );
-                }
-
-                let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
-                return Ok(());
-            }
-            Ok(Err(e)) => {
-                last_error = format!("list_all_tools failed: {}", e);
-            }
-            Err(_) => {
-                last_error = format!("list_all_tools timed out after {:?}", list_timeout);
-            }
-        }
-
-        let _ = tokio::time::timeout(cleanup_timeout, client.cancel()).await;
-        if attempt == 1 {
-            eprintln!(
-                "WARNING  test_list_tools_status_schema attempt {} failed: {}. Retrying once...",
-                attempt, last_error
-            );
-        }
+    if let Some(desc) = &status_tool.description {
+        assert!(
+            desc.contains("poll")
+                || desc.contains("anti-pattern")
+                || desc.contains("automatically"),
+            "Status description should warn about polling"
+        );
     }
 
-    bail!(
-        "test_list_tools_status_schema failed after 2 attempts: {}",
-        last_error
-    )
+    Ok(())
 }
 
 // ============================================================================
@@ -578,9 +540,9 @@ async fn test_file_tools_in_temp_directory() -> Result<()> {
 #[tokio::test]
 async fn test_status_with_multiple_tool_filters() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params(
             "status",
             Some(json!({"tools": "cargo,git,sandboxed_shell"})),
@@ -600,7 +562,6 @@ async fn test_status_with_multiple_tool_filters() -> Result<()> {
         "Status should handle multiple filters",
     );
 
-    client.cancel().await?;
     Ok(())
 }
 
@@ -608,9 +569,9 @@ async fn test_status_with_multiple_tool_filters() -> Result<()> {
 #[tokio::test]
 async fn test_await_with_multiple_tool_filters() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
-    let result = client
+    let result = mcp.client
         .call_tool(make_params("await", Some(json!({"tools": "cargo,git"}))))
         .await?;
 
@@ -621,6 +582,5 @@ async fn test_await_with_multiple_tool_filters() -> Result<()> {
         "Await should handle multiple filters",
     );
 
-    client.cancel().await?;
     Ok(())
 }

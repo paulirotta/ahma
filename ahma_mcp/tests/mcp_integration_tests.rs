@@ -3,42 +3,36 @@
 use ahma_mcp::skip_if_disabled_async_result;
 
 use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_empty;
 use ahma_mcp::utils::logging::init_test_logging;
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, json};
 
-// Assuming common::test_client::new_client can be optimized for speed,
-// e.g., by using in-memory setups or pre-initialized clients.
-// If new_client involves file I/O, replace std::fs with tokio::fs for async ops.
-
 #[tokio::test]
 async fn test_list_tools() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
-    let result = client.list_all_tools().await?;
+    let mcp = create_in_process_mcp_empty().await?;
+    let result = mcp.client.list_all_tools().await?;
 
     // Should have at least the built-in 'await' tool
     assert!(!result.is_empty());
     let tool_names: Vec<_> = result.iter().map(|t| t.name.as_ref()).collect();
     assert!(tool_names.contains(&"await"));
-    // Note: ls tool is optional and may not be present if ls.json was removed
-
-    client.cancel().await?;
     Ok(())
 }
 
 #[tokio::test]
 async fn test_call_tool_basic() -> Result<()> {
     init_test_logging();
-    let client = ClientBuilder::new().tools_dir(".ahma").build().await?;
+    let mcp = create_in_process_mcp_empty().await?;
 
     // Use the await tool which should always be available - no timeout parameter needed
     let params = Map::new();
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-    let result = client.call_tool(call_param).await?;
+    let result = mcp.client.call_tool(call_param).await?;
 
     // The result should contain operation status information
     assert!(!result.content.is_empty());
@@ -53,7 +47,6 @@ async fn test_call_tool_basic() -> Result<()> {
         );
     }
 
-    client.cancel().await?;
     Ok(())
 }
 

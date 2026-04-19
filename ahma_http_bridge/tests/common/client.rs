@@ -145,7 +145,7 @@ impl McpTestClient {
     }
 
     fn roots_handshake_timeout() -> Duration {
-        TestTimeouts::get(TimeoutCategory::Handshake)
+        TestTimeouts::get(TimeoutCategory::SseStream)
     }
 
     fn first_sse_event_boundary(buffer: &str) -> Option<(usize, usize)> {
