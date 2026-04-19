@@ -4,20 +4,15 @@
 
 use crate::shell::cli::AppConfig;
 use crate::{
-    adapter::Adapter,
-    config::{ServerConfig as MpcServerConfig, load_tool_configs},
-    mcp_service::{AhmaMcpService, GuidanceConfig},
-    operation_monitor::{MonitorConfig, OperationMonitor},
+    config::ServerConfig as MpcServerConfig,
     sandbox,
-    shell_pool::{ShellPoolConfig, ShellPoolManager},
-    tool_availability::{evaluate_tool_availability, format_install_guidance},
+    service_builder::{BuiltService, ServiceBuilder},
     utils::stdio::emit_stdout_notification,
 };
 use ahma_http_mcp_client::client::HttpMcpTransport;
 use anyhow::{Context, Result};
 use rmcp::ServiceExt;
 use std::{
-    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -84,144 +79,18 @@ pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) 
         }
     }
 
-    // Use default guidance configuration
-    let guidance_config = Some(GuidanceConfig::default());
-
-    // Initialize the operation monitor
-    let monitor_config =
-        MonitorConfig::with_timeout(std::time::Duration::from_secs(config.timeout_secs));
-    let shutdown_timeout = monitor_config.shutdown_timeout;
-    let operation_monitor = Arc::new(OperationMonitor::new(monitor_config));
-
-    // Initialize the shell pool manager
-    let shell_pool_config = ShellPoolConfig {
-        command_timeout: Duration::from_secs(config.timeout_secs),
-        ..Default::default()
-    };
-    let shell_pool_manager = Arc::new(ShellPoolManager::new(shell_pool_config));
-    shell_pool_manager.clone().start_background_tasks();
-
-    // Initialize the adapter
-    let adapter = Arc::new(Adapter::new(
-        operation_monitor.clone(),
-        shell_pool_manager.clone(),
-        sandbox.clone(),
-    )?);
-
-    // Load tool configurations (now async, no spawn_blocking needed)
-    // Always call load_tool_configs so that bundled tools are loaded
-    // even when no tools-dir or .ahma/ directory is present.
-    let raw_configs = load_tool_configs(&config, config.tools_dir.as_deref())
-        .await
-        .context("Failed to load tool configurations")?;
-
-    let configs = if config.skip_availability_probes {
-        tracing::info!("Skipping tool availability probes (AHMA_SKIP_PROBES)");
-        Arc::new(raw_configs)
-    } else {
-        let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let availability_summary = evaluate_tool_availability(
-            shell_pool_manager.clone(),
-            raw_configs,
-            working_dir.as_path(),
-            sandbox.as_ref(),
-        )
+    // Build the MCP service: monitor → pool → adapter → configs → service.
+    let BuiltService {
+        service,
+        adapter,
+        operation_monitor,
+        shutdown_timeout,
+        loaded_tools_count,
+        configs: _configs,
+    } = ServiceBuilder::new(&config, sandbox.clone())
+        .build()
         .await?;
-
-        if !availability_summary.disabled_tools.is_empty() {
-            let current_path = std::env::var("PATH").unwrap_or_else(|_| "<not set>".to_string());
-            tracing::warn!(
-                "{} tool(s) disabled by availability probes. PATH={}",
-                availability_summary.disabled_tools.len(),
-                current_path
-            );
-            for disabled in &availability_summary.disabled_tools {
-                tracing::warn!(
-                    "Tool '{}' disabled at startup. {}",
-                    disabled.name,
-                    disabled.message
-                );
-                if let Some(instructions) = &disabled.install_instructions {
-                    tracing::info!(
-                        "Install instructions for '{}': {}",
-                        disabled.name,
-                        instructions
-                    );
-                }
-            }
-        }
-
-        if !availability_summary.disabled_subcommands.is_empty() {
-            for disabled in &availability_summary.disabled_subcommands {
-                tracing::warn!(
-                    "Tool subcommand '{}::{}' disabled at startup. {}",
-                    disabled.tool,
-                    disabled.subcommand_path,
-                    disabled.message
-                );
-                if let Some(instructions) = &disabled.install_instructions {
-                    tracing::info!(
-                        "Install instructions for '{}::{}': {}",
-                        disabled.tool,
-                        disabled.subcommand_path,
-                        instructions
-                    );
-                }
-            }
-        }
-
-        if !availability_summary.disabled_tools.is_empty()
-            || !availability_summary.disabled_subcommands.is_empty()
-        {
-            let install_guidance = format_install_guidance(&availability_summary);
-            tracing::warn!(
-                "Startup tool guidance (share with users who need to install prerequisites):\n{}",
-                install_guidance
-            );
-        }
-
-        Arc::new(availability_summary.filtered_configs)
-    };
-    if configs.is_empty() {
-        tracing::error!("No valid tool configurations available after availability checks");
-        if let Some(ref tools_dir) = config.tools_dir {
-            tracing::error!("Tools directory: {:?}", tools_dir);
-        } else {
-            tracing::error!("No tools directory specified (using built-in internal tools only)");
-        }
-        // It's not a fatal error to have no tools, just log it.
-    } else {
-        let tool_names: Vec<String> = configs.keys().cloned().collect();
-        tracing::info!(
-            "Loaded {} tool configurations: {}",
-            configs.len(),
-            tool_names.join(", ")
-        );
-    }
-
-    // Create and start the MCP service
-    // With async-by-default, we pass force_synchronous=true when AHMA_SYNC is set
-    let force_synchronous = config.force_sync;
-    let loaded_tools_count = configs.len();
-    let service_handler = AhmaMcpService::new(
-        adapter.clone(),
-        operation_monitor.clone(),
-        configs,
-        Arc::new(guidance_config),
-        force_synchronous,
-        config.defer_sandbox,
-        config.progressive_disclosure,
-    )
-    .await?;
-
-    // Always reveal bundles that were explicitly requested via --tools flags.
-    // Progressive disclosure still applies to bundles *not* specified via --tools.
-    let cli_bundles = crate::config::cli_flagged_bundle_names(&config);
-    service_handler.pre_disclose(&cli_bundles);
-
-    // Apply log monitor rate limit
-    let mut service_handler = service_handler;
-    service_handler.monitor_rate_limit_seconds = config.monitor_rate_limit_secs;
+    let service_handler = service;
 
     // Hot-reload is opt-in because runtime writes can change tool behavior mid-session.
     if config.hot_reload_tools

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::models::Language;
+use crate::simplify::models::Language;
 
 /// Severity of an issue reported by an external analyzer.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -51,7 +51,7 @@ _"Create agents from your command line tools with one JSON file, then watch them
 | Tech | Version | Purpose |
 |------|---------|---------|
 | Rust | 2024 Edition (1.93+) | Core language |
-| rmcp | 0.13.0 | MCP protocol implementation |
+| rmcp | 1.5 | MCP protocol implementation |
 | Tokio | 1.x | Async runtime |
 | Landlock | 0.4.4 | Linux kernel sandboxing |
 | reqwest | 0.13.2 (http3) | HTTP client with HTTP/3 (QUIC) preference |
@@ -158,7 +158,7 @@ These tools are always available regardless of JSON configuration:
 ### R2: Async-First Architecture
 
 - **R2.1**: Operations **must** execute asynchronously by default, returning an `id` immediately.
-- **R2.2**: On completion, the system **must** push results via MCP progress notifications.
+- **R2.2**: On completion, the system **must** store results reliably in `OperationMonitor` (pull channel) and **should** push a best-effort MCP progress notification. Clients rely on the `await` tool for guaranteed result delivery; the push notification is an optimistic shortcut to avoid a round-trip` (pull channel) and **should** push a best-effort MCP progress notification. Clients rely on the `await` tool for guaranteed result delivery; the push notification is an optimistic shortcut to avoid a round-trip.
 - **R2.3**: Commands that modify config files (e.g., `cargo add`) **should** use `"synchronous": true` to prevent race conditions.
 - **R2.4**: **Inheritance**: Subcommand-level `synchronous` overrides tool-level; tool-level overrides default (async).
 
@@ -607,9 +607,12 @@ while !session.is_sandbox_ready() {
 - **R18.4**: Correct pattern:
 
 ```rust
-// CORRECT: Explicit state transition notification
-session.wait_for_state(SandboxState::Ready).await;
-// where wait_for_state uses a channel that the setter notifies
+// CORRECT: Explicit state transition notification via watch channel
+// In Operation:
+let mut rx = op.subscribe_completion(); // tokio::sync::watch::Receiver<bool>
+rx.wait_for(|done| *done).await.ok();   // returns immediately if already true
+// where subscribe_completion() creates a receiver from watch::Sender<bool>
+// stored in Operation::completion_watch
 ```
 
 #### R19: RAII for Spawned Tasks
@@ -726,11 +729,11 @@ fs::write(&test_file, "test content").unwrap();
 
 **R15**: Tests must pass reliably in CI environments with concurrent test execution.
 
-#### R15.1: Avoid Race Conditions in Async Tests
-
+#### R15.1: Avoid Race Conditions in Async Testresults, prefer either **synchronous tool execution** (`synchronous: true`) or the `await` tool. Notifications are best-effort; use the `await` tool for reliable result retrieval.
+- **R15.1.3**: Use generous timeouts (10+ seconds) for async
 - **R15.1.1**: Never use `tokio::select!` to race response completion against notification reception. When the response branch wins, the transport may already be closing.
-- **R15.1.2**: For stdio MCP tests that verify notifications, prefer **synchronous tool execution** (`synchronous: true`). Notifications are sent **during** execution, before the response.
-- **R15.1.3**: Use generous timeouts (10+ seconds) for notification waiting. CI environments are slower and more variable than local development.
+- **R15.1.2**: For stdio MCP tests that verify results, prefer either **synchronous tool execution** (`synchronous: true`) or the `await` tool. Notifications are best-effort; use the `await` tool for reliable result retrieval.
+- **R15.1.3**: Use generous timeouts (10+ seconds) for async waiting. CI environments are slower and more variable than local development.
 
 #### R15.2: Test Timeout and Polling Guidelines
 
@@ -740,10 +743,10 @@ fs::write(&test_file, "test content").unwrap();
 
 #### R15.3: Stdio Transport Gotchas
 
-- **R15.3.1**: In stdio transport, notifications and responses share the same stream. The client's reader task may exit before processing all in-flight notifications.
+- **R15.3.1**: Async operation **results** no longer rely on transport delivery. `OperationMonitor` stores results via `tokio::sync::watch` channel; `wait_for_operation()` is race-free (watch stores the current value, so a late subscriber sees `true` immediately). The old `Arc<Notify>` + `wait_for_history_propagation_pub` polling hack has been removed. Push notifications remain best-effort for progress updates
 - **R15.3.2**: The `handle_notification` callback is only invoked when rmcp's internal reader successfully parses and delivers the notification. Transport teardown can prevent this.
 - **R15.3.3**: For notification tests, consider using HTTP mode with SSE instead of stdio - SSE keeps the notification stream open independently.
-- **R15.3.4**: For async operations, the server immediately returns "operation started" and sends notifications in parallel. This creates an unwinnable race condition for notification testing.
+- **R15.3.4**: Async operation **results** no longer rely on transport delivery. `OperationMonitor` stores results via `tokio::sync::watch` channel; `wait_for_operation()` is race-free (watch stores the current value, so a late subscriber sees `true` immediately). The old `Arc<Notify>` + `wait_for_history_propagation_pub` polling hack has been removed. Push notifications remain best-effort for progress updates.
 
 #### R15.4: Coverage Overhead Mitigation
 

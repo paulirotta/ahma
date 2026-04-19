@@ -3,7 +3,9 @@ use rust_code_analysis::{
 };
 use std::path::Path;
 
-use crate::models::{Cognitive, Cyclomatic, Loc, Metrics, MetricsResults, Mi, SpaceEntry};
+use crate::simplify::models::{
+    Cognitive, Cyclomatic, Loc, Metrics, MetricsResults, Mi, SpaceEntry,
+};
 
 // ---------------------------------------------------------------------------
 // Conversion helpers: rust-code-analysis native types → our MetricsResults

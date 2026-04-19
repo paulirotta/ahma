@@ -42,7 +42,7 @@
 //! to remain agnostic of the specific protocol being used to communicate with the client,
 //! making the system more modular and easier to maintain.
 
-use crate::callback_system::{CallbackError, CallbackSender, ProgressUpdate};
+use crate::callback_system::{CallbackError, CallbackSender, DeliveryGuarantee, ProgressUpdate};
 use crate::client_type::McpClientType;
 use async_trait::async_trait;
 use rmcp::{
@@ -107,6 +107,9 @@ impl CallbackSender for McpCallbackSender {
             "Sending MCP progress notification: {:?}",
             update
         );
+
+        // Capture delivery classification before `update` is moved into the match.
+        let delivery_guarantee = update.delivery_guarantee();
 
         // NOTE: progress_token must match the client-provided token, not our internal operation id.
         // We keep id for logging/debug and include it in messages where relevant.
@@ -255,10 +258,26 @@ impl CallbackSender for McpCallbackSender {
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("Failed to send MCP progress notification: {:?}", e);
-                Err(CallbackError::SendFailed(format!(
-                    "Failed to send MCP notification: {e:?}"
-                )))
+                // Push failures are best-effort: `MustDeliver` results are stored in
+                // `OperationMonitor` and retrievable via the `await` tool, so a transport
+                // error here is never fatal. We log at different levels based on the
+                // delivery classification to aid debugging.
+                match delivery_guarantee {
+                    DeliveryGuarantee::MustDeliver => {
+                        tracing::warn!(
+                            "Failed to push terminal-state notification (result is still \
+                             available via the `await` tool): {:?}",
+                            e
+                        );
+                    }
+                    DeliveryGuarantee::BestEffort => {
+                        tracing::debug!(
+                            "Failed to push best-effort progress notification (non-fatal): {:?}",
+                            e
+                        );
+                    }
+                }
+                Ok(())
             }
         }
     }

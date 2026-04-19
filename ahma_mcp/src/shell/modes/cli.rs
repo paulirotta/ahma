@@ -5,21 +5,22 @@
 
 use crate::shell::cli::AppConfig;
 use crate::{
-    adapter::Adapter,
-    config::{SubcommandConfig, load_tool_configs},
-    operation_monitor::{MonitorConfig, OperationMonitor},
+    config::SubcommandConfig,
     sandbox,
-    shell::resolution::{find_matching_tool, resolve_cli_subcommand, run_cli_sequence},
-    shell_pool::{ShellPoolConfig, ShellPoolManager},
-    tool_availability::evaluate_tool_availability,
+    service_builder::ServiceBuilder,
+    shell::resolution::{find_matching_tool, resolve_cli_subcommand},
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
+use rmcp::{
+    ServiceExt,
+    model::{CallToolRequestParams, Content},
+    transport::async_rw::AsyncRwTransport,
+};
 use serde_json::Value;
-use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
+use std::{borrow::Cow, sync::Arc};
 
 struct CliResolution<'a> {
     subcommand_config: Cow<'a, SubcommandConfig>,
-    command_parts: Vec<String>,
 }
 
 struct ParsedCliArgs {
@@ -39,7 +40,16 @@ struct ParsedCliArgs {
 pub async fn run_cli_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> Result<()> {
     let tool_name = config.run_tool.clone().unwrap();
 
-    let (adapter, configs) = initialize_cli_runtime(&config, sandbox).await?;
+    // Use ServiceBuilder to set up the shared init chain.  CLI always runs
+    // synchronously and we don't need the MCP service layer itself – just the
+    // adapter and the loaded configs.
+    let built = ServiceBuilder::new(&config, sandbox)
+        .force_synchronous(true)
+        .skip_availability_probes(config.skip_availability_probes)
+        .build()
+        .await?;
+    let configs = built.configs;
+    let service = built.service;
 
     if configs.is_empty() && tool_name != "sandboxed_shell" {
         tracing::error!("No external tool configurations found");
@@ -49,33 +59,18 @@ pub async fn run_cli_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> 
     let (tool_config_key, tool_config) = find_matching_tool(configs.as_ref(), &tool_name)?;
 
     let resolution = resolve_cli_invocation(tool_config_key, tool_config, &tool_name)?;
-    let (args_map, working_dir_str) =
+    let (mut args_map, working_dir_str) =
         build_cli_arguments(&config, resolution.subcommand_config.as_ref());
 
-    if tool_config.command == "sequence" && resolution.subcommand_config.sequence.is_some() {
-        run_cli_sequence(
-            &adapter,
-            configs.as_ref(),
-            tool_config,
-            resolution.subcommand_config.as_ref(),
-            &working_dir_str,
-        )
-        .await?;
-        return Ok(());
-    }
+    // Preserve CLI behavior: if no working_directory is explicitly provided,
+    // inject the resolved default so service-mode execution matches adapter-mode.
+    args_map
+        .entry("working_directory".to_string())
+        .or_insert_with(|| Value::String(working_dir_str));
 
-    let base_command = resolution.command_parts.join(" ");
-
-    let result = adapter
-        .execute_sync_in_dir(
-            &base_command,
-            Some(args_map),
-            &working_dir_str,
-            resolution.subcommand_config.timeout_seconds,
-            Some(resolution.subcommand_config.as_ref()),
-        )
-        .await;
-    let _ = tool_config; // consumed by execute_sync_in_dir via subcommand
+    let result = execute_via_mcp_service(service, &tool_name, args_map).await;
+    let _ = tool_config;
+    let _ = resolution;
 
     match result {
         Ok(output) => {
@@ -89,61 +84,48 @@ pub async fn run_cli_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) -> 
     }
 }
 
-async fn initialize_cli_runtime(
-    config: &AppConfig,
-    sandbox: Arc<sandbox::Sandbox>,
-) -> Result<(
-    Adapter,
-    Arc<std::collections::HashMap<String, crate::config::ToolConfig>>,
-)> {
-    let monitor_config =
-        MonitorConfig::with_timeout(std::time::Duration::from_secs(config.timeout_secs));
-    let operation_monitor = Arc::new(OperationMonitor::new(monitor_config));
-    let shell_pool_manager = Arc::new(ShellPoolManager::new(ShellPoolConfig {
-        command_timeout: Duration::from_secs(config.timeout_secs),
-        ..Default::default()
-    }));
+async fn execute_via_mcp_service(
+    service: crate::mcp_service::AhmaMcpService,
+    tool_name: &str,
+    args_map: serde_json::Map<String, serde_json::Value>,
+) -> Result<String> {
+    let (client_stream, server_stream) = tokio::io::duplex(65536);
+    let (client_read, client_write) = tokio::io::split(client_stream);
+    let (server_read, server_write) = tokio::io::split(server_stream);
 
-    let adapter = Adapter::new(
-        operation_monitor,
-        shell_pool_manager.clone(),
-        sandbox.clone(),
-    )?;
+    let client_transport = AsyncRwTransport::new_client(client_read, client_write);
+    let server_transport = AsyncRwTransport::new_server(server_read, server_write);
 
-    let configs = load_cli_configs(config, shell_pool_manager, sandbox).await?;
-    Ok((adapter, configs))
-}
+    let (client_result, server_result) =
+        tokio::join!(().serve(client_transport), service.serve(server_transport));
 
-async fn load_cli_configs(
-    config: &AppConfig,
-    shell_pool_manager: Arc<ShellPoolManager>,
-    sandbox: Arc<sandbox::Sandbox>,
-) -> Result<Arc<std::collections::HashMap<String, crate::config::ToolConfig>>> {
-    let raw_configs = load_tool_configs(config, config.tools_dir.as_deref())
-        .await
-        .context("Failed to load tool configurations")?;
+    let client = client_result?;
+    let _server = server_result?;
 
-    let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let availability_summary = evaluate_tool_availability(
-        shell_pool_manager,
-        raw_configs,
-        working_dir.as_path(),
-        sandbox.as_ref(),
-    )
-    .await?;
+    let params = CallToolRequestParams::new(tool_name.to_string()).with_arguments(args_map);
+    let result = client.call_tool(params).await?;
 
-    log_disabled_tools(&availability_summary.disabled_tools);
-    Ok(Arc::new(availability_summary.filtered_configs))
-}
-
-fn log_disabled_tools(disabled_tools: &[crate::tool_availability::DisabledTool]) {
-    for disabled in disabled_tools {
-        tracing::warn!(
-            "Tool '{}' disabled at CLI startup. {}",
-            disabled.name,
-            disabled.message
+    let text = extract_text_content(&result.content);
+    if result.is_error.unwrap_or(false) {
+        anyhow::bail!(
+            "{}",
+            if text.is_empty() {
+                "Tool returned an error".to_string()
+            } else {
+                text
+            }
         );
     }
+
+    Ok(text)
+}
+
+fn extract_text_content(content: &[Content]) -> String {
+    content
+        .iter()
+        .filter_map(|item| item.as_text().map(|text| text.text.clone()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn resolve_cli_invocation<'a>(
@@ -154,15 +136,13 @@ fn resolve_cli_invocation<'a>(
     if is_top_level_sequence(config) {
         return Ok(CliResolution {
             subcommand_config: Cow::Owned(sequence_subcommand_config(config)),
-            command_parts: vec![config.command.clone()],
         });
     }
 
-    let (subcommand_config, command_parts) =
+    let (subcommand_config, _command_parts) =
         resolve_cli_subcommand(config_key, config, tool_name, None)?;
     Ok(CliResolution {
         subcommand_config: Cow::Borrowed(subcommand_config),
-        command_parts,
     })
 }
 

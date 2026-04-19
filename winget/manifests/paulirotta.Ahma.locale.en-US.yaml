@@ -19,7 +19,7 @@ Description: >-
   kernel-level file-system sandboxing on Linux/macOS; Windows AppContainer
   backend in development.
 
-  Includes ahma_mcp (the MCP server) and ahma_simplify (code complexity
+  Includes ahma_mcp (the MCP server) and ahma-simplify (code complexity
   analysis with AI fix suggestions).
 Moniker: ahma
 Tags:

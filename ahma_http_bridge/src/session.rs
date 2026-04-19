@@ -625,6 +625,12 @@ impl SessionManager {
         let mut child = Command::new(&self.config.server_command)
             .args(&args)
             .env("AHMA_SANDBOX_DEFER", "1")
+            // Propagate W3C trace context so subprocess spans are linked to the
+            // current session span (W3C Trace Context 1.0 §3.2).
+            .env(
+                "TRACEPARENT",
+                ahma_common::observability::current_traceparent().unwrap_or_default(),
+            )
             // SECURITY:
             // Avoid inheriting env vars that can auto-enable permissive test mode in ahma_mcp,
             // which can mask real sandbox-scoping behavior.

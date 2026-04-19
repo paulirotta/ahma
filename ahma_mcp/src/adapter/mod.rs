@@ -306,6 +306,7 @@ impl Adapter {
     ///
     /// Returns the command output (stdout + stderr) as a `String` if successful.
     /// Returns an error if execution fails or times out.
+    #[tracing::instrument(skip(self, args, subcommand_config), fields(working_dir))]
     pub async fn execute_sync_in_dir(
         &self,
         command: &str,
@@ -476,7 +477,7 @@ impl Adapter {
         .await
     }
 
-    /// Asynchronously starts a command using structured options to avoid long arg lists
+    #[tracing::instrument(skip(self, options))]
     pub async fn execute_async_in_dir_with_options(
         &self,
         tool_name: &str,

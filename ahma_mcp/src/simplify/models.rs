@@ -320,7 +320,7 @@ impl FileSimplicity {
     /// by counting source lines in the file on disk; MI is unknown (0).
     pub fn from_external(
         path: &std::path::Path,
-        external: &crate::analysis::ExternalMetrics,
+        external: &super::analysis::ExternalMetrics,
     ) -> Option<Self> {
         let cognitive = external.cognitive.unwrap_or(0.0);
         let cyclomatic = external.cyclomatic.unwrap_or(0.0);
@@ -373,7 +373,7 @@ impl FileSimplicity {
     /// value is used — a conservative approach that catches complexity either
     /// analyzer alone might miss. The score is recalculated only if the merged
     /// values differ from the rca values.
-    pub fn apply_external(mut self, external: &crate::analysis::ExternalMetrics) -> Self {
+    pub fn apply_external(mut self, external: &super::analysis::ExternalMetrics) -> Self {
         let mut changed = false;
 
         if let Some(ext_cog) = external.cognitive

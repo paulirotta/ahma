@@ -8,7 +8,7 @@ use super::conversion::analyze_file;
 use super::exclusion::should_exclude;
 use super::external::{AnalyzerRegistry, ExternalMetrics};
 use super::workspace::workspace_analysis_dirs;
-use crate::models::Language;
+use crate::simplify::models::Language;
 
 // ---------------------------------------------------------------------------
 // Public analysis API (drop-in replacement for the old CLI-based version)

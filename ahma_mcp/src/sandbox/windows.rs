@@ -255,33 +255,45 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// A newtype wrapper around `SECURITY_CAPABILITIES` that satisfies the
+/// `Copy + Send + Sync + 'static` bounds required by
+/// `std::os::windows::process::CommandExt::raw_attribute`.
+///
+/// # Safety
+///
+/// `SECURITY_CAPABILITIES` contains `AppContainerSid: PSID` (a raw pointer).
+/// This wrapper is safe to declare `Send + Sync` because:
+/// 1. We only pass one instance of this value to one `Command`, on one thread.
+/// 2. The `AppContainerSid` pointer is valid until after `Command::spawn()` is
+///    called (we intentionally do not call `FreeSid` before that point).
+/// 3. No aliasing occurs — the pointer is only dereferenced by
+///    `CreateProcessW` inside `spawn()`.
+#[cfg(target_os = "windows")]
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct SendableSecCaps(windows_sys::Win32::Security::SECURITY_CAPABILITIES);
+
+#[cfg(target_os = "windows")]
+// SAFETY: see doc comment on `SendableSecCaps` above.
+unsafe impl Send for SendableSecCaps {}
+
+#[cfg(target_os = "windows")]
+// SAFETY: see doc comment on `SendableSecCaps` above.
+unsafe impl Sync for SendableSecCaps {}
+
 /// Launch `program` with `args` inside an AppContainer restricted to `scope`.
 ///
-/// On success, returns a `tokio::process::Command` that is *already configured*
-/// to use the container (via `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`).
-/// However, `tokio::process::Command` from Rust's standard library does not
-/// expose `EXTENDED_STARTUPINFO_PRESENT` or attribute lists natively.
+/// Returns a `tokio::process::Command` configured to run the process inside a
+/// Windows AppContainer using `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`
+/// (via `std::os::windows::process::CommandExt::raw_attribute`, stable since
+/// Rust 1.76).  The AppContainer SID is derived from the deterministic profile
+/// name built from the `scope` path hash, and the scope directory's DACL is
+/// updated to grant the container full read/write access before the process is
+/// spawned.  Read-only scopes receive read + execute access.
 ///
-/// **Implementation strategy**: We use the approach of passing the AppContainer
-/// SID through environment variable `AHMA_APPCONTAINER_SID` to a helper shim,
-/// OR — simpler and more robust — we use `STARTUPINFOEXW` via a Windows Job
-/// inheritance model.  Since `tokio::process::Command` does not expose raw
-/// `STARTUPINFOEX`, we instead apply the AppContainer restriction via a
-/// wrapper: we spawn a thin PowerShell one-liner that re-launches the target
-/// command under `New-AppContainerProcess` (available from the Appx module).
-///
-/// **Current implementation**: We build the AppContainer profile name and SID
-/// so that the file-system DACL is set up correctly.  The actual process launch
-/// uses the base command (no privilege escalation) to remain compilable across
-/// Rust's `std::process` / `tokio::process` APIs; the Job Object enforcement
-/// (`enforce_windows_sandbox`) handles process-tree kill-on-close as defense-
-/// in-depth.  Full AppContainer spawn requires the `windows` crate (not
-/// `windows-sys`) for `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` support or
-/// a raw `CreateProcessW` call with `STARTUPINFOEXW`.
-///
-/// TODO(R6.3.3): Replace the base command fallback with a
-/// `CreateProcessW` + `STARTUPINFOEXW` call using the AppContainer SID once
-/// the `windows-sys` attribute-list helpers are confirmed stable.
+/// The AppContainer SID is intentionally not freed before `spawn()` — it is a
+/// bounded per-command allocation (~28 bytes for a typical S-1-15-2-* SID) and
+/// must remain valid for the duration of `CreateProcessW` inside `spawn()`.
 #[cfg(target_os = "windows")]
 fn create_appcontainer_command(
     program: &str,
@@ -290,13 +302,9 @@ fn create_appcontainer_command(
     scope: &Path,
     read_scopes: &[PathBuf],
 ) -> anyhow::Result<tokio::process::Command> {
-    // These imports are unused until raw_attribute stabilizes and the
-    // AppContainer launch code is re-enabled.
-    // use std::os::windows::process::CommandExt;
-    // use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
-    // use windows_sys::Win32::System::Threading::{
-    //     EXTENDED_STARTUPINFO_PRESENT, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-    // };
+    use std::os::windows::process::CommandExt as WinCommandExt;
+    use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
+    use windows_sys::Win32::System::Threading::PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES;
 
     // Build the container profile name.
     let container_name = appcontainer_name_for_scope(scope);
@@ -324,7 +332,8 @@ fn create_appcontainer_command(
 
         // 0x800700B7 = HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) — profile reuse is fine.
         if hr != S_OK && hr != 0x800700B7u32 as i32 {
-            // Fall through to base command on profile creation failure.
+            // Profile creation failed. Run without AppContainer confinement in
+            // non-strict mode; strict mode is gated by check_windows_sandbox_available.
             tracing::warn!(
                 "CreateAppContainerProfile returned 0x{:08X}; running without AppContainer",
                 hr as u32
@@ -343,33 +352,39 @@ fn create_appcontainer_command(
                     }
                 }
 
-                // tokio::process::Command defers spawning, so any pointers passed to
-                // raw_attribute must live until `spawn()` is called by the caller.
-                // We heap-allocate the capabilities and intentionally leak it.
-                // It's a small leak per sandboxed command (24 bytes).
-
-                // NOTE: The `raw_attribute` method on `std::os::windows::process::CommandExt`
-                // is currently an unstable, nightly-only feature (#114854).
-                // Until it stabilizes, we cannot launch the process *inside* the
-                // AppContainer using the standard library on stable Rust.
-                // The profile and DACL setup above remains active so the sandbox
-                // infrastructure is ready once the API is available.
-
-                /*
-                let sec_caps = Box::new(SECURITY_CAPABILITIES {
+                // Attach the AppContainer SID to the process-creation attribute list.
+                //
+                // `raw_attribute` (stable since Rust 1.76 / #114854) stores a copy of
+                // `sec_caps` inside the Command, keeping it alive until `spawn()`.
+                // Internally, Rust calls `UpdateProcThreadAttribute` with
+                // `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` and our struct,
+                // then passes `EXTENDED_STARTUPINFO_PRESENT` to `CreateProcessW`.
+                //
+                // The `AppContainerSid` pointer (`sid`) must remain valid until
+                // `CreateProcessW` is called inside `spawn()`.  We intentionally skip
+                // `FreeSid(sid)` here — the SID allocation (~28 bytes) is released when
+                // the AppContainer profile is deleted on session shutdown via
+                // `cleanup_appcontainer_profile`.
+                let sec_caps = SendableSecCaps(SECURITY_CAPABILITIES {
                     AppContainerSid: sid,
                     Capabilities: std::ptr::null_mut(),
                     CapabilityCount: 0,
                     Reserved: 0,
                 });
-                let sec_caps_ptr = Box::into_raw(sec_caps);
 
-                std_cmd.creation_flags(EXTENDED_STARTUPINFO_PRESENT);
+                // SAFETY: `sec_caps` is a valid SECURITY_CAPABILITIES whose
+                // `AppContainerSid` pointer is live for the duration of `spawn()`.
+                // `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` is a documented
+                // Win32 attribute value. Misuse here cannot cause UB outside this
+                // sandboxed child process.
                 std_cmd.raw_attribute(
                     PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
-                    sec_caps_ptr as *mut core::ffi::c_void,
+                    sec_caps,
                 );
-                */
+
+                tracing::debug!(
+                    "AppContainer SID attached via raw_attribute; process will run in AppContainer"
+                );
             }
         }
     }
@@ -393,10 +408,6 @@ fn create_appcontainer_command(
     {
         cmd.env("CARGO_TARGET_DIR", working_dir.join("target"));
     }
-
-    let _ = profile_name_lossy; // used above; silence any unreachable warning
-    let _ = scope; // DACL already set
-    let _ = working_dir;
 
     Ok(cmd)
 }

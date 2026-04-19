@@ -174,7 +174,42 @@ pub enum ProgressUpdate {
     },
 }
 
+/// Delivery guarantee classification for push notifications.
+///
+/// Results from terminal-state operations (`MustDeliver`) are stored reliably in
+/// `OperationMonitor` and retrievable via the `await` tool regardless of whether
+/// the push succeeds. Callers should therefore treat push failures as warnings,
+/// not errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryGuarantee {
+    /// Result is stored in `OperationMonitor`; push is an optimistic shortcut.
+    /// A push failure is safe to swallow — the client can poll via `await`.
+    MustDeliver,
+    /// Transient update not stored persistently; missing one is acceptable.
+    BestEffort,
+}
+
 impl ProgressUpdate {
+    /// Classify whether a push notification is required for result correctness.
+    ///
+    /// - `MustDeliver`: terminal-state variants whose result is also stored in
+    ///   `OperationMonitor`. The push is best-effort, but callers can always
+    ///   retrieve the result via the `await` tool, so a push failure is not fatal.
+    /// - `BestEffort`: in-progress variants (progress, output, alerts) that
+    ///   are not stored persistently; missing one is acceptable.
+    pub fn delivery_guarantee(&self) -> DeliveryGuarantee {
+        match self {
+            ProgressUpdate::FinalResult { .. }
+            | ProgressUpdate::Completed { .. }
+            | ProgressUpdate::Failed { .. }
+            | ProgressUpdate::Cancelled { .. } => DeliveryGuarantee::MustDeliver,
+            ProgressUpdate::Started { .. }
+            | ProgressUpdate::Progress { .. }
+            | ProgressUpdate::Output { .. }
+            | ProgressUpdate::LogAlert { .. } => DeliveryGuarantee::BestEffort,
+        }
+    }
+
     fn format_progress(
         message: &str,
         percentage: Option<f64>,

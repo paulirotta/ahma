@@ -38,7 +38,7 @@
 
 pub mod bundle_registry;
 mod config_watcher;
-mod handlers;
+pub mod handlers;
 pub mod schema;
 mod sequence;
 mod subcommand;
@@ -62,6 +62,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 use tracing;
+use tracing::Instrument as _;
 
 use crate::{
     adapter::Adapter, callback_system::CallbackSender, client_type::McpClientType,
@@ -643,6 +644,7 @@ impl ServerHandler for AhmaMcpService {
         params: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl std::future::Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
+        let span = tracing::info_span!("call_tool", tool = params.name.as_ref());
         async move {
             let tool_name = params.name.as_ref();
 
@@ -1041,6 +1043,7 @@ impl ServerHandler for AhmaMcpService {
                 }
             }
         }
+        .instrument(span)
     }
 }
 

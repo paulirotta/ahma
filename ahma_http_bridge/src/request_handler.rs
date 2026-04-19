@@ -63,6 +63,7 @@ fn error_response(code: i32, message: &str) -> Response {
 }
 
 /// Handles requests in session isolation mode.
+#[tracing::instrument(skip_all, fields(method, session_id))]
 pub async fn handle_session_isolated_request(
     session_manager: Arc<SessionManager>,
     headers: HeaderMap,
@@ -74,6 +75,8 @@ pub async fn handle_session_isolated_request(
         .map(String::from);
     let method = payload.get("method").and_then(|m| m.as_str());
 
+    tracing::Span::current().record("method", method.unwrap_or(""));
+    tracing::Span::current().record("session_id", session_id.as_deref().unwrap_or(""));
     debug!(method = ?method, session_id = ?session_id, has_id = payload.get("id").is_some(), "Incoming MCP request");
 
     if method == Some("initialize") && session_id.is_none() {
@@ -127,6 +130,7 @@ async fn handle_initialize_error(
 }
 
 /// Handles initialization requests by creating a new session.
+#[tracing::instrument(skip_all, fields(session_id))]
 async fn handle_initialize(session_manager: &SessionManager, payload: &Value) -> Response {
     debug!("Processing initialize request (no session ID)");
 
@@ -627,6 +631,8 @@ fn sse_error_json_response(status: StatusCode, code: i32, message: &str) -> Resp
 /// server notifications. For requests (with `id`), the stream forwards broadcast
 /// events and delivers the response, then closes. For notifications (no `id`),
 /// a single acknowledgment event is returned.
+/// Handles requests in session isolation mode (SSE transport).
+#[tracing::instrument(skip_all, fields(method, session_id))]
 pub async fn handle_session_isolated_request_sse(
     session_manager: Arc<SessionManager>,
     headers: HeaderMap,
@@ -639,6 +645,8 @@ pub async fn handle_session_isolated_request_sse(
     let method = payload.get("method").and_then(|m| m.as_str());
     let has_id = payload.get("id").is_some();
 
+    tracing::Span::current().record("method", method.unwrap_or(""));
+    tracing::Span::current().record("session_id", session_id.as_deref().unwrap_or(""));
     debug!(method = ?method, session_id = ?session_id, has_id, "Incoming MCP POST SSE request");
 
     // Initialize: create session, forward, return SSE with response

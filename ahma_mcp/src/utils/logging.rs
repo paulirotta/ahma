@@ -43,32 +43,35 @@
 //! For terminal debugging: `init_logging("debug", false)` (logs to stderr with colors)
 //! For production: `init_logging("info", true)` (logs to file without colors)
 
+use ahma_common::observability::{ObservabilityConfig, TelemetryGuard};
 use anyhow::Result;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry::trace::TracerProvider;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry_otlp::WithExportConfig;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry_sdk::{
-    Resource,
-    trace::{self as sdktrace, SdkTracerProvider},
+use std::{
+    io::stderr,
+    path::Path,
+    sync::{Mutex, Once},
 };
-use std::{io::stderr, path::Path, sync::Once};
 use tracing_subscriber::{EnvFilter, fmt::layer, prelude::*};
 
 static INIT: Once = Once::new();
+/// Passes the OTEL guard out of the `call_once` closure to the caller.
+static PENDING_GUARD: Mutex<Option<TelemetryGuard>> = Mutex::new(None);
 
 /// Initialize verbose logging for tests.
 ///
 /// This configures a `trace`-level subscriber that logs to stderr.
 pub fn init_test_logging() {
-    init_logging("trace", false).expect("Failed to initialize test logging");
+    let _ = init_logging("trace", false);
 }
 
 /// Initializes the logging system.
 ///
-/// This function sets up a global tracing subscriber. It can be configured to
-/// log to stderr or to a daily rolling file in the project's cache directory.
+/// Sets up a global tracing subscriber and, when an OTLP endpoint is configured
+/// (`--opentelemetry <url>` or `OTEL_EXPORTER_OTLP_ENDPOINT`), also attaches
+/// an OTLP exporting layer.
+///
+/// Returns a [`TelemetryGuard`] that **must** be kept alive for the duration
+/// of the process to ensure buffered spans are flushed on shutdown.  When
+/// OTEL is not enabled the guard is a cheap no-op.
 ///
 /// When logging to stderr, ANSI colors are enabled for better readability.
 /// When logging to file, ANSI colors are disabled.
@@ -76,10 +79,31 @@ pub fn init_test_logging() {
 /// # Errors
 ///
 /// Returns an error if the project directories cannot be determined.
-pub fn init_logging(log_level: &str, log_to_file: bool) -> Result<()> {
+pub fn init_logging(log_level: &str, log_to_file: bool) -> Result<TelemetryGuard> {
+    init_logging_with_observability(log_level, log_to_file, None)
+}
+
+/// Initializes logging with an optional explicit observability configuration.
+///
+/// When `observability` is `Some`, that configuration is used for OTEL setup;
+/// otherwise configuration is read from environment variables.
+pub fn init_logging_with_observability(
+    log_level: &str,
+    log_to_file: bool,
+    observability: Option<ObservabilityConfig>,
+) -> Result<TelemetryGuard> {
     INIT.call_once(|| {
         let env_filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(format!("{log_level},ahma_mcp=debug")));
+
+        // Build the OTEL layer (no-op when no endpoint is configured).
+        let (otel_layer, guard) = {
+            let config = observability
+                .clone()
+                .unwrap_or_else(|| ObservabilityConfig::from_env("ahma_mcp"));
+            ahma_common::observability::create_otel_layer(&config)
+        };
+        *PENDING_GUARD.lock().unwrap() = Some(guard);
 
         // Attempt to log to a file, fall back to stderr.
         if log_to_file {
@@ -124,14 +148,16 @@ pub fn init_logging(log_level: &str, log_to_file: bool) -> Result<()> {
 
                 let subscriber = tracing_subscriber::registry()
                     .with(env_filter)
+                    .with(otel_layer)
                     .with(layer().with_writer(non_blocking).with_ansi(false));
-
-                #[cfg(feature = "opentelemetry")]
-                let subscriber = subscriber.with(init_otel());
 
                 subscriber.init();
                 // The guard is intentionally leaked to ensure logs are flushed on exit.
                 Box::leak(Box::new(_guard));
+                // Log the parent trace context injected by the HTTP bridge (if any).
+                if let Some(tp) = ahma_common::observability::env_traceparent() {
+                    tracing::debug!(traceparent = %tp, "subprocess trace context from HTTP bridge");
+                }
                 return;
             }
         }
@@ -139,43 +165,25 @@ pub fn init_logging(log_level: &str, log_to_file: bool) -> Result<()> {
         // Fallback or explicit stderr logging
         let subscriber = tracing_subscriber::registry()
             .with(env_filter)
+            .with(otel_layer)
             .with(layer().with_writer(stderr).with_ansi(true));
 
-        #[cfg(feature = "opentelemetry")]
-        let subscriber = subscriber.with(init_otel());
-
         subscriber.init();
+
+        // Log the parent trace context injected by the HTTP bridge (if any).
+        // This makes it easy to correlate subprocess and bridge traces even
+        // before full parent-child linking is wired up.
+        if let Some(tp) = ahma_common::observability::env_traceparent() {
+            tracing::debug!(traceparent = %tp, "subprocess trace context from HTTP bridge");
+        }
     });
 
-    Ok(())
-}
-
-#[cfg(feature = "opentelemetry")]
-fn init_otel<S>() -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, sdktrace::Tracer>>
-where
-    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
-{
-    if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() || std::env::var("AHMA_TRACING").is_ok()
-    {
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .with_endpoint("http://localhost:4318/v1/traces")
-            .build()
-            .ok()?;
-
-        let resource = Resource::builder().with_service_name("ahma_mcp").build();
-
-        let provider = SdkTracerProvider::builder()
-            .with_resource(resource)
-            .with_batch_exporter(exporter)
-            .build();
-
-        let tracer = provider.tracer("ahma_mcp");
-
-        Some(tracing_opentelemetry::layer().with_tracer(tracer))
-    } else {
-        None
-    }
+    // Return the guard produced in this call (None on subsequent calls — guard already held).
+    Ok(PENDING_GUARD
+        .lock()
+        .unwrap()
+        .take()
+        .unwrap_or_else(TelemetryGuard::none))
 }
 
 /// Test if we can write to the given directory.

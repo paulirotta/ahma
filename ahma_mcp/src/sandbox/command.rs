@@ -70,10 +70,8 @@ impl Sandbox {
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
-            // Windows: delegate to the AppContainer scaffolding.
-            // `check_windows_sandbox_available` already blocks strict mode until
-            // the implementation is complete, so this path is only reached in
-            // Test/Permissive mode or when --disable-sandbox is active.
+            // Windows: launch inside an AppContainer using
+            // PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES (R6.3.3).
             #[cfg(target_os = "windows")]
             {
                 let scope = self
@@ -89,6 +87,7 @@ impl Sandbox {
                     &self.read_scopes,
                 );
             }
+            // Other non-Linux/macOS platforms (e.g., FreeBSD): run unsandboxed.
             #[cfg(not(target_os = "windows"))]
             Ok(self.base_command(program, args, working_dir))
         }

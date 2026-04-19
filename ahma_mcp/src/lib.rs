@@ -128,10 +128,15 @@ pub mod retry;
 pub mod sandbox;
 /// JSON schema validation utilities.
 pub mod schema_validation;
+/// Unified service builder for all transport modes.
+pub mod service_builder;
 /// CLI shell entry points.
 pub mod shell;
 /// Shell pooling and execution.
 pub mod shell_pool;
+/// Code complexity analysis and simplification tooling.
+#[cfg(feature = "simplify")]
+pub mod simplify;
 /// Terminal output helpers for callbacks.
 pub mod terminal_output;
 /// Tool availability checks and guidance.

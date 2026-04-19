@@ -1,14 +1,5 @@
 use ahma_http_bridge::{BridgeConfig, start_bridge};
 use clap::Parser;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry::trace::TracerProvider;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry_otlp::WithExportConfig;
-#[cfg(feature = "opentelemetry")]
-use opentelemetry_sdk::{
-    Resource,
-    trace::{self as sdktrace, SdkTracerProvider},
-};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -58,26 +49,34 @@ struct Args {
     /// within this time, tool calls will return a timeout error.
     #[arg(long, default_value = "45")]
     handshake_timeout_secs: u64,
+
+    /// OTLP endpoint for distributed tracing export.
+    /// Providing this flag enables tracing. Equivalent to OTEL_EXPORTER_OTLP_ENDPOINT.
+    #[arg(long, global = true)]
+    opentelemetry: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
+    // Parse args early so tracing flags are available before logging init.
+    let args = Args::parse();
+
+    // Initialize logging subscriber.
     let env_filter = tracing_subscriber::EnvFilter::new(
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
     );
-    let _otel_layer = init_otel();
+
+    let (otel_layer, _telemetry_guard) = ahma_common::observability::create_otel_layer(
+        &ahma_common::observability::ObservabilityConfig::from_env("ahma_http_bridge")
+            .with_endpoint(args.opentelemetry.as_deref()),
+    );
 
     let subscriber = tracing_subscriber::registry()
         .with(env_filter)
-        .with(tracing_subscriber::fmt::layer());
-
-    #[cfg(feature = "opentelemetry")]
-    let subscriber = subscriber.with(_otel_layer);
+        .with(tracing_subscriber::fmt::layer())
+        .with(otel_layer);
 
     subscriber.init();
-
-    let args = Args::parse();
 
     // Determine server command: explicit arg > local debug binary > default
     let cwd = std::env::current_dir()?;
@@ -120,41 +119,6 @@ async fn main() -> anyhow::Result<()> {
 
     start_bridge(config).await?;
     Ok(())
-}
-
-#[cfg(feature = "opentelemetry")]
-fn init_otel<S>() -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, sdktrace::Tracer>>
-where
-    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
-{
-    if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() || std::env::var("AHMA_TRACING").is_ok()
-    {
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .with_endpoint("http://localhost:4318/v1/traces")
-            .build()
-            .ok()?;
-
-        let resource = Resource::builder()
-            .with_service_name("ahma_http_bridge")
-            .build();
-
-        let provider = SdkTracerProvider::builder()
-            .with_resource(resource)
-            .with_batch_exporter(exporter)
-            .build();
-
-        let tracer = provider.tracer("ahma_http_bridge");
-
-        Some(tracing_opentelemetry::layer().with_tracer(tracer))
-    } else {
-        None
-    }
-}
-
-#[cfg(not(feature = "opentelemetry"))]
-fn init_otel() -> Option<()> {
-    None
 }
 
 fn detect_local_debug_binary(base_dir: &Path) -> Option<String> {

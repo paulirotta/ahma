@@ -8,6 +8,7 @@ use ahma_mcp::{
 use serde_json::{Map, Value};
 use std::{sync::Arc, time::Duration};
 use tempfile::TempDir;
+use tokio::time::timeout;
 
 /// Test that operations can be cancelled successfully
 #[tokio::test]
@@ -105,38 +106,23 @@ async fn test_operation_cancellation_functionality() {
             assert!(cancelled, "Operation cancellation should succeed");
             println!("OK Operation cancellation succeeded");
 
-            // Wait for cancellation to be processed
-            let _ = wait_for_condition(Duration::from_secs(5), Duration::from_millis(50), || {
-                let operation_monitor = operation_monitor.clone();
-                let id = id.clone();
-                async move {
-                    operation_monitor
-                        .get_operation(&id)
-                        .await
-                        .map(|op| op.state == OperationStatus::Cancelled)
-                        .unwrap_or(true)
-                }
-            })
-            .await;
+            // Wait for cancellation to be processed using the reliable watch channel.
+            // `wait_for_operation` returns once the op reaches a terminal state and is
+            // visible in completion history — no polling needed.
+            let cancelled_op = timeout(
+                Duration::from_secs(5),
+                operation_monitor.wait_for_operation(&id),
+            )
+            .await
+            .expect("Timed out waiting for cancellation")
+            .expect("Operation should be in completion history after cancellation");
 
-            // Verify the operation was cancelled
-            let cancelled_operation = operation_monitor.get_operation(&id).await;
-
-            // The operation might have been moved to completion history
-            if let Some(op) = cancelled_operation {
-                assert_eq!(op.state, OperationStatus::Cancelled);
-                println!("OK Operation state is correctly set to Cancelled");
-            } else {
-                // Check completion history
-                let completed_ops = operation_monitor.get_completed_operations().await;
-                let cancelled_op = completed_ops.iter().find(|op| op.id == id);
-                assert!(
-                    cancelled_op.is_some(),
-                    "Cancelled operation should be in completion history"
-                );
-                assert_eq!(cancelled_op.unwrap().state, OperationStatus::Cancelled);
-                println!("OK Operation found in completion history with Cancelled state");
-            }
+            assert_eq!(
+                cancelled_op.state,
+                OperationStatus::Cancelled,
+                "Operation should be in Cancelled state"
+            );
+            println!("OK Operation state is correctly set to Cancelled");
         } else {
             println!(
                 "WARNING Operation completed/failed too quickly to test cancellation, state: {:?}",

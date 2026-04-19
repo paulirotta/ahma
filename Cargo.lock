@@ -4,14 +4,20 @@ version = 4
 
 [[package]]
 name = "ahma_common"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "ahma_coverage"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -20,11 +26,12 @@ dependencies = [
 
 [[package]]
 name = "ahma_http_bridge"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "ahma_common",
  "ahma_mcp",
  "anyhow",
+ "async-trait",
  "axum",
  "base64",
  "bytes",
@@ -66,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_http_mcp_client"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "ahma_common",
  "anyhow",
@@ -91,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_llm_monitor"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "reqwest 0.13.2",
  "serde",
@@ -104,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "ahma_mcp"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "ahma_common",
  "ahma_http_bridge",
@@ -121,13 +128,17 @@ dependencies = [
  "futures",
  "landlock",
  "notify",
+ "opener",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "pulldown-cmark",
+ "quick-xml",
  "rand 0.10.1",
  "regex",
  "reqwest 0.13.2",
  "rmcp",
+ "rust-code-analysis",
  "schemars",
  "serde",
  "serde_json",
@@ -141,26 +152,9 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
+ "walkdir",
  "windows-sys 0.61.2",
  "wiremock",
-]
-
-[[package]]
-name = "ahma_simplify"
-version = "0.5.6"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "dunce",
- "opener",
- "pulldown-cmark",
- "quick-xml",
- "rust-code-analysis",
- "serde",
- "tempfile",
- "toml",
- "walkdir",
 ]
 
 [[package]]
@@ -1010,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "generate_tool_schema"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "ahma_mcp",
  "schemars",

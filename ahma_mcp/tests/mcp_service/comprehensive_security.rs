@@ -6,11 +6,7 @@ use serde_json::{Map, json};
 #[tokio::test]
 async fn test_path_validation_security() -> Result<()> {
     let scope = std::env::current_dir().unwrap();
-    let mcp = create_in_process_mcp_with_scope(
-        &scope.join(".ahma"),
-        vec![scope],
-    )
-    .await?;
+    let mcp = create_in_process_mcp_with_scope(&scope.join(".ahma"), vec![scope]).await?;
 
     let mut params = Map::new();
     params.insert(

@@ -76,4 +76,4 @@ cd "$AHMA_REPO_ROOT" || exit 1
 
 # Run the code simplicity aggregator on the target directory
 # Use --output-path to write files to the original working directory
-cargo run -p ahma-simplify -- "$TARGET_DIR" --html --open --output-path "$ORIGINAL_CWD" "${EXTRA_EXCLUDES[@]}" "$@"
+cargo run -p ahma_mcp --bin ahma-simplify -- "$TARGET_DIR" --html --open --output-path "$ORIGINAL_CWD" "${EXTRA_EXCLUDES[@]}" "$@"

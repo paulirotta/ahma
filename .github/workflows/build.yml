@@ -180,6 +180,24 @@ jobs:
 
   #######################################
 
+  job-security:
+    name: Security (cargo deny)
+    runs-on: ubuntu-latest
+    # Run on every push and PR to every branch for earliest CVE detection.
+    # This job is intentionally independent of the test matrix.
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          # Check all four categories: advisories, licenses, bans, sources
+          command: check
+          # Point at our deny.toml at the workspace root
+          manifest-path: Cargo.toml
+
+  #######################################
+
   job-android-nextest:
     name: Android Nextest
     runs-on: macos-latest
@@ -395,7 +413,7 @@ jobs:
 
       - name: Generate code simplicity report
         run: |
-          cargo run -p ahma_simplify -- . --limit 20 --html
+          cargo run -p ahma_mcp --bin ahma-simplify -- . --limit 20 --html
           cp CODE_SIMPLICITY.md coverage/
           cp CODE_SIMPLICITY.html coverage/
 
@@ -570,14 +588,14 @@ jobs:
       - name: Build release binaries (native)
         if: "!matrix.use_cross"
         run: |
-          cargo build --release --locked --target ${{ matrix.target }} -p ahma_mcp -p ahma_simplify
+          cargo build --release --locked --target ${{ matrix.target }} -p ahma_mcp
 
       - name: Build release binaries (cross-compiled)
         if: matrix.use_cross
         run: |
           # Disable sccache for cross builds (incompatible with cross's Docker containers)
           unset RUSTC_WRAPPER
-          cross build --release --locked --target ${{ matrix.target }} -p ahma_mcp -p ahma_simplify
+          cross build --release --locked --target ${{ matrix.target }} -p ahma_mcp
 
       - name: Package release binaries
         id: package

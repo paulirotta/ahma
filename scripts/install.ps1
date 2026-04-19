@@ -438,7 +438,7 @@ function Get-AhmaMainSkillContent {
     return @'
 ---
 name: ahma
-version: 0.5.6
+version: 0.6.0
 author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
@@ -450,7 +450,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 0.5.6 | author: Paul Houghton -->
+<!-- version: 0.6.0 | author: Paul Houghton -->
 
 # Ahma Skill — Comprehensive AI Usage Guide
 
@@ -926,12 +926,12 @@ description: >
   Runs ahma-simplify (via the simplify MCP tool or CLI) to score every file 0-100%, identifies
   the worst hotspot functions, and returns a structured prompt to fix them with minimal, targeted
   changes. Always verifies improvement after editing.
-version: 0.5.6
+version: 0.6.0
 author: Paul Houghton
 user-invocable: true
 ---
 
-<!-- version: 0.5.6 | author: Paul Houghton -->
+<!-- version: 0.6.0 | author: Paul Houghton -->
 
 # ahma-simplify Skill
 
@@ -968,7 +968,7 @@ The `simplify` tool is active in the current ahma-mcp session (enabled with `--t
 or `--tools rust,simplify`).
 
 **Option B -- Direct CLI:**
-`ahma-simplify` is on PATH. Install: `cargo install --path ahma_simplify` or use the install
+`ahma-simplify` is on PATH. Install: `cargo install --path ahma_mcp --bin ahma-simplify` or use the install
 script at `scripts/install.sh` / `scripts/install.ps1`.
 
 To check availability, run: `ahma-simplify --version`
@@ -1186,8 +1186,8 @@ function Invoke-AhmaSkillSetup {
 
     Write-Host ""
     Write-Host "  Installing skills..."
-    Install-OneSkill -Name 'ahma'          -Version '0.5.6' -ContentFn { Get-AhmaMainSkillContent }
-    Install-OneSkill -Name 'ahma-simplify' -Version '0.5.6' -ContentFn { Get-AhmaSkillContent }
+    Install-OneSkill -Name 'ahma'          -Version '0.6.0' -ContentFn { Get-AhmaMainSkillContent }
+    Install-OneSkill -Name 'ahma-simplify' -Version '0.6.0' -ContentFn { Get-AhmaSkillContent }
 
     Write-Host ""
     Write-Host "  Skills are automatically available in:"

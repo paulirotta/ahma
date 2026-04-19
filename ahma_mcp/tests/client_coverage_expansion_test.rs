@@ -147,7 +147,7 @@ async fn test_client_status_no_operations() -> Result<()> {
     let mcp = build_test_client().await?;
     let client = &mcp.client;
 
-    let result = call_test_tool(&client, "status", json!({})).await?;
+    let result = call_test_tool(client, "status", json!({})).await?;
     assert!(!result.content.is_empty());
 
     let text = get_result_text(&result);
@@ -180,7 +180,7 @@ async fn test_client_status_with_id() -> Result<()> {
     let client = &mcp.client;
 
     // Query status for a nonexistent operation
-    let result = call_test_tool(&client, "status", json!({ "id": "nonexistent_op_12345" })).await?;
+    let result = call_test_tool(client, "status", json!({ "id": "nonexistent_op_12345" })).await?;
 
     // Should handle gracefully - no crash, returns some response
     assert!(!result.content.is_empty());
@@ -198,7 +198,7 @@ async fn test_client_await_no_pending() -> Result<()> {
     let mcp = build_test_client().await?;
     let client = &mcp.client;
 
-    let result = call_test_tool(&client, "await", json!({})).await?;
+    let result = call_test_tool(client, "await", json!({})).await?;
     // Should return quickly indicating nothing to await
     assert!(!result.content.is_empty());
     Ok(())
@@ -211,7 +211,7 @@ async fn test_client_await_nonexistent_operation() -> Result<()> {
     let mcp = build_test_client().await?;
     let client = &mcp.client;
 
-    let result = call_test_tool(&client, "await", json!({ "id": "nonexistent_op_67890" })).await?;
+    let result = call_test_tool(client, "await", json!({ "id": "nonexistent_op_67890" })).await?;
     // Should handle gracefully
     assert!(!result.content.is_empty());
     Ok(())
@@ -230,12 +230,8 @@ async fn test_async_operation_lifecycle() -> Result<()> {
     let client = &mcp.client;
 
     // Start an async operation (short sleep)
-    let start_result = call_test_tool(
-        &client,
-        "sandboxed_shell",
-        json!({ "command": "sleep 0.5" }),
-    )
-    .await?;
+    let start_result =
+        call_test_tool(client, "sandboxed_shell", json!({ "command": "sleep 0.5" })).await?;
 
     assert!(!start_result.content.is_empty());
 
@@ -247,11 +243,11 @@ async fn test_async_operation_lifecycle() -> Result<()> {
 
         // Check status while running
         let status_result =
-            call_test_tool(&client, "status", json!({ "id": op_id.clone() })).await?;
+            call_test_tool(client, "status", json!({ "id": op_id.clone() })).await?;
         assert!(!status_result.content.is_empty());
 
         // Await completion
-        let await_result = call_test_tool(&client, "await", json!({ "id": op_id })).await?;
+        let await_result = call_test_tool(client, "await", json!({ "id": op_id })).await?;
         assert!(!await_result.content.is_empty());
     }
     Ok(())
@@ -266,26 +262,18 @@ async fn test_multiple_async_operations() -> Result<()> {
     let client = &mcp.client;
 
     // Start two async operations
-    let result1 = call_test_tool(
-        &client,
-        "sandboxed_shell",
-        json!({ "command": "sleep 0.3" }),
-    )
-    .await?;
+    let result1 =
+        call_test_tool(client, "sandboxed_shell", json!({ "command": "sleep 0.3" })).await?;
 
-    let result2 = call_test_tool(
-        &client,
-        "sandboxed_shell",
-        json!({ "command": "sleep 0.3" }),
-    )
-    .await?;
+    let result2 =
+        call_test_tool(client, "sandboxed_shell", json!({ "command": "sleep 0.3" })).await?;
 
     // Check overall status
-    let status = call_test_tool(&client, "status", json!({})).await?;
+    let status = call_test_tool(client, "status", json!({})).await?;
     assert!(!status.content.is_empty());
 
     // Await all
-    let await_result = call_test_tool(&client, "await", json!({})).await?;
+    let await_result = call_test_tool(client, "await", json!({})).await?;
     assert!(!await_result.content.is_empty());
 
     // Results should exist
@@ -308,7 +296,7 @@ async fn test_sandboxed_shell_execution() -> Result<()> {
 
     // Run a simple command
     let result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({ "command": "echo 'hello from test'" }),
     )
@@ -342,7 +330,7 @@ async fn test_sandboxed_shell_with_working_dir() -> Result<()> {
     };
 
     let result = call_test_tool(
-        &client,
+        client,
         "sandboxed_shell",
         json!({
             "command": "pwd",
@@ -366,12 +354,7 @@ async fn test_call_nonexistent_tool() -> Result<()> {
     let mcp = build_test_client().await?;
     let client = &mcp.client;
 
-    let result = call_test_tool(
-        &client,
-        "this_tool_definitely_does_not_exist_xyz",
-        json!({}),
-    )
-    .await;
+    let result = call_test_tool(client, "this_tool_definitely_does_not_exist_xyz", json!({})).await;
     // Should return an error
     assert!(result.is_err(), "Expected error for nonexistent tool");
     Ok(())

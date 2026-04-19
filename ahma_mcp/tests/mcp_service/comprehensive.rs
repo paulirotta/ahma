@@ -47,7 +47,6 @@ async fn test_await_tool_comprehensive() -> Result<()> {
 
     let call_param = CallToolRequestParams::new("await").with_arguments(params);
 
-
     let result = mcp.client.call_tool(call_param).await?;
     assert!(!result.content.is_empty());
 

@@ -1,6 +1,6 @@
 ---
 name: ahma-simplify
-version: 0.5.6
+version: 0.6.0
 author: Paul Houghton
 description: >
   Use this skill when the user asks about code complexity, simplification, maintainability, or
@@ -13,7 +13,7 @@ description: >
 user-invocable: true
 ---
 
-<!-- version: 0.5.6 | author: Paul Houghton -->
+<!-- version: 0.6.0 | author: Paul Houghton -->
 
 # ahma-simplify Skill
 
@@ -50,7 +50,7 @@ The `simplify` tool is active in the current ahma-mcp session (enabled with `--t
 or `--tools rust,simplify`).
 
 **Option B — Direct CLI:**
-`ahma-simplify` is on PATH. Install: `cargo install --path ahma_simplify` or use the install
+`ahma-simplify` is on PATH. Install: `cargo install --path ahma_mcp --bin ahma-simplify` or use the install
 script at `scripts/install.sh` / `scripts/install.ps1`.
 
 To check availability, run: `ahma-simplify --version`

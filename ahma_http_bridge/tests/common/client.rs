@@ -1,4 +1,8 @@
 use ahma_common::timeouts::{TestTimeouts, TimeoutCategory};
+use ahma_mcp::test_utils::mcp_client_trait::{
+    McpTestClient as UnifiedMcpTestClient, ToolCallResult as UnifiedToolCallResult,
+};
+use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::Client;
 use reqwest::header::HeaderMap;
@@ -698,6 +702,27 @@ impl McpTestClient {
     /// Check if the client has been initialized.
     pub fn is_initialized(&self) -> bool {
         self.session_id.is_some()
+    }
+}
+
+#[async_trait]
+impl UnifiedMcpTestClient for McpTestClient {
+    async fn call_tool(&self, name: &str, args: Value) -> UnifiedToolCallResult {
+        let result = <McpTestClient>::call_tool(self, name, args).await;
+        UnifiedToolCallResult {
+            success: result.success,
+            output: result.output,
+            error: result.error,
+        }
+    }
+
+    async fn list_tools(&self) -> Result<Vec<String>, String> {
+        let tools = <McpTestClient>::list_tools(self).await?;
+        Ok(tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|name| name.as_str()))
+            .map(ToString::to_string)
+            .collect())
     }
 }
 

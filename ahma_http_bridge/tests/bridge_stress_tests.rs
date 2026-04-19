@@ -112,7 +112,10 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
         ("sandboxed_shell", json!({"command": "pwd"})),
         ("sandboxed_shell", json!({"command": "whoami"})),
         ("sandboxed_shell", json!({"command": "Get-Date"})),
-        ("sandboxed_shell", json!({"command": "Get-ChildItem Cargo.toml"})),
+        (
+            "sandboxed_shell",
+            json!({"command": "Get-ChildItem Cargo.toml"}),
+        ),
         ("sandboxed_shell", json!({"command": "echo done"})),
     ];
 

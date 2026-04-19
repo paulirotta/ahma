@@ -266,7 +266,9 @@ async fn test_wait_for_completion_success() {
         "Operation to wait for".to_string(),
         None,
     );
-    let notifier = op.completion_notifier.clone();
+    // Subscribe to the watch channel *before* adding the operation to the monitor,
+    // so we don't miss the completion signal.
+    let mut completion_rx = op.subscribe_completion();
     monitor.add_operation(op).await;
 
     monitor
@@ -287,7 +289,7 @@ async fn test_wait_for_completion_success() {
     });
 
     // Wait for completion with timeout
-    let wait_result = timeout(Duration::from_secs(1), notifier.notified()).await;
+    let wait_result = timeout(Duration::from_secs(1), completion_rx.wait_for(|done| *done)).await;
 
     assert!(wait_result.is_ok(), "Should complete before timeout");
 

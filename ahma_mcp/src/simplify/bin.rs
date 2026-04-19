@@ -1,6 +1,6 @@
-mod analysis;
-mod models;
-mod report;
+use ahma_mcp::simplify::analysis;
+use ahma_mcp::simplify::models;
+use ahma_mcp::simplify::report;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -324,11 +324,10 @@ fn load_metrics(
         .filter_map(|e| {
             let result = try_parse_metrics_file(e.path(), normalized, external)?;
             // Track the source path so we don't double-count in Phase 2.
-            if let Ok(content) = fs::read_to_string(e.path()) {
-                if let Ok(parsed) = toml::from_str::<MetricsResults>(&content) {
+            if let Ok(content) = fs::read_to_string(e.path())
+                && let Ok(parsed) = toml::from_str::<MetricsResults>(&content) {
                     covered_paths.insert(PathBuf::from(&parsed.name));
                 }
-            }
             Some(result)
         })
         .collect();

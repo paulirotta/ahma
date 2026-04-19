@@ -65,8 +65,15 @@ impl SandboxTestEnv {
                 Err(SandboxError::LandlockNotAvailable) | Err(SandboxError::PrerequisiteFailed(_))
             )
         }
-        // Windows: AppContainer backend not yet implemented; always allow bypass.
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        // Windows: return false if the AppContainer API is available (Win8+),
+        // meaning we CAN apply our own sandbox. Return true only when the API is
+        // absent (very old OS) and we must rely on an outer sandbox.
+        #[cfg(target_os = "windows")]
+        {
+            ahma_mcp::sandbox::check_windows_sandbox_available().is_err()
+        }
+        // Non-Windows, non-macOS, non-Linux: unknown platform, assume nested.
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
             true
         }

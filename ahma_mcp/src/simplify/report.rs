@@ -1,5 +1,5 @@
-use crate::analysis::{get_package_name, get_relative_path};
-use crate::models::{FileSimplicity, Language};
+use super::analysis::{get_package_name, get_relative_path};
+use super::models::{FileSimplicity, Language};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -445,15 +445,15 @@ fn write_glossary(report: &mut String) {
         .push_str("| Length Score | 10% | 100% at ≤300 SLOC; scales down linearly above that |\n");
     report.push_str("| Cyclomatic | — | Reported for context only; already embedded in MI |\n\n");
     report.push_str("### Cognitive Complexity\n- **Description**: Measures how hard it is to understand the control flow of the code. [See](https://axify.io/blog/cognitive-complexity)\n- **How to Improve**: Extract complex conditions into well-named functions and reduce nesting levels.\n\n");
-    report.push_str("### Cyclomatic Complexity\n- **Description**: Measures the number of linearly independent paths through the source code (info only — not directly scored). [See](https://www.nist.gov/publications/structured-testing-software-testing-methodology-using-cyclomatic-complexity-metric)\n- **How to Improve**: Use polymorphic abstractions instead of complex switch/if-else chains, and break down large functions into smaller components.\n\n");
+    report.push_str("### Cyclomatic Complexity\n- **Description**: Measures the number of linearly independent paths through the source code (info only — not directly scored). [See](https://www.nist.gov/publications/structured-testing-methodology-using-cyclomatic-complexity-metric)\n- **How to Improve**: Use polymorphic abstractions instead of complex switch/if-else chains, and break down large functions into smaller components.\n\n");
     report.push_str("### Source Lines of Code (SLOC)\n- **Description**: A measure of the size of the computer program by counting the number of lines in the text of the source code. [See](https://en.wikipedia.org/wiki/Source_lines_of_code)\n- **How to Improve**: Remove dead code and refactor repetitive logic into reusable helper functions or macros.\n\n");
     report.push_str("### Maintainability Index (MI)\n- **Description**: A composite metric representing the relative ease of maintaining the code; higher is better. [See](https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning)\n- **How to Improve**: Simultaneously reduce complexity (both cognitive and cyclomatic) and file size to boost the index.\n");
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::models::FunctionHotspot;
     use super::*;
-    use crate::models::FunctionHotspot;
 
     /// Helper to construct a FileSimplicity for tests without hotspots.
     fn test_file(

@@ -16,6 +16,7 @@
 //! By centralizing these primitives here, we ensure that both the core server and the
 //! bridges behave consistently regardless of the OS they are running on.
 
+pub mod observability;
 pub mod sandbox_state;
 pub mod state_machine;
 pub mod timeouts;

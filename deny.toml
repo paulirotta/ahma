@@ -1,0 +1,56 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally:  cargo deny check
+# CI:           EmbarkStudios/cargo-deny-action@v2 (see .github/workflows/build.yml)
+
+# ---------------------------------------------------------------------------
+# Advisories – block known-vulnerable and yanked crates (RustSec advisory DB)
+# ---------------------------------------------------------------------------
+[advisories]
+version = 2
+# Yanked crates are flagged as warnings (not hard errors) so a yanked patch
+# release in a transitive dep doesn't block the build unexpectedly.
+yanked = "warn"
+
+# ---------------------------------------------------------------------------
+# Licenses – explicit allowlist; anything unlisted is denied
+# ---------------------------------------------------------------------------
+[licenses]
+# Permissive licences common in the Rust ecosystem
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception", # Rust stdlib / LLVM toolchain crates
+    "MIT",
+    "MIT-0",                          # dunce, aws-lc-sys (MIT No Attribution)
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "Unlicense",
+    "BSL-1.0",                        # ryu (Boost Software License)
+    "MPL-2.0",                        # option-ext, rust-code-analysis (weak copyleft, file-level)
+    "Unicode-3.0",                    # icu_* / unicode crates
+    "CDLA-Permissive-2.0",            # webpki-root-certs, webpki-roots
+]
+
+# ---------------------------------------------------------------------------
+# Bans – flag duplicate crate versions; don't block wildcards
+# ---------------------------------------------------------------------------
+[bans]
+# Warn (not deny) on multiple versions of the same crate; transitive dep
+# upgrades often cause temporary duplication.
+multiple-versions = "warn"
+# Wildcard version requirements are usually fine in dev-dependencies.
+wildcards = "allow"
+
+# ---------------------------------------------------------------------------
+# Sources – only allow crates.io plus the owner's rust-code-analysis fork
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Owner's fork of rust-code-analysis (pinned branch, used by ahma-simplify feature in ahma_mcp)
+allow-git = ["https://github.com/paulirotta/rust-code-analysis"]

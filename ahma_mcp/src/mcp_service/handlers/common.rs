@@ -106,32 +106,43 @@ pub async fn try_automatic_async_completion(
         return Some(format_completed_operation(&op));
     }
 
-    // Get the completion notifier for this operation
-    let notifier = match monitor.get_notifier_or_terminal_pub(op_id).await {
+    // Get a completion watch receiver for this operation.
+    let mut rx = match monitor.get_completion_receiver_or_terminal_pub(op_id).await {
         Err(terminal_op) => return Some(format_completed_operation(&terminal_op)),
-        Ok(None) => return None, // Operation not found
-        Ok(Some(n)) => n,
+        Ok(None) => {
+            // Not in active ops; may have just completed — check history once.
+            return monitor
+                .check_completion_history_pub(op_id)
+                .await
+                .map(|op| format_completed_operation(&op));
+        }
+        Ok(Some(rx)) => rx,
     };
 
-    // Wait up to AUTOMATIC_ASYNC_TIMEOUT_SECS for completion
+    // Wait up to AUTOMATIC_ASYNC_TIMEOUT_SECS for completion.
+    // The watch channel stores its current value, so if the operation finished
+    // between the receiver creation and this await, `wait_for` returns immediately.
+    //
+    // Note: `watch::Ref` wraps an `RwLockReadGuard` which is not `Send`, so we extract
+    // a plain `bool` and drop the guard before any subsequent `await`.
     let timeout = Duration::from_secs(AUTOMATIC_ASYNC_TIMEOUT_SECS);
-    match tokio::time::timeout(timeout, notifier.notified()).await {
-        Ok(_) => {
-            // Operation completed — retrieve from history
-            monitor
-                .wait_for_history_propagation_pub(op_id)
-                .await
-                .map(|op| format_completed_operation(&op))
-        }
-        Err(_) => {
-            // Timeout elapsed — fall back to normal async behavior
-            tracing::debug!(
-                "Automatic async timeout ({}s) elapsed for {}, returning async ID",
-                AUTOMATIC_ASYNC_TIMEOUT_SECS,
-                op_id
-            );
-            None
-        }
+    let timed_out = tokio::time::timeout(timeout, rx.wait_for(|done| *done))
+        .await
+        .is_err();
+    if timed_out {
+        // Timeout elapsed — fall back to normal async behavior.
+        tracing::debug!(
+            "Automatic async timeout ({}s) elapsed for {}, returning async ID",
+            AUTOMATIC_ASYNC_TIMEOUT_SECS,
+            op_id
+        );
+        None
+    } else {
+        // Operation completed — guaranteed to be in history now.
+        monitor
+            .check_completion_history_pub(op_id)
+            .await
+            .map(|op| format_completed_operation(&op))
     }
 }
 

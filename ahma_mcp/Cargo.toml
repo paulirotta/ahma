@@ -15,6 +15,11 @@ path = "src/lib.rs"
 name = "ahma-mcp"
 path = "src/shell/bin.rs"
 
+[[bin]]
+name = "ahma-simplify"
+path = "src/simplify/bin.rs"
+required-features = ["simplify"]
+
 [dependencies]
 ahma_common = { path = "../ahma_common" }
 ahma_http_bridge = { path = "../ahma_http_bridge" }
@@ -30,15 +35,19 @@ dirs.workspace = true
 dunce.workspace = true
 futures.workspace = true
 notify = "8.2"
-opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true }
 opentelemetry.workspace = true
-opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true }
+opener = { version = "0.8", optional = true }
+pulldown-cmark = { version = "0.13", optional = true }
+quick-xml = { version = "0.37", optional = true }
 rand = "0.10.1"
 regex.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls", "http2", "http3"] }
 rmcp.workspace = true
+rust-code-analysis = { git = "https://github.com/paulirotta/rust-code-analysis.git", branch = "minimal-submodules", optional = true }
 schemars.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
@@ -46,10 +55,11 @@ tokio-util.workspace = true
 tokio = "1.52"
 toml.workspace = true
 tracing-appender.workspace = true
-tracing-opentelemetry = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 url.workspace = true
+walkdir = { version = "2.5", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock.workspace = true
@@ -64,12 +74,14 @@ wiremock = "0.6"
 
 [features]
 android = []
-default = ["android"]
-opentelemetry = [
-    "dep:opentelemetry-otlp",
-    "dep:opentelemetry_sdk",
-    "dep:tracing-opentelemetry",
+simplify = [
+	"dep:opener",
+	"dep:pulldown-cmark",
+	"dep:quick-xml",
+	"dep:rust-code-analysis",
+	"dep:walkdir",
 ]
+default = ["android", "simplify"]
 
 # Tool configuration examples
 [[example]]

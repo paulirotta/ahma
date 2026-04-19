@@ -82,5 +82,5 @@
         ],
         "skip_subcommand_args": true
     },
-    "install_instructions": "Build with: cargo build -p ahma_simplify --release && cargo install --path ahma_simplify"
+    "install_instructions": "Build with: cargo build -p ahma_mcp --release --bin ahma-simplify && cargo install --path ahma_mcp --bin ahma-simplify"
 }

@@ -1,6 +1,6 @@
-use ahma_simplify::analysis::perform_analysis;
-use ahma_simplify::models::{FileSimplicity, Language, MetricsResults};
-use ahma_simplify::report::create_report_md;
+use ahma_mcp::simplify::analysis::perform_analysis;
+use ahma_mcp::simplify::models::{FileSimplicity, Language, MetricsResults};
+use ahma_mcp::simplify::report::create_report_md;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -607,8 +607,8 @@ fn test_full_pipeline_on_generated_fixtures_single_and_multi_module() {
 /// Kotlin file that rca cannot analyze but detekt did produce metrics for.
 #[test]
 fn test_from_external_creates_entry_for_kotlin_file() {
-    use ahma_simplify::analysis::ExternalMetrics;
-    use ahma_simplify::models::FileSimplicity;
+    use ahma_mcp::simplify::analysis::ExternalMetrics;
+    use ahma_mcp::simplify::models::FileSimplicity;
 
     let tmp = tempfile::NamedTempFile::new().unwrap();
     // Write some non-empty Kotlin-like content so SLOC estimation works.
@@ -640,8 +640,8 @@ fn test_from_external_creates_entry_for_kotlin_file() {
 /// Verify that `from_external` returns `None` when there are no complexity metrics.
 #[test]
 fn test_from_external_returns_none_for_empty_metrics() {
-    use ahma_simplify::analysis::ExternalMetrics;
-    use ahma_simplify::models::FileSimplicity;
+    use ahma_mcp::simplify::analysis::ExternalMetrics;
+    use ahma_mcp::simplify::models::FileSimplicity;
 
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let ext = ExternalMetrics {
@@ -666,8 +666,8 @@ fn test_from_external_returns_none_for_empty_metrics() {
 /// entries via `FileSimplicity::from_external`.
 #[test]
 fn test_pipeline_includes_external_only_kotlin_files() {
-    use ahma_simplify::analysis::ExternalMetrics;
-    use ahma_simplify::models::FileSimplicity;
+    use ahma_mcp::simplify::analysis::ExternalMetrics;
+    use ahma_mcp::simplify::models::FileSimplicity;
 
     let tmp = tempfile::TempDir::new().unwrap();
 

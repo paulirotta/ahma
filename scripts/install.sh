@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Skill version — keep in sync with [workspace.package] version in Cargo.toml.
 # CI guardrails verify this matches. Bump alongside Cargo.toml on every release.
-AHMA_VERSION="0.5.6"
+AHMA_VERSION="0.6.0"
 
 # Detect OS and Architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -1173,7 +1173,7 @@ The `simplify` tool is active in the current ahma-mcp session (enabled with `--t
 or `--tools rust,simplify`).
 
 **Option B — Direct CLI:**
-`ahma-simplify` is on PATH. Install: `cargo install --path ahma_simplify` or use the install
+`ahma-simplify` is on PATH. Install: `cargo install --path ahma_mcp --bin ahma-simplify` or use the install
 script at `scripts/install.sh` / `scripts/install.ps1`.
 
 To check availability, run: `ahma-simplify --version`

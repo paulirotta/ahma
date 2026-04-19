@@ -12,12 +12,9 @@ async fn test_path_validation_success() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
     let scope = std::env::current_dir().unwrap();
-    let mcp = create_in_process_mcp_with_scope(
-        &scope.join(".ahma"),
-        vec![scope],
-    )
-    .await
-    .unwrap();
+    let mcp = create_in_process_mcp_with_scope(&scope.join(".ahma"), vec![scope])
+        .await
+        .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
@@ -37,12 +34,9 @@ async fn test_path_validation_failure_absolute() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
     let scope = std::env::current_dir().unwrap();
-    let mcp = create_in_process_mcp_with_scope(
-        &scope.join(".ahma"),
-        vec![scope],
-    )
-    .await
-    .unwrap();
+    let mcp = create_in_process_mcp_with_scope(&scope.join(".ahma"), vec![scope])
+        .await
+        .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({
@@ -76,12 +70,9 @@ async fn test_path_validation_failure_relative() {
     init_test_logging();
     skip_if_disabled_async!("sandboxed_shell");
     let scope = std::env::current_dir().unwrap();
-    let mcp = create_in_process_mcp_with_scope(
-        &scope.join(".ahma"),
-        vec![scope],
-    )
-    .await
-    .unwrap();
+    let mcp = create_in_process_mcp_with_scope(&scope.join(".ahma"), vec![scope])
+        .await
+        .unwrap();
 
     let params = CallToolRequestParams::new("sandboxed_shell").with_arguments(
         serde_json::from_value(json!({

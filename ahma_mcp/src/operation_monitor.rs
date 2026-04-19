@@ -12,7 +12,10 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::{
+    RwLock,
+    watch::{self, Receiver as WatchReceiver},
+};
 use tokio_util::sync::CancellationToken;
 use tracing;
 
@@ -62,9 +65,16 @@ pub struct Operation {
     /// Cancellation token for this operation (not serialized)
     #[serde(skip)]
     pub cancellation_token: CancellationToken,
-    /// Notifier for when the operation completes (not serialized)
-    #[serde(skip)]
-    pub completion_notifier: Arc<Notify>,
+    /// Completion watch channel sender: false = in-progress, true = done.
+    /// All subscribers observe completion even if they subscribe after the signal fires.
+    /// Not serialised — only meaningful for live operations held in OperationMonitor.
+    #[serde(skip, default = "default_completion_watch")]
+    pub completion_watch: Arc<watch::Sender<bool>>,
+}
+
+/// Default factory for `completion_watch` used during serde deserialisation.
+fn default_completion_watch() -> Arc<watch::Sender<bool>> {
+    Arc::new(watch::channel(false).0)
 }
 
 impl Operation {
@@ -81,7 +91,7 @@ impl Operation {
             first_wait_time: None,
             timeout_duration: None,
             cancellation_token: CancellationToken::new(),
-            completion_notifier: Arc::new(Notify::new()),
+            completion_watch: Arc::new(watch::channel(false).0),
         }
     }
 
@@ -104,8 +114,16 @@ impl Operation {
             first_wait_time: None,
             timeout_duration: timeout,
             cancellation_token: CancellationToken::new(),
-            completion_notifier: Arc::new(Notify::new()),
+            completion_watch: Arc::new(watch::channel(false).0),
         }
+    }
+
+    /// Subscribe to the completion channel.
+    /// Returns a receiver that yields `true` when the operation reaches a terminal state.
+    /// Safe to call at any point — if the operation already completed the receiver
+    /// immediately observes `true` on the first `borrow()` / `wait_for` poll.
+    pub fn subscribe_completion(&self) -> WatchReceiver<bool> {
+        self.completion_watch.subscribe()
     }
 }
 
@@ -290,14 +308,21 @@ impl OperationMonitor {
         self.move_to_history_and_notify(id, timed_out_op).await;
     }
 
-    /// Move a completed operation to history and notify waiters.
-    /// Must be called after releasing the operations write lock.
+    /// Move a completed operation to history and signal all completion waiters.
+    ///
+    /// Inserts into `completion_history` first, then broadcasts `true` through
+    /// the watch channel.  Because the watch channel stores the current value,
+    /// any subscriber that calls `subscribe_completion()` *after* this point
+    /// will immediately observe `true` — eliminating the race that existed with
+    /// the old `Arc<Notify>` approach where late subscribers missed the wakeup.
     async fn move_to_history_and_notify(&self, id: &str, operation: Option<Operation>) {
         let Some(op) = operation else { return };
         let mut history = self.completion_history.write().await;
         history.insert(id.to_string(), op.clone());
         drop(history);
-        op.completion_notifier.notify_waiters();
+        // Signal completion.  Ignore errors: a SendError means no subscribers,
+        // which is fine — the result is already in completion_history.
+        let _ = op.completion_watch.send(true);
     }
 
     /// Returns all currently active (non-terminal) operations.
@@ -334,8 +359,7 @@ impl OperationMonitor {
             history.insert(id.to_string(), op.clone());
             tracing::debug!("Moved operation {} to completion history.", id);
             drop(history);
-
-            op.completion_notifier.notify_waiters();
+            let _ = op.completion_watch.send(true);
         }
     }
 
@@ -372,8 +396,11 @@ impl OperationMonitor {
         drop(ops);
 
         let mut history = self.completion_history.write().await;
-        history.insert(id.to_string(), cancelled_op);
+        history.insert(id.to_string(), cancelled_op.clone());
         tracing::debug!("Moved cancelled operation {} to completion history.", id);
+        drop(history);
+        // Signal any concurrent wait_for_operation callers.
+        let _ = cancelled_op.completion_watch.send(true);
 
         true
     }
@@ -411,13 +438,20 @@ impl OperationMonitor {
         history.get(id).cloned()
     }
 
-    /// Get the notifier for an active operation, setting first_wait_time if needed.
-    /// Returns `Some(notifier)` if the operation is active, `None` if it doesn't exist.
-    /// Returns the operation directly via `Err(op)` if it's already terminal.
-    pub async fn get_notifier_or_terminal_pub(
+    /// Get a completion watch receiver for an active operation, recording first-wait time.
+    ///
+    /// Returns:
+    /// - `Ok(Some(rx))` — operation is active; `rx` fires when it reaches a terminal state
+    /// - `Ok(None)` — operation not found in active ops (may have just moved to history)
+    /// - `Err(op)` — operation is already terminal in active ops (edge case)
+    ///
+    /// Unlike the old `get_notifier_or_terminal_pub`, the returned receiver will immediately
+    /// yield `true` if the operation completed between this call and the first `wait_for` poll,
+    /// eliminating the race that `wait_for_history_propagation_pub` papered over.
+    pub async fn get_completion_receiver_or_terminal_pub(
         &self,
         id: &str,
-    ) -> Result<Option<Arc<Notify>>, Operation> {
+    ) -> Result<Option<WatchReceiver<bool>>, Operation> {
         let mut ops = self.operations.write().await;
         let Some(op) = ops.get_mut(id) else {
             return Ok(None);
@@ -431,52 +465,55 @@ impl OperationMonitor {
             return Err(op.clone());
         }
 
-        Ok(Some(op.completion_notifier.clone()))
+        Ok(Some(op.subscribe_completion()))
     }
 
-    /// Retry checking completion history after notification, handling the small
-    /// race window where the notifier fires before history is updated.
-    pub async fn wait_for_history_propagation_pub(&self, id: &str) -> Option<Operation> {
-        for attempt in 0..10 {
-            if let Some(op) = self.check_completion_history_pub(id).await {
-                return Some(op);
-            }
-            if attempt < 9 {
-                tracing::debug!(
-                    "Operation {} not yet in completion history, retrying (attempt {}/10)",
-                    id,
-                    attempt + 1
-                );
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }
-
-        tracing::warn!(
-            "Operation {} completed but not found in history after 10 retries",
-            id
-        );
-        None
-    }
-
+    /// Wait for an operation to reach a terminal state and return it from completion history.
+    ///
+    /// The implementation is race-free:
+    /// 1. Check history first (fast path for already-completed ops).
+    /// 2. Subscribe to the watch channel *while* the op is still in active ops, so we
+    ///    cannot miss the completion signal even if it fires between steps 1 and 2.
+    /// 3. If the op transitioned to history between steps 1 and 2, the channel already
+    ///    holds `true` and `wait_for` returns immediately.
+    /// 4. After the channel signals, the op is guaranteed to be in history (the channel
+    ///    is sent *after* the history write), so a single history lookup suffices.
     pub async fn wait_for_operation(&self, id: &str) -> Option<Operation> {
         let timeout = Duration::from_secs(300);
 
+        // Fast path: already completed.
         if let Some(op) = self.check_completion_history_pub(id).await {
             return Some(op);
         }
 
-        let notifier = match self.get_notifier_or_terminal_pub(id).await {
+        let mut rx = match self.get_completion_receiver_or_terminal_pub(id).await {
             Err(terminal_op) => return Some(terminal_op),
-            Ok(None) => return None,
-            Ok(Some(n)) => n,
+            Ok(None) => {
+                // Op is not in active ops.  It may have completed between the history
+                // check above and here.  Re-check history once.
+                return self.check_completion_history_pub(id).await;
+            }
+            Ok(Some(rx)) => rx,
         };
 
-        match tokio::time::timeout(timeout, notifier.notified()).await {
-            Ok(_) => self.wait_for_history_propagation_pub(id).await,
-            Err(_) => {
-                tracing::warn!("Wait for operation {} timed out.", id);
-                None
-            }
+        // Wait until the completion flag turns true (or timeout).
+        // `wait_for` is safe against missed signals: the watch channel stores its
+        // current value, so even if `send(true)` fired between
+        // `get_completion_receiver_or_terminal_pub` and this await, the receiver
+        // will see `true` on the very first poll.
+        //
+        // Note: `watch::Ref` wraps an `RwLockReadGuard` which is not `Send`, so we
+        // extract a plain `bool` and drop the guard before the next `await`.
+        let timed_out = tokio::time::timeout(timeout, rx.wait_for(|done| *done))
+            .await
+            .is_err();
+        if timed_out {
+            tracing::warn!("Wait for operation {} timed out.", id);
+            None
+        } else {
+            // The completion signal was sent *after* history insertion, so the
+            // operation must already be in history at this point.
+            self.check_completion_history_pub(id).await
         }
     }
 

@@ -20,7 +20,7 @@
 
 use super::{list_tools, modes, resolution};
 
-use crate::{sandbox, utils::logging::init_logging};
+use crate::{sandbox, utils::logging::init_logging_with_observability};
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
 use dunce;
@@ -93,6 +93,10 @@ pub struct AppConfig {
     /// Empty string means unix socket mode is not active.
     pub unix_socket_path: String,
 
+    // ── Observability ────────────────────────────────────────────────────────
+    /// Resolved observability / OTEL configuration (CLI + OTEL_* env vars).
+    pub observability: ahma_common::observability::ObservabilityConfig,
+
     // ── tool list subcommand ─────────────────────────────────────────────────
     /// Server name from mcp.json (for `tool list`).
     pub list_server: Option<String>,
@@ -135,6 +139,7 @@ impl Default for AppConfig {
             disable_http1_1: false,
             handshake_timeout_secs: 45,
             unix_socket_path: String::new(),
+            observability: ahma_common::observability::ObservabilityConfig::default(),
             list_server: None,
             mcp_config: PathBuf::from("mcp.json"),
             list_http: None,
@@ -616,6 +621,11 @@ pub struct ServeArgs {
     /// as a notification. Equivalent to AHMA_SYNC=1.
     #[arg(long = "sync", global = true)]
     pub sync: bool,
+
+    /// OTLP endpoint for distributed tracing export.
+    /// Providing this flag enables tracing. Equivalent to OTEL_EXPORTER_OTLP_ENDPOINT.
+    #[arg(long = "opentelemetry", value_name = "URL", global = true)]
+    pub opentelemetry: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -877,7 +887,7 @@ pub struct InfoArgs {
 // AppConfig construction from CLI + env vars
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn build_app_config(cli: Cli) -> AppConfig {
+fn build_app_config(cli: &Cli) -> AppConfig {
     // Gather serve-level fields if present
     #[allow(clippy::type_complexity)]
     let (
@@ -893,6 +903,7 @@ fn build_app_config(cli: Cli) -> AppConfig {
         cli_no_sandbox,
         cli_timeout,
         cli_sync,
+        cli_opentelemetry,
     ) = match &cli.command {
         Subcommands::Serve(s) => {
             let (host, port, no_quic, disable_http1_1) = match &s.transport {
@@ -914,6 +925,7 @@ fn build_app_config(cli: Cli) -> AppConfig {
                 s.no_sandbox,
                 s.timeout,
                 s.sync,
+                s.opentelemetry.clone(),
             )
         }
         _ => (
@@ -929,6 +941,7 @@ fn build_app_config(cli: Cli) -> AppConfig {
             false,
             None,
             false,
+            None::<String>,
         ),
     };
 
@@ -1028,6 +1041,8 @@ fn build_app_config(cli: Cli) -> AppConfig {
                 String::new()
             }
         },
+        observability: ahma_common::observability::ObservabilityConfig::from_env("ahma_mcp")
+            .with_endpoint(cli_opentelemetry.as_deref()),
         list_server,
         mcp_config,
         list_http,
@@ -1047,16 +1062,14 @@ pub async fn run() -> Result<()> {
     let log_to_stderr = std::env::var("AHMA_LOG_TARGET")
         .map(|v| v.trim().eq_ignore_ascii_case("stderr"))
         .unwrap_or(false);
-    init_logging("info", !log_to_stderr)?;
 
     let cli = Cli::parse();
-    let subcommand = cli.command; // move out before consuming cli
+    let cfg = build_app_config(&cli);
+    let subcommand = cli.command;
 
-    // We need the Cli to build AppConfig, but we moved it. Re-parse just for config.
-    // Actually we already extracted the subcommand. Let's rebuild cli fresh.
-    // Better: parse into a new CLI struct only for config.
-    let cli2 = Cli::parse(); // second parse is cheap; both are from argv
-    let cfg = build_app_config(cli2);
+    // Keep the guard alive for the duration of the process.
+    let _telemetry_guard =
+        init_logging_with_observability("info", !log_to_stderr, Some(cfg.observability.clone()))?;
 
     #[cfg(target_os = "windows")]
     check_powershell_available();
@@ -1404,6 +1417,7 @@ mod tests {
             list_format: list_tools::OutputFormat::Text,
             run_tool: None,
             run_tool_args: vec![],
+            observability: ahma_common::observability::ObservabilityConfig::default(),
         }
     }
 
