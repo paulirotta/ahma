@@ -163,10 +163,14 @@ cargo clippy --fix --allow-dirty   # Auto-fix lints
 | Layer | When to use | Tools |
 |-------|-------------|-------|
 | **Unit** (default) | Logic, schema generation, config parsing, state machines | Direct API calls, `#[cfg(test)]` |
-| **Integration (in-process)** | MCP protocol logic, tool dispatch | `setup_mcp_service_with_client()` |
+| **Integration (in-process)** | MCP protocol logic, tool dispatch, path security, arg parsing, async ops | `create_in_process_mcp_from_dir()` / `create_in_process_mcp_with_scope()` |
 | **E2E (subprocess)** — use sparingly | Binary wiring, CLI flags, cross-binary IPC | `ClientBuilder`, `spawn_http_bridge` |
 
 **Decision rule**: _Can this test be written without forking a process?_ If yes, do it that way. `ClientBuilder` and `spawn_http_bridge` are reserved for tests that specifically verify binary wiring or MCP wire-protocol behavior.
+
+**⚠️ `setup_mcp_service_with_client()` spawns a subprocess** — it is NOT an in-process helper despite the name. It belongs in the E2E row.
+
+**Sandbox bypass trap**: `create_in_process_mcp_from_dir` uses `Sandbox::new_test()` which bypasses all path validation. Tests that assert a path/symlink is **rejected** must use `create_in_process_mcp_with_scope(tools_dir, scopes)` (strict mode) or the assertion silently passes even when the sandbox is broken.
 
 ### Test Organization
 Tests are organized into three categories:

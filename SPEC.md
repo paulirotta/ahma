@@ -662,7 +662,7 @@ started_rx.await.ok();  // Don't return until spawn is live
 - **R14.1**: All new functionality **must** have tests.
 - **R14.2**: Tests should be: Fast (<100ms), Isolated, Deterministic, Documented.
 - **R14.3**: Bug fixes **must** include a regression test.
-- **R14.4**: Prefer in-memory unit tests over subprocess E2E tests. A test that validates static configuration, schema generation, or pure logic **must not** spawn an OS process. Only use `ClientBuilder`/`spawn_http_bridge` when the test specifically validates MCP wire protocol or binary wiring.
+- **R14.4**: Prefer in-memory unit tests over subprocess E2E tests. A test that validates static configuration, schema generation, path security, tool dispatch, argument parsing, async operation lifecycle, or any pure logic **must not** spawn an OS process. Only use `ClientBuilder`/`spawn_http_bridge` when the test specifically validates binary wiring or CLI flag behaviour that cannot be exercised via the in-process API.
 
 ### 10.1.1 The Test Pyramid
 
@@ -671,12 +671,23 @@ This project follows a strict test pyramid to keep CI stable on 2-core GitHub Ac
 | Layer | Tool | When to use | Execution time |
 |-------|------|-------------|----------------|
 | **Unit** (preferred) | Direct API calls, `#[cfg(test)]` modules | Logic, schema generation, config parsing, state machines | <5 ms |
-| **Integration (in-process)** | `setup_mcp_service_with_client()` (stdio, no fork) | MCP protocol logic, tool dispatch, sandbox lifecycle | <100 ms |
+| **Integration (in-process)** | `create_in_process_mcp_from_dir()` / `create_in_process_mcp_with_scope()` | MCP protocol logic, tool dispatch, path security, argument parsing, async operations | <50 ms |
 | **E2E (subprocess)** | `ClientBuilder`, `spawn_http_bridge` | Binary wiring, CLI flags, cross-binary IPC | 1–5 s |
 
 **Decision rule**: _Can this test be written without spawning a process?_ If yes, write it that way. `ClientBuilder` and `spawn_http_bridge` are reserved for the E2E layer.
 
-**Impact**: migrating one `ClientBuilder`-based schema test to an in-memory call saved ~500 ms per run and removed two OS processes from the CI scheduler.
+**⚠️ Warning**: `setup_mcp_service_with_client()` is a **subprocess wrapper** (it calls `start_process_with_args`), not an in-process helper. Using it for integration tests causes CI timeouts on 2-CPU runners.
+
+### 10.1.2 Choosing the Right In-Process Helper
+
+Both helpers live in `ahma_mcp::test_utils::in_process`:
+
+| Helper | Sandbox | Use when |
+|--------|---------|----------|
+| `create_in_process_mcp_from_dir(tools_dir)` | `Sandbox::new_test()` — **path validation BYPASSED** | Tool dispatch, arg parsing, async lifecycle, schema tests |
+| `create_in_process_mcp_with_scope(tools_dir, scopes)` | `Sandbox::new(Strict)` — **path validation ENFORCED** | Tests that assert a path or symlink is **rejected** |
+
+**Sandbox bypass trap**: `create_in_process_mcp_from_dir` silently passes every `assert!(result.is_err(), "should be rejected")` because the test-mode sandbox accepts all paths. If a test verifies that sandbox enforcement works, it **must** use `create_in_process_mcp_with_scope`. Using the wrong helper is a silent false-positive — the test passes even when the sandbox is broken.
 
 
 ### 10.2 Test File Isolation (CRITICAL)
@@ -787,8 +798,9 @@ async fn test_my_tool_sse()  { run_my_tool_test(TransportMode::Sse).await; }
 Use `create_rust_test_project` for all tests that need a filesystem. This ensures isolated unique directories via `tempfile` and no repository pollution.
 
 #### R16.2: MCP Service Helpers
-- **Stdio**: Use `setup_mcp_service_with_client()` for standard stdio handshake tests.
+- **In-process (preferred)**: Use `create_in_process_mcp_from_dir(tools_dir)` for MCP protocol logic, tool dispatch, and argument-parsing tests — no subprocess, full MCP handshake, runs in <50 ms. Use `create_in_process_mcp_with_scope(tools_dir, scopes)` when the test must assert that a path or symlink is **rejected** (strict sandbox mode).
 - **HTTP**: Use `spawn_http_bridge()` and `HttpMcpTestClient` for HTTP/SSE integration testing.
+- **Subprocess (E2E only)**: `setup_mcp_service_with_client()` spawns a real subprocess; reserve it for tests that specifically validate binary wiring or CLI flags.
 
 #### R16.3: Binary Resolution
 Always use `cli::build_binary_cached()` to avoid redundant `cargo build` calls and ensure tests are fast and CI-friendly.

@@ -1,7 +1,6 @@
 //! Expanded path security edge case tests (See agent-plan.md Phase A)
-use ahma_mcp::skip_if_disabled_async;
 use ahma_mcp::test_utils as common;
-use ahma_mcp::test_utils::client::ClientBuilder;
+use ahma_mcp::test_utils::in_process::create_in_process_mcp_with_scope;
 use ahma_mcp::utils::logging::init_test_logging;
 use common::fs::get_workspace_tools_dir;
 use rmcp::model::CallToolRequestParams;
@@ -13,13 +12,9 @@ use std::path::Path;
 #[tokio::test]
 async fn test_path_validation_nested_parent_segments() {
     init_test_logging();
-    skip_if_disabled_async!("sandboxed_shell");
     let temp_dir = tempfile::tempdir().unwrap();
     let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
+    let mcp = create_in_process_mcp_with_scope(&tools_dir, vec![temp_dir.path().to_path_buf()])
         .await
         .unwrap();
     // Deep relative escape attempt
@@ -30,24 +25,19 @@ async fn test_path_validation_nested_parent_segments() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_err(),
         "Nested parent segments escaping root should be rejected"
     );
-    client.cancel().await.unwrap();
 }
 
 #[tokio::test]
 async fn test_path_validation_unicode_directory() {
     init_test_logging();
-    skip_if_disabled_async!("sandboxed_shell");
     let temp_dir = tempfile::tempdir().unwrap();
     let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
+    let mcp = create_in_process_mcp_with_scope(&tools_dir, vec![temp_dir.path().to_path_buf()])
         .await
         .unwrap();
     // Create a unicode directory inside workspace
@@ -64,27 +54,22 @@ async fn test_path_validation_unicode_directory() {
         }))
         .unwrap(),
     );
-    let result = client.call_tool(params).await;
+    let result = mcp.client.call_tool(params).await;
     assert!(
         result.is_ok(),
         "Unicode directory within workspace should be accepted"
     );
-    client.cancel().await.unwrap();
 }
 
 #[tokio::test]
 async fn test_path_validation_symlink_escape() {
     init_test_logging();
-    skip_if_disabled_async!("sandboxed_shell");
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
         let temp_dir = tempfile::tempdir().unwrap();
         let tools_dir = get_workspace_tools_dir();
-        let client = ClientBuilder::new()
-            .tools_dir(tools_dir)
-            .working_dir(temp_dir.path())
-            .build()
+        let mcp = create_in_process_mcp_with_scope(&tools_dir, vec![temp_dir.path().to_path_buf()])
             .await
             .unwrap();
         // Create symlink inside workspace pointing outside (e.g. /etc)
@@ -102,25 +87,20 @@ async fn test_path_validation_symlink_escape() {
             }))
             .unwrap(),
         );
-        let result = client.call_tool(params).await;
+        let result = mcp.client.call_tool(params).await;
         assert!(result.is_err(), "Symlink escaping root should be rejected");
-        client.cancel().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn test_path_validation_symlink_internal() {
     init_test_logging();
-    skip_if_disabled_async!("sandboxed_shell");
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
         let temp_dir = tempfile::tempdir().unwrap();
         let tools_dir = get_workspace_tools_dir();
-        let client = ClientBuilder::new()
-            .tools_dir(tools_dir)
-            .working_dir(temp_dir.path())
-            .build()
+        let mcp = create_in_process_mcp_with_scope(&tools_dir, vec![temp_dir.path().to_path_buf()])
             .await
             .unwrap();
         // Create a directory and symlink pointing to it inside workspace
@@ -139,22 +119,17 @@ async fn test_path_validation_symlink_internal() {
             }))
             .unwrap(),
         );
-        let result = client.call_tool(params).await;
+        let result = mcp.client.call_tool(params).await;
         assert!(result.is_ok(), "Internal symlink should be accepted");
-        client.cancel().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn test_path_validation_reserved_names() {
     init_test_logging();
-    skip_if_disabled_async!("sandboxed_shell");
     let temp_dir = tempfile::tempdir().unwrap();
     let tools_dir = get_workspace_tools_dir();
-    let client = ClientBuilder::new()
-        .tools_dir(&tools_dir)
-        .working_dir(temp_dir.path())
-        .build()
+    let mcp = create_in_process_mcp_with_scope(&tools_dir, vec![temp_dir.path().to_path_buf()])
         .await
         .unwrap();
     for wd in [".", "./", "././."] {
@@ -165,11 +140,10 @@ async fn test_path_validation_reserved_names() {
             }))
             .unwrap(),
         );
-        let result = client.call_tool(params).await;
+        let result = mcp.client.call_tool(params).await;
         assert!(
             result.is_ok(),
             "Reserved current directory patterns should be accepted: {wd}"
         );
     }
-    client.cancel().await.unwrap();
 }

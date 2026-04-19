@@ -9,7 +9,7 @@ use crate::adapter::Adapter;
 use crate::config::{ToolConfig, load_tool_configs};
 use crate::mcp_service::{AhmaMcpService, GuidanceConfig};
 use crate::operation_monitor::{MonitorConfig, OperationMonitor};
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Sandbox, SandboxMode};
 use crate::shell::cli::AppConfig;
 use crate::shell_pool::{ShellPoolConfig, ShellPoolManager};
 use anyhow::Result;
@@ -19,7 +19,7 @@ use rmcp::{
     transport::async_rw::AsyncRwTransport,
 };
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Holds both sides of an in-process MCP connection.
@@ -54,14 +54,37 @@ pub async fn create_in_process_mcp_from_dir(tools_dir: &Path) -> Result<InProces
 /// Both the MCP initialize/initialized handshake and any subsequent requests
 /// go through the in-memory channel – no subprocess is spawned.
 pub async fn create_in_process_mcp(configs: HashMap<String, ToolConfig>) -> Result<InProcessMcp> {
+    wire_in_process_mcp(configs, Sandbox::new_test()).await
+}
+
+/// Create an in-process MCP pair with a strict sandbox scoped to `scopes`.
+///
+/// Unlike [`create_in_process_mcp_from_dir`], this constructor creates a
+/// `SandboxMode::Strict` sandbox, so path-security tests that assert sandbox
+/// enforcement still work correctly in-process.
+pub async fn create_in_process_mcp_with_scope(
+    tools_dir: &Path,
+    scopes: Vec<PathBuf>,
+) -> Result<InProcessMcp> {
+    let configs = load_tool_configs(&AppConfig::default(), Some(tools_dir))
+        .await
+        .unwrap_or_default();
+    let sandbox = Sandbox::new(scopes, SandboxMode::Strict, false, false, false)?;
+    wire_in_process_mcp(configs, sandbox).await
+}
+
+/// Internal: wire a pre-built `Sandbox` and tool configs into an in-process pair.
+async fn wire_in_process_mcp(
+    configs: HashMap<String, ToolConfig>,
+    sandbox: Sandbox,
+) -> Result<InProcessMcp> {
     let monitor_config = MonitorConfig::with_timeout(std::time::Duration::from_secs(300));
     let operation_monitor = Arc::new(OperationMonitor::new(monitor_config));
     let shell_pool = Arc::new(ShellPoolManager::new(ShellPoolConfig::default()));
-    let sandbox = Arc::new(Sandbox::new_test());
     let adapter = Arc::new(Adapter::new(
         Arc::clone(&operation_monitor),
         shell_pool,
-        sandbox,
+        Arc::new(sandbox),
     )?);
 
     let service = AhmaMcpService::new(
