@@ -1216,7 +1216,7 @@ Ahma. Skills are machine-readable guides that help AI coding assistants use Ahma
 
 The primary `/ahma` skill MUST be maintained at `skills/ahma/SKILL.md` and symlinked from
 `.agents/skills/ahma/SKILL.md`. The symlink must resolve correctly from the workspace root. The
-`ahma-simplify` skill lives at `skills/ahma-simplify/SKILL.md` (standalone file).
+`ahma` skill incorporates all sub-workflows including code complexity analysis (`/ahma simplify`).
 
 ### R-SK2 — YAML frontmatter
 

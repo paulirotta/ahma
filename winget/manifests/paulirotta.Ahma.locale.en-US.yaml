@@ -19,8 +19,8 @@ Description: >-
   kernel-level file-system sandboxing on Linux/macOS; Windows AppContainer
   backend in development.
 
-  Includes ahma_mcp (the MCP server) and ahma-simplify (code complexity
-  analysis with AI fix suggestions).
+  Includes ahma_mcp (the MCP server) with built-in `simplify` subcommand
+  for code complexity analysis with AI fix suggestions.
 Moniker: ahma
 Tags:
   - mcp
@@ -31,5 +31,5 @@ Tags:
   - rust
   - developer-tools
 ReleaseNotesUrl: https://github.com/paulirotta/ahma/releases/tag/latest
-ManifestType: defaultLocale
+ManifestType: locale
 ManifestVersion: 1.9.0

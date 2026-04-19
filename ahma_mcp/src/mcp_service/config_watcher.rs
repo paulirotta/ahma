@@ -99,6 +99,23 @@ impl AhmaMcpService {
             // fs-event delivery is unreliable, e.g. macOS CI VMs with FSEvents).
             let mut last_snapshot = snapshot_json_files(&tools_dir).await;
 
+            // Startup sync: close the race window between initial service config
+            // load and watcher task initialization. If tool files were changed
+            // just before/while the watcher started, this ensures in-memory
+            // configs converge with disk state even if the fs event was missed.
+            match load_tool_configs(&config, Some(&tools_dir)).await {
+                Ok(new_configs) => {
+                    service.update_tools(new_configs).await;
+                    tracing::debug!(
+                        "Config watcher startup sync completed for tools directory: {:?}",
+                        tools_dir
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Config watcher startup sync failed: {}", e);
+                }
+            }
+
             // Debounce + polling-fallback loop
             loop {
                 tokio::select! {

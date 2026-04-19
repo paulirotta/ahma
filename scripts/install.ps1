@@ -1,4 +1,4 @@
-# One-liner installer for ahma-mcp and ahma-simplify on Windows
+# One-liner installer for ahma-mcp on Windows
 # Usage: irm https://raw.githubusercontent.com/paulirotta/ahma/main/scripts/install.ps1 | iex
 #
 # Supported platforms:
@@ -59,10 +59,7 @@ if ($existingBin) {
         Write-Host "Ahma $installedVer is already installed and up to date."
         Write-Host ''
         Write-Host "  Location : $existingBin"
-        $simplifyBin = Join-Path ([System.IO.Path]::GetDirectoryName($existingBin)) 'ahma-simplify.exe'
-        if (Test-Path $simplifyBin) {
-            Write-Host "  Simplify : $simplifyBin — $(& $simplifyBin --version 2>&1)"
-        }
+        Write-Host "  Simplify : available via 'ahma-mcp simplify --help'"
         Write-Host ''
         $confirm = Read-Host "Reinstall anyway? [y/N]"
         if ($confirm -notmatch '^[Yy]') {
@@ -102,7 +99,7 @@ try {
     # ── Install binaries ───────────────────────────────────────────────────────
     Write-Host "Installing binaries to $installDir ..."
 
-    foreach ($bin in @("ahma-mcp.exe", "ahma-simplify.exe")) {
+    foreach ($bin in @("ahma-mcp.exe")) {
         $src = Join-Path $tempDir $bin
         if (Test-Path $src) {
             Copy-Item -Path $src -Destination $installDir -Force
@@ -119,14 +116,26 @@ try {
 }
 
 # ── Verify and report ──────────────────────────────────────────────────────────
-$mcpBin     = Join-Path $installDir "ahma-mcp.exe"
-$simplifyBin = Join-Path $installDir "ahma-simplify.exe"
+$mcpBin = Join-Path $installDir "ahma-mcp.exe"
 
 & $mcpBin --version
-if (Test-Path $simplifyBin) { & $simplifyBin --version }
+
+# Remove legacy ahma-simplify.exe if present
+$legacyCandidates = @(
+    (Join-Path $installDir "ahma-simplify.exe"),
+    (Join-Path "$HOME\.local\bin" "ahma-simplify.exe")
+)
+foreach ($legacy in $legacyCandidates) {
+    if (Test-Path $legacy) {
+        Remove-Item -Force $legacy -ErrorAction SilentlyContinue
+        Write-Host "Removed legacy binary: $legacy"
+        Write-Host "  Code complexity analysis is now built into ahma-mcp."
+        Write-Host "  New command: ahma-mcp simplify <directory> --ai-fix 1"
+    }
+}
 
 Write-Host ""
-Write-Host "Success! Installed ahma-mcp and ahma-simplify to $installDir"
+Write-Host "Success! Installed ahma-mcp to $installDir"
 Write-Host ""
 Write-Host "Ensure $installDir is in your PATH."
 Write-Host "To add permanently, run:"
@@ -429,8 +438,7 @@ function Invoke-AhmaMcpSetup {
 
 # Skill Setup Wizard
 # Installs Ahma agent skills to ~/.agents/skills/
-#   ahma          — comprehensive usage guide (sandboxed_shell, bundles, sandbox, etc.)
-#   ahma-simplify — code complexity analysis and hotspot fixing workflow
+#   ahma — comprehensive usage guide (sandboxed_shell, bundles, sandbox, simplify, etc.)
 # Compatible with VS Code (GitHub Copilot), Cursor, and Claude Code — all index .agents/skills/
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -443,10 +451,14 @@ author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
   to understand how to run tools, activate bundles, use the sandbox, monitor logs, author custom
-  tools, or configure ahma-mcp. Trigger phrases: "use ahma", "run with ahma", "ahma tool",
-  "activate bundle", "sandboxed_shell", "ahma async", "ahma serve", "mcp.json ahma",
-  "ahma sandbox", "ahma livelog", "ahma monitor", "custom tool .ahma", "ahma-mcp", "await tool",
-  "cancel operation", "tool bundle", "progressive disclosure", "activate_tools".
+  tools, or configure ahma-mcp. Also handles code complexity analysis via /ahma simplify.
+  Trigger phrases: "use ahma", "run with ahma", "ahma tool", "activate bundle",
+  "sandboxed_shell", "ahma async", "ahma serve", "mcp.json ahma", "ahma sandbox",
+  "ahma livelog", "ahma monitor", "custom tool .ahma", "ahma-mcp", "await tool",
+  "cancel operation", "tool bundle", "progressive disclosure", "activate_tools",
+  "simplify", "reduce complexity", "too complex", "hard to read", "refactor",
+  "maintainability", "cognitive complexity", "cyclomatic complexity", "simplicity score",
+  "code quality metrics", "hotspot", "ahma simplify", "ahma help", "ahma ?".
 user-invocable: true
 ---
 
@@ -910,233 +922,8 @@ older systems (Raspberry Pi OS bullseye, etc.).
 [live-log-monitoring.md](https://github.com/paulirotta/ahma/blob/main/docs/live-log-monitoring.md) *
 [connection-modes.md](https://github.com/paulirotta/ahma/blob/main/docs/connection-modes.md) *
 [environment-variables.md](https://github.com/paulirotta/ahma/blob/main/docs/environment-variables.md) *
-[mtdf-schema.json](https://github.com/paulirotta/ahma/blob/main/docs/mtdf-schema.json)
-'@
-}
-
-function Get-AhmaSkillContent {
-    return @'
----
-name: ahma-simplify
-description: >
-  Use this skill when the user asks about code complexity, simplification, maintainability, or
-  refactoring. Trigger phrases: "simplify", "reduce complexity", "too complex", "hard to read",
-  "refactor", "maintainability", "cognitive complexity", "cyclomatic complexity", "what's the
-  most complex file", "code quality metrics", "simplicity score", "ahma-simplify", "hotspot".
-  Runs ahma-simplify (via the simplify MCP tool or CLI) to score every file 0-100%, identifies
-  the worst hotspot functions, and returns a structured prompt to fix them with minimal, targeted
-  changes. Always verifies improvement after editing.
-version: 0.6.0
-author: Paul Houghton
-user-invocable: true
----
-
-<!-- version: 0.6.0 | author: Paul Houghton -->
-
-# ahma-simplify Skill
-
-Analyze code complexity across any supported language, identify the worst hotspot functions, fix
-them with minimal targeted changes, and verify measurable improvement.
-
-Supports: Rust, Python, JavaScript, TypeScript, Kotlin, C, C++, Java, C#, Go, CSS, HTML.
-
----
-
-## When This Skill Applies
-
-Auto-load this skill when the user:
-- Asks to simplify, clean up, or reduce complexity in any file or directory
-- Mentions "cognitive complexity", "cyclomatic complexity", or "maintainability index"
-- Asks which file or function is hardest to read or maintain
-- Wants a code quality report or simplicity score
-- Asks you to refactor for readability without changing behavior
-- Uses the `simplify` MCP tool or `ahma-simplify` CLI directly
-
-Skip this skill for:
-- Pure functional changes (adding/removing features)
-- Performance optimization unrelated to code clarity
-- Style changes like formatting or renaming
-
----
-
-## Prerequisites
-
-One of the following must be available:
-
-**Option A -- MCP tool (preferred in VS Code / Cursor / Claude Code):**
-The `simplify` tool is active in the current ahma-mcp session (enabled with `--tools simplify`
-or `--tools rust,simplify`).
-
-**Option B -- Direct CLI:**
-`ahma-simplify` is on PATH. Install: `cargo install --path ahma_mcp --bin ahma-simplify` or use the install
-script at `scripts/install.sh` / `scripts/install.ps1`.
-
-To check availability, run: `ahma-simplify --version`
-
----
-
-## Core Workflow
-
-Follow this sequence. Do not skip steps.
-
-### Step 1 -- Run complexity analysis
-
-**Via MCP tool:**
-```
-simplify(directory="<project-root>", ai_fix=1)
-```
-
-**Via CLI:**
-```
-ahma-simplify <project-root> --ai-fix 1
-```
-
-The tool returns:
-1. An overall project simplicity score (0-100%)
-2. A ranked list of files by complexity (worst first)
-3. Function-level hotspots for the top issue (top 5 functions by cognitive complexity)
-4. A structured fix prompt for that specific file
-
-### Step 2 -- Read the structured fix prompt
-
-The `--ai-fix N` output ends with a structured prompt block. It contains:
-- The exact file path to edit
-- The hotspot functions (by name, line range, and metrics)
-- Constraints for what to change
-
-**Follow the prompt's constraints exactly:**
-- Edit **only** the listed hotspot functions
-- Do not refactor the whole file
-- Do not change function signatures, public APIs, or behavior
-- Do not reduce line count at the expense of clarity
-
-### Step 3 -- Apply targeted changes
-
-Common patterns for reducing complexity:
-- Extract deeply nested logic into well-named helper functions
-- Replace complex boolean chains with named predicates
-- Replace multi-branch match/switch arms with a lookup table or strategy function
-- Flatten early-return cascades (guard clauses)
-- Break apart functions with high SLOC alongside high cognitive complexity
-
-**For test files specifically:** If a hotspot is a test file with many small test functions,
-skip it. High test count is expected; do not consolidate tests. If a single test function is
-individually complex (large setup, many assertions), consider splitting it.
-
-### Step 4 -- Verify improvement
-
-After editing, re-analyze the modified file:
-
-**Via MCP tool:**
-```
-simplify(directory="<project-root>", verify="<path-to-edited-file>")
-```
-
-**Via CLI:**
-```
-ahma-simplify <project-root> --verify <path-to-edited-file>
-```
-
-The output shows before/after metrics with a verdict:
-- **Significant improvement** (>=10% score gain) -- success, continue
-- **Modest improvement** (1-9% gain) -- acceptable, move to next issue
-- **No change** -- review if the hotspot functions were actually modified
-- **Regression** -- revert and try a different approach
-
-### Step 5 -- Iterate
-
-Move to the next most complex file:
-
-```
-simplify(directory="<project-root>", ai_fix=2)
-```
-
-Or CLI: `ahma-simplify <project-root> --ai-fix 2`
-
-Continue iterating until the project score is satisfactory or the user stops.
-
----
-
-## Score Interpretation
-
-Each file receives a composite score:
-
-```
-Score = 0.6 x Maintainability Index + 0.2 x Cognitive Score + 0.2 x Cyclomatic Score
-```
-
-| Score Range | Status | Guidance |
-|-------------|--------|----------|
-| 85-100% | Excellent | No action needed |
-| 70-84% | Good | Acceptable; fix only the worst outliers |
-| 55-69% | Fair | Plan a simplification sprint |
-| 40-54% | Poor | Prioritize before adding features |
-| 0-39% | Critical | Address now; maintenance cost is high |
-
-A project overall score below 70% is a signal to run --ai-fix on the top 3-5 files.
-
----
-
-## MCP Tool Reference
-
-Tool name: `simplify`
-
-| Argument | Type | Default | Purpose |
-|----------|------|---------|---------|
-| `directory` | path (required) | -- | Project root to analyze |
-| `ai_fix` | integer | -- | Issue number to generate fix prompt for (1 = worst file) |
-| `limit` | integer | 50 | Number of issues to include in report |
-| `verify` | path | -- | Re-analyze a file and compare to baseline |
-| `extensions` | array | all | Restrict to specific file types (e.g. ["rs","py"]) |
-| `exclude` | array | -- | Additional glob patterns to exclude |
-| `output_path` | path | -- | Write report to directory instead of stdout |
-| `html` | boolean | false | Also generate HTML report |
-
----
-
-## Anti-Patterns to Avoid
-
-1. **Do not refactor the whole file** when only 1-2 functions are hotspots. Follow the fix
-   prompt's hotspot list exactly.
-
-2. **Do not add comments to reduce complexity scores.** The Maintainability Index is not
-   improved by comments alone; structural simplification is needed.
-
-3. **Do not inline complex logic to reduce function count.** Fewer functions with more
-   complexity each makes scores worse, not better.
-
-4. **Do not run --ai-fix without reading the structured prompt.** The prompt contains
-   file-specific context that prevents generic, incorrect refactors.
-
-5. **Do not skip Step 4 (verify).** Complexity improvements are only real if the metrics
-   confirm it. Syntactically cleaner code can still have higher cognitive complexity.
-
----
-
-## Quick Reference
-
-```
-# Analyze and get fix prompt for worst file
-ahma-simplify . --ai-fix 1
-
-# Analyze and get fix prompt for 2nd worst file
-ahma-simplify . --ai-fix 2
-
-# Verify improvement after editing
-ahma-simplify . --verify src/my_module.rs
-
-# Full report to file
-ahma-simplify . --output-path ./reports
-
-# HTML report, open in browser
-ahma-simplify . --heml
-
-# Restrict to Rust files only
-ahma-simplify . --extensions rs --ai-fix 1
-
-# Exclude generated code
-ahma-simplify . --exclude "**/generated/**,**/vendor/**" --ai-fix 1
-```
+[mtdf-schema.json](https://github.com/paulirotta/ahma/blob/main/docs/mtdf-schema.json) *
+[SIMPLIFY.md](https://github.com/paulirotta/ahma/blob/main/SIMPLIFY.md)
 '@
 }
 
@@ -1146,10 +933,10 @@ function Invoke-AhmaSkillSetup {
     Write-Host "  Agent Skill Setup"
     Write-Host "======================================================="
     Write-Host ""
-    Write-Host "  Two agent skills are available for AI tools (VS Code, Cursor, Claude Code):"
+    Write-Host "  One agent skill is available for AI tools (VS Code, Cursor, Claude Code):"
     Write-Host ""
-    Write-Host "    ahma          -- usage guide: sandboxed_shell, bundles, sandbox, etc."
-    Write-Host "    ahma-simplify -- code complexity analysis and hotspot fixing workflow"
+    Write-Host "    ahma -- comprehensive usage guide including sandboxed_shell, bundles, sandbox,"
+    Write-Host "             code complexity analysis (/ahma simplify), and more."
     Write-Host ""
     Write-Host "  Skills install to ~/.agents/skills/ -- the universal cross-platform skill path."
     Write-Host "  They are automatically used by the AI when relevant tasks are requested."
@@ -1186,19 +973,17 @@ function Invoke-AhmaSkillSetup {
 
     Write-Host ""
     Write-Host "  Installing skills..."
-    Install-OneSkill -Name 'ahma'          -Version '0.6.0' -ContentFn { Get-AhmaMainSkillContent }
-    Install-OneSkill -Name 'ahma-simplify' -Version '0.6.0' -ContentFn { Get-AhmaSkillContent }
+    Install-OneSkill -Name 'ahma' -Version '0.6.0' -ContentFn { Get-AhmaMainSkillContent }
 
     Write-Host ""
     Write-Host "  Skills are automatically available in:"
     Write-Host "    * VS Code (GitHub Copilot) -- auto-loaded when relevant"
-    Write-Host "    * Cursor -- attach with @ahma or @ahma-simplify in chat"
+    Write-Host "    * Cursor -- attach with @ahma in chat"
     Write-Host "    * Claude Code -- loaded from ~/.agents/skills/"
     Write-Host ""
     Write-Host "  To also enable per-project (commit to your repo):"
-    Write-Host "    New-Item -ItemType Directory -Force .agents\skills\ahma, .agents\skills\ahma-simplify"
+    Write-Host "    New-Item -ItemType Directory -Force .agents\skills\ahma"
     Write-Host "    Copy-Item (Join-Path $HOME .agents skills ahma SKILL.md) .agents\skills\ahma\SKILL.md"
-    Write-Host "    Copy-Item (Join-Path $HOME .agents skills ahma-simplify SKILL.md) .agents\skills\ahma-simplify\SKILL.md"
     Write-Host ""
 }
 

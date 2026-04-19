@@ -1,7 +1,8 @@
 {
     "name": "simplify",
-    "description": "Analyze source code complexity and get AI fix instructions for the most complex files. This tool runs ahma-simplify to identify files with high cognitive/cyclomatic complexity, low maintainability, or excessive size, then returns a detailed report with per-function hotspots and actionable refactoring instructions. Always pass ai_fix set to the issue number you want to fix (1 = most complex file). The report identifies specific hotspot functions within each file. The structured prompt instructs you to focus changes on those hotspots only.",
-    "command": "ahma-simplify",
+    "description": "Analyze source code complexity and get AI fix instructions for the most complex files. This tool runs ahma-mcp simplify to identify files with high cognitive/cyclomatic complexity, low maintainability, or excessive size, then returns a detailed report with per-function hotspots and actionable refactoring instructions. Always pass ai_fix set to the issue number you want to fix (1 = most complex file). The report identifies specific hotspot functions within each file. The structured prompt instructs you to focus changes on those hotspots only.",
+    "command": "ahma-mcp",
+    "args": ["simplify"],
     "enabled": true,
     "timeout_seconds": 600,
     "synchronous": true,
@@ -76,11 +77,11 @@
         }
     ],
     "availability_check": {
-        "command": "ahma-simplify",
+        "command": "ahma-mcp",
         "args": [
             "--version"
         ],
         "skip_subcommand_args": true
     },
-    "install_instructions": "Build with: cargo build -p ahma_mcp --release --bin ahma-simplify && cargo install --path ahma_mcp --bin ahma-simplify"
+    "install_instructions": "Build with: cargo build -p ahma_mcp --release && cargo install --path ahma_mcp"
 }

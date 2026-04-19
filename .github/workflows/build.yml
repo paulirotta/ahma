@@ -160,6 +160,10 @@ jobs:
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: cargo clippy --locked
 
+      - name: Cargo Clippy (no-default-features)
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: cargo clippy --no-default-features --locked
+
       - name: Cargo Clippy Tests
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: cargo clippy --tests --locked
@@ -185,6 +189,8 @@ jobs:
     runs-on: ubuntu-latest
     # Run on every push and PR to every branch for earliest CVE detection.
     # This job is intentionally independent of the test matrix.
+    env:
+      RUSTC_WRAPPER: "" # cargo-deny runs in Docker without sccache; unset the workflow-level wrapper
     steps:
       - uses: actions/checkout@v6
 
@@ -413,7 +419,7 @@ jobs:
 
       - name: Generate code simplicity report
         run: |
-          cargo run -p ahma_mcp --bin ahma-simplify -- . --limit 20 --html
+          cargo run -p ahma_mcp -- simplify . --limit 20 --html
           cp CODE_SIMPLICITY.md coverage/
           cp CODE_SIMPLICITY.html coverage/
 
@@ -606,17 +612,15 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             archive_name="ahma-release-${platform}.zip"
             cp "target/${{ matrix.target }}/release/ahma-mcp.exe" dist/
-            cp "target/${{ matrix.target }}/release/ahma-simplify.exe" dist/
             cp README.md dist/
-            (cd dist && sha256sum ahma-mcp.exe ahma-simplify.exe > SHA256SUMS)
-            (cd dist && 7z a "../${archive_name}" ahma-mcp.exe ahma-simplify.exe SHA256SUMS README.md)
+            (cd dist && sha256sum ahma-mcp.exe > SHA256SUMS)
+            (cd dist && 7z a "../${archive_name}" ahma-mcp.exe SHA256SUMS README.md)
           else
             archive_name="ahma-release-${platform}.tar.gz"
             cp target/${{ matrix.target }}/release/ahma-mcp dist/
-            cp target/${{ matrix.target }}/release/ahma-simplify dist/
             cp README.md dist/
-            (cd dist && shasum -a 256 ahma-mcp ahma-simplify > SHA256SUMS)
-            tar -czf "$archive_name" -C dist ahma-mcp ahma-simplify SHA256SUMS README.md
+            (cd dist && shasum -a 256 ahma-mcp > SHA256SUMS)
+            tar -czf "$archive_name" -C dist ahma-mcp SHA256SUMS README.md
           fi
           echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
           echo "platform=$platform" >> "$GITHUB_OUTPUT"
@@ -640,6 +644,7 @@ jobs:
       - job-android-nextest
       - job-release-binaries
       - job-coverage
+      - job-security
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

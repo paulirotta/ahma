@@ -52,5 +52,5 @@ wildcards = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# Owner's fork of rust-code-analysis (pinned branch, used by ahma-simplify feature in ahma_mcp)
+# Owner's fork of rust-code-analysis (pinned branch, used by the simplify feature in ahma_mcp)
 allow-git = ["https://github.com/paulirotta/rust-code-analysis"]

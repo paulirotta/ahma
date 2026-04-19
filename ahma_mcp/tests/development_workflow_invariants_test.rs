@@ -332,8 +332,8 @@ mod skill_version_invariants {
     /// INVARIANT 8: Skill version consistency across all installer and canonical files
     ///
     /// LESSON LEARNED: When the workspace version is bumped, the following files must ALL be
-    /// updated together: skills/ahma/SKILL.md, skills/ahma-simplify/SKILL.md,
-    /// scripts/install.sh (AHMA_VERSION), and scripts/install.ps1 (embedded version strings).
+    /// updated together: skills/ahma/SKILL.md, scripts/install.sh (AHMA_VERSION),
+    /// and scripts/install.ps1 (embedded version strings).
     /// Failure to update all of them causes installer-installed skills to report a different
     /// version than the running binary, breaking version-aware update logic.
     ///
@@ -367,18 +367,6 @@ mod skill_version_invariants {
             .expect("Unexpected version format in skills/ahma/SKILL.md")
             .to_string();
 
-        let simplify_skill_path = get_workspace_path("skills/ahma-simplify/SKILL.md");
-        let simplify_skill = std::fs::read_to_string(&simplify_skill_path)
-            .expect("Failed to read skills/ahma-simplify/SKILL.md");
-        let simplify_skill_ver = simplify_skill
-            .lines()
-            .find(|l| l.starts_with("version:"))
-            .expect("No version: line in skills/ahma-simplify/SKILL.md")
-            .split_whitespace()
-            .nth(1)
-            .expect("Unexpected version format in skills/ahma-simplify/SKILL.md")
-            .to_string();
-
         // Read install.sh AHMA_VERSION
         let install_sh_path = get_workspace_path("scripts/install.sh");
         let install_sh =
@@ -405,10 +393,6 @@ mod skill_version_invariants {
             "skills/ahma/SKILL.md version ({ahma_skill_ver}) must match Cargo.toml ({cargo_ver})"
         );
         assert_eq!(
-            simplify_skill_ver, cargo_ver,
-            "skills/ahma-simplify/SKILL.md version ({simplify_skill_ver}) must match Cargo.toml ({cargo_ver})"
-        );
-        assert_eq!(
             install_sh_ver, cargo_ver,
             "scripts/install.sh AHMA_VERSION ({install_sh_ver}) must match Cargo.toml ({cargo_ver})"
         );
@@ -426,7 +410,6 @@ mod skill_version_invariants {
 
         println!("OK Skill versions consistent: v{cargo_ver}");
         println!("   skills/ahma/SKILL.md: v{ahma_skill_ver}");
-        println!("   skills/ahma-simplify/SKILL.md: v{simplify_skill_ver}");
         println!("   scripts/install.sh AHMA_VERSION: v{install_sh_ver}");
         println!(
             "   scripts/install.ps1 embedded versions: {} occurrences",
@@ -439,7 +422,7 @@ mod skill_version_invariants {
     fn test_skill_author_consistent() {
         const CANONICAL_AUTHOR: &str = "Paul Houghton";
 
-        // Check install.sh ahma-simplify template
+        // Check install.sh skill template
         let install_sh_path = get_workspace_path("scripts/install.sh");
         let install_sh =
             std::fs::read_to_string(&install_sh_path).expect("Failed to read scripts/install.sh");

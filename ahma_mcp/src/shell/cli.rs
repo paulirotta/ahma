@@ -467,6 +467,11 @@ async fn dispatch_subcommand(cmd: Subcommands, cfg: AppConfig) -> Result<()> {
                 run_tool_info_mode(info_args).await
             }
         },
+        #[cfg(feature = "simplify")]
+        Subcommands::Simplify(args) => {
+            tracing::info!("Running in simplify mode");
+            crate::simplify::run(args)
+        }
     }
 }
 
@@ -516,6 +521,9 @@ pub enum Subcommands {
     Serve(ServeArgs),
     /// Tool management and execution utilities.
     Tool(ToolArgs),
+    /// Analyze source code complexity and generate a simplicity report.
+    #[cfg(feature = "simplify")]
+    Simplify(crate::simplify::SimplifyArgs),
 }
 
 // ── serve ────────────────────────────────────────────────────────────────────

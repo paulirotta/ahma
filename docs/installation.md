@@ -1,6 +1,6 @@
 # Installation
 
-The installation scripts detect your OS and architecture, download the latest release from GitHub, and install `ahma-mcp` and `ahma-simplify` to your local bin directory.
+The installation scripts detect your OS and architecture, download the latest release from GitHub, and install `ahma-mcp` to your local bin directory.
 
 ## Install with the script
 
@@ -27,7 +27,7 @@ The wizard:
 - lets you choose which clients to configure
 - lets you choose stdio or HTTP connection mode
 - shows the proposed `mcp.json` changes before writing them
-- can install the optional `ahma-simplify` skill
+- can install the optional `ahma` skill
 
 If you want the optional skill setup details, see [docs/agent-skills.md](agent-skills.md).
 
@@ -40,7 +40,6 @@ git clone https://github.com/paulirotta/ahma.git
 cd ahma
 cargo build --release
 mv target/release/ahma-mcp /usr/local/bin/
-mv target/release/ahma-simplify /usr/local/bin/
 ```
 
 **Windows (PowerShell)**
@@ -49,7 +48,7 @@ mv target/release/ahma-simplify /usr/local/bin/
 git clone https://github.com/paulirotta/ahma.git
 cd ahma
 cargo build --release
-Copy-Item target\release\ahma-mcp.exe, target\release\ahma-simplify.exe "$HOME\.local\bin\"
+Copy-Item target\release\ahma-mcp.exe "$HOME\.local\bin\"
 ```
 
 ## After installation

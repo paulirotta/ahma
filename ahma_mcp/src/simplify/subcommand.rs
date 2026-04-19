@@ -1,9 +1,15 @@
-use ahma_mcp::simplify::analysis;
-use ahma_mcp::simplify::models;
-use ahma_mcp::simplify::report;
+//! CLI subcommand and library entry point for the `simplify` feature.
+//!
+//! Provides:
+//! - [`SimplifyArgs`]: clap `Args` definition used as `ahma-mcp simplify <args>`.
+//! - [`run`]: the main entry point called by the `ahma-mcp` binary.
+
+use super::analysis;
+use super::models;
+use super::report;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::Args;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,16 +17,28 @@ use walkdir::WalkDir;
 
 use analysis::{
     AnalyzerRegistry, ExternalMetrics, get_project_name, is_cargo_workspace, perform_analysis,
+    run_analysis,
 };
 use models::{FileSimplicity, MetricsResults, resolve_extensions};
 use report::{create_report_md, generate_ai_fix_prompt, generate_report};
 
-#[derive(Parser, Debug)]
+/// Analyze source code complexity and generate a simplicity report.
+///
+/// Scores are calibrated for AI-assisted maintenance. An AI agent making a change
+/// must hold the relevant context in its context window; large, deeply nested functions
+/// increase the risk of misunderstanding and regression. The scoring formula rewards
+/// decomposed, focused code:
+///
+///   Score = 0.4 × MI + 0.3 × Cognitive Density + 0.2 × Peak Cognitive + 0.1 × Length
+///
+/// MI (40%) — function-weighted Maintainability Index; rewards well-structured decomposition.
+/// Cognitive Density (30%) — cognitive complexity per SLOC; rewards focused functions.
+/// Peak Cognitive (20%) — complexity of the single worst function; the primary hotspot signal.
+/// Length Score (10%) — 100% at ≤300 SLOC, scaling down above; reflects context-window pressure.
+/// Cyclomatic — reported for context only; already embedded inside MI, not double-counted.
+#[derive(Args, Debug)]
 #[command(
-    name = "ahma-simplify",
-    author,
-    version,
-    about = "Analyzes source code metrics and generates a simplicity report",
+    about = "Analyze source code complexity and generate a simplicity report",
     long_about = "Analyzes source code metrics and generates a simplicity report.\n\n\
         Scores are calibrated for AI-assisted maintenance. An AI agent making a change\n\
         must hold the relevant context in its context window; large, deeply nested functions\n\
@@ -33,29 +51,29 @@ use report::{create_report_md, generate_ai_fix_prompt, generate_report};
         Length Score (10%) — 100% at ≤300 SLOC, scaling down above; reflects context-window pressure.\n\
         Cyclomatic — reported for context only; already embedded inside MI, not double-counted."
 )]
-struct Cli {
+pub struct SimplifyArgs {
     /// Directory to analyze (absolute or relative)
-    directory: PathBuf,
+    pub directory: PathBuf,
 
     /// Output directory for analysis results
     #[arg(short, long, default_value = "analysis_results")]
-    output: PathBuf,
+    pub output: PathBuf,
 
     /// Number of issues to show in the report
     #[arg(short, long, default_value_t = 50)]
-    limit: usize,
+    pub limit: usize,
 
     /// Open the report automatically
     #[arg(long)]
-    open: bool,
+    pub open: bool,
 
     /// Shorthand for --format html
     #[arg(long)]
-    html: bool,
+    pub html: bool,
 
     /// Shorthand for --html and --open combined
     #[arg(long)]
-    heml: bool,
+    pub heml: bool,
 
     /// File extensions or language names to analyze, comma-separated.
     /// Accepts raw extensions (e.g. rs,py,kt) or language names (e.g. rust,kotlin,python).
@@ -68,62 +86,63 @@ struct Cli {
         default_value = "rs,py,js,ts,tsx,c,h,cpp,cc,hpp,hh,cs,java,go,css,html,kt,kts",
         value_delimiter = ','
     )]
-    extensions: Vec<String>,
+    pub extensions: Vec<String>,
 
     /// Additional paths/patterns to exclude, as a comma-separated list.
     /// Example: --exclude "**/generated/**,**/vendor/**"
     #[arg(short = 'x', long, value_delimiter = ',')]
-    exclude: Vec<String>,
+    pub exclude: Vec<String>,
 
     /// Disable external language-specific analyzers (e.g. Detekt for Kotlin).
     /// When set, only rust-code-analysis metrics are used. Useful for faster
     /// CI runs or when external tools are not available.
     #[arg(long)]
-    no_external: bool,
+    pub no_external: bool,
 
     /// Output directory for CODE_SIMPLICITY.md and CODE_SIMPLICITY.html files.
     /// If omitted (and --html/--open not set), report is printed to stdout.
     /// When specified, writes files to the given directory.
     #[arg(long)]
-    output_path: Option<PathBuf>,
+    pub output_path: Option<PathBuf>,
 
     /// Generate an AI fix prompt for the Nth most complex file (1-indexed).
     /// When set, outputs the full simplicity report and a structured prompt
     /// instructing the AI to plan and implement a fix for that issue.
     #[arg(long)]
-    ai_fix: Option<usize>,
+    pub ai_fix: Option<usize>,
 
     /// Verify improvement by re-analyzing a specific file and comparing
     /// against the baseline from the previous analysis run. Shows before/after
     /// metrics with relative improvement percentages.
     #[arg(long)]
-    verify: Option<PathBuf>,
+    pub verify: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
-    let mut cli = Cli::parse();
-
+/// Run the simplify analysis with the given arguments.
+///
+/// This is the main entry point for the `ahma-mcp simplify` subcommand.
+pub fn run(mut args: SimplifyArgs) -> Result<()> {
     // If --heml is set, it triggers both --html and --open
-    if cli.heml {
-        cli.html = true;
-        cli.open = true;
+    if args.heml {
+        args.html = true;
+        args.open = true;
     }
 
-    if let Some(ref verify_path) = cli.verify {
-        let extensions = resolve_extensions(&cli.extensions);
-        return run_verify(verify_path, &cli.output, &cli.directory, &extensions);
+    if let Some(ref verify_path) = args.verify.clone() {
+        let extensions = resolve_extensions(&args.extensions);
+        return run_verify(verify_path, &args.output, &args.directory, &extensions);
     }
 
     let directory =
-        dunce::canonicalize(&cli.directory).context("Failed to canonicalize directory")?;
-    prepare_output_directory(&cli.output)?;
+        dunce::canonicalize(&args.directory).context("Failed to canonicalize directory")?;
+    prepare_output_directory(&args.output)?;
 
-    let is_workspace = is_cargo_workspace(&cli.directory);
-    let extensions = resolve_extensions(&cli.extensions);
+    let is_workspace = is_cargo_workspace(&args.directory);
+    let extensions = resolve_extensions(&args.extensions);
 
     // Build the external analyzer registry unless the user requested rca-only.
-    let registry = build_registry(cli.no_external);
-    let registry_ref = if cli.no_external {
+    let registry = build_registry(args.no_external);
+    let registry_ref = if args.no_external {
         None
     } else {
         Some(&registry)
@@ -131,16 +150,16 @@ fn main() -> Result<()> {
 
     let external_metrics = perform_analysis(
         &directory,
-        &cli.output,
+        &args.output,
         is_workspace,
         &extensions,
-        &cli.exclude,
+        &args.exclude,
         registry_ref,
     )?;
 
-    let mut files_simplicity = load_metrics(&cli.output, true, &external_metrics)?;
+    let mut files_simplicity = load_metrics(&args.output, true, &external_metrics)?;
     if files_simplicity.is_empty() {
-        eprintln!("No analysis files found in {}.", cli.output.display());
+        eprintln!("No analysis files found in {}.", args.output.display());
         return Ok(());
     }
 
@@ -148,26 +167,26 @@ fn main() -> Result<()> {
     let project_name = get_project_name(&directory);
 
     // Determine output mode: write to file if --output-path, --html, or --open is set
-    let write_to_file = cli.output_path.is_some() || cli.html || cli.open;
+    let write_to_file = args.output_path.is_some() || args.html || args.open;
 
     if write_to_file {
-        let report_output_dir = determine_report_output_dir(&cli.output_path)?;
+        let report_output_dir = determine_report_output_dir(&args.output_path)?;
         fs::create_dir_all(&report_output_dir)
             .context("Failed to create report output directory")?;
 
         generate_report(
             &files_simplicity,
             is_workspace,
-            cli.limit,
+            args.limit,
             &directory,
-            cli.html,
+            args.html,
             &project_name,
             &report_output_dir,
         )?;
 
-        print_report_locations(&report_output_dir, cli.html);
+        print_report_locations(&report_output_dir, args.html);
 
-        if let Some(issue_number) = cli.ai_fix {
+        if let Some(issue_number) = args.ai_fix {
             handle_ai_fix_from_file(
                 issue_number,
                 &report_output_dir,
@@ -176,8 +195,8 @@ fn main() -> Result<()> {
             )?;
         }
 
-        if cli.open
-            && let Err(e) = open_report(&report_output_dir, cli.html)
+        if args.open
+            && let Err(e) = open_report(&report_output_dir, args.html)
         {
             eprintln!("Warning: Failed to open report: {}", e);
         }
@@ -186,12 +205,12 @@ fn main() -> Result<()> {
         let md_content = create_report_md(
             &files_simplicity,
             is_workspace,
-            cli.limit,
+            args.limit,
             &directory,
             &project_name,
         );
 
-        if let Some(issue_number) = cli.ai_fix {
+        if let Some(issue_number) = args.ai_fix {
             handle_ai_fix_to_stdout(&md_content, issue_number, &files_simplicity, &directory);
         } else {
             println!("{}", md_content);
@@ -325,9 +344,10 @@ fn load_metrics(
             let result = try_parse_metrics_file(e.path(), normalized, external)?;
             // Track the source path so we don't double-count in Phase 2.
             if let Ok(content) = fs::read_to_string(e.path())
-                && let Ok(parsed) = toml::from_str::<MetricsResults>(&content) {
-                    covered_paths.insert(PathBuf::from(&parsed.name));
-                }
+                && let Ok(parsed) = toml::from_str::<MetricsResults>(&content)
+            {
+                covered_paths.insert(PathBuf::from(&parsed.name));
+            }
             Some(result)
         })
         .collect();
@@ -398,7 +418,7 @@ fn run_verify(
     let parent_dir = canonical_verify
         .parent()
         .context("Cannot determine parent directory")?;
-    analysis::run_analysis(parent_dir, temp_output.path(), extensions, &[], None)?;
+    run_analysis(parent_dir, temp_output.path(), extensions, &[], None)?;
 
     let current = find_baseline_metrics(temp_output.path(), &canonical_verify)?;
     let current_simplicity = FileSimplicity::calculate(&current, true);
@@ -518,57 +538,57 @@ fn print_metric_row(label: &str, before: f64, after: f64, suffix: &str, higher_i
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+
+    // Minimal wrapper to enable try_parse_from on SimplifyArgs (which derives Args, not Parser).
+    #[derive(Parser, Debug)]
+    #[command(name = "test")]
+    struct TestParser {
+        #[command(flatten)]
+        inner: SimplifyArgs,
+    }
+
+    fn parse(args: &[&str]) -> SimplifyArgs {
+        TestParser::try_parse_from(args).unwrap().inner
+    }
 
     #[test]
     fn test_cli_parsing() {
-        let args = vec!["ahma_simplify", ".", "--output", "results"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.directory, PathBuf::from("."));
-        assert_eq!(cli.output, PathBuf::from("results"));
-        assert_eq!(cli.output_path, None);
+        let args = parse(&["test", ".", "--output", "results"]);
+        assert_eq!(args.directory, PathBuf::from("."));
+        assert_eq!(args.output, PathBuf::from("results"));
+        assert_eq!(args.output_path, None);
     }
 
     #[test]
     fn test_cli_parsing_with_output_path() {
-        let args = vec![
-            "ahma_simplify",
-            ".",
-            "--output",
-            "results",
-            "--output-path",
-            "/tmp",
-        ];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.directory, PathBuf::from("."));
-        assert_eq!(cli.output, PathBuf::from("results"));
-        assert_eq!(cli.output_path, Some(PathBuf::from("/tmp")));
+        let args = parse(&["test", ".", "--output", "results", "--output-path", "/tmp"]);
+        assert_eq!(args.directory, PathBuf::from("."));
+        assert_eq!(args.output, PathBuf::from("results"));
+        assert_eq!(args.output_path, Some(PathBuf::from("/tmp")));
     }
 
     #[test]
     fn test_cli_parsing_with_ai_fix() {
-        let args = vec!["ahma_simplify", ".", "--ai-fix", "1"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.ai_fix, Some(1));
+        let args = parse(&["test", ".", "--ai-fix", "1"]);
+        assert_eq!(args.ai_fix, Some(1));
     }
 
     #[test]
     fn test_cli_parsing_without_ai_fix() {
-        let args = vec!["ahma_simplify", "."];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.ai_fix, None);
+        let args = parse(&["test", "."]);
+        assert_eq!(args.ai_fix, None);
     }
 
     #[test]
     fn test_cli_parsing_with_verify() {
-        let args = vec!["ahma_simplify", ".", "--verify", "src/main.rs"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.verify, Some(PathBuf::from("src/main.rs")));
+        let args = parse(&["test", ".", "--verify", "src/main.rs"]);
+        assert_eq!(args.verify, Some(PathBuf::from("src/main.rs")));
     }
 
     #[test]
     fn test_cli_parsing_without_verify() {
-        let args = vec!["ahma_simplify", "."];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.verify, None);
+        let args = parse(&["test", "."]);
+        assert_eq!(args.verify, None);
     }
 }

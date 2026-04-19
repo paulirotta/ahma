@@ -15,10 +15,6 @@ path = "src/lib.rs"
 name = "ahma-mcp"
 path = "src/shell/bin.rs"
 
-[[bin]]
-name = "ahma-simplify"
-path = "src/simplify/bin.rs"
-required-features = ["simplify"]
 
 [dependencies]
 ahma_common = { path = "../ahma_common" }

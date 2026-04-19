@@ -78,7 +78,6 @@ echo "=== Guardrail: skill version consistency with Cargo.toml ==="
 CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 INSTALL_VER=$(grep '^AHMA_VERSION=' scripts/install.sh | head -1 | sed 's/AHMA_VERSION="\(.*\)"/\1/')
 AHMA_SKILL_VER=$(grep '^version:' skills/ahma/SKILL.md | head -1 | awk '{print $2}')
-SIMPLIFY_SKILL_VER=$(grep '^version:' skills/ahma-simplify/SKILL.md | head -1 | awk '{print $2}')
 # Extract unique versions from Install-OneSkill -Version calls in install.ps1
 PS1_INSTALL_VERS=$(grep "Install-OneSkill.*-Version" scripts/install.ps1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | sort -u)
 
@@ -89,10 +88,6 @@ if [ "$INSTALL_VER" != "$CARGO_VER" ]; then
 fi
 if [ "$AHMA_SKILL_VER" != "$CARGO_VER" ]; then
   echo "FAIL skills/ahma/SKILL.md version: ${AHMA_SKILL_VER} != Cargo.toml version ${CARGO_VER}"
-  SKILL_VER_FAIL=1
-fi
-if [ "$SIMPLIFY_SKILL_VER" != "$CARGO_VER" ]; then
-  echo "FAIL skills/ahma-simplify/SKILL.md version: ${SIMPLIFY_SKILL_VER} != Cargo.toml version ${CARGO_VER}"
   SKILL_VER_FAIL=1
 fi
 if [ -z "$PS1_INSTALL_VERS" ]; then

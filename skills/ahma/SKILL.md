@@ -5,10 +5,14 @@ author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need
   to understand how to run tools, activate bundles, use the sandbox, monitor logs, author custom
-  tools, or configure ahma-mcp. Trigger phrases: "use ahma", "run with ahma", "ahma tool",
-  "activate bundle", "sandboxed_shell", "ahma async", "ahma serve", "mcp.json ahma",
-  "ahma sandbox", "ahma livelog", "ahma monitor", "custom tool .ahma", "ahma-mcp", "await tool",
-  "cancel operation", "tool bundle", "progressive disclosure", "activate_tools".
+  tools, or configure ahma-mcp. Also handles code complexity analysis via `/ahma simplify`.
+  Trigger phrases: "use ahma", "run with ahma", "ahma tool", "activate bundle",
+  "sandboxed_shell", "ahma async", "ahma serve", "mcp.json ahma", "ahma sandbox",
+  "ahma livelog", "ahma monitor", "custom tool .ahma", "ahma-mcp", "await tool",
+  "cancel operation", "tool bundle", "progressive disclosure", "activate_tools",
+  "simplify", "reduce complexity", "too complex", "hard to read", "refactor",
+  "maintainability", "cognitive complexity", "cyclomatic complexity", "simplicity score",
+  "code quality metrics", "hotspot", "ahma simplify", "ahma help", "ahma ?".
 user-invocable: true
 ---
 
@@ -469,8 +473,210 @@ older systems (Raspberry Pi OS bullseye, etc.).
 
 ---
 
+---
+
+## User-Invocable Subcommands
+
+The `/ahma` skill supports these user-invocable subcommands in chat:
+
+| Command | Alias | Purpose |
+|---------|-------|---------|
+| `/ahma help` | `/ahma ?` | List all available subcommands and their usage |
+| `/ahma simplify [lang] [n]` | — | Analyze code complexity and get fix instructions |
+
+---
+
+## `/ahma help` — List Subcommands
+
+When the user types `/ahma help` or `/ahma ?`, respond with a concise list of all available
+user-invocable subcommands and a one-line description of each:
+
+```
+/ahma help         — Show this help list
+/ahma ?            — Alias for /ahma help
+/ahma simplify     — Analyze code complexity and get AI fix instructions for the worst file
+```
+
+Also mention the key flags for configure, e.g., `--tools`, `--tmp`, `--log-monitor`.
+
+---
+
+## `/ahma simplify` — Code Complexity Analysis
+
+When the user types `/ahma simplify [language] [n]`, run the full code complexity workflow.
+
+### Syntax
+
+```
+/ahma simplify              # Analyze all supported file types, fix worst file (#1)
+/ahma simplify rust         # Rust files only
+/ahma simplify kotlin 2     # Kotlin files, get fix prompt for 2nd worst file
+/ahma simplify rust python  # Multiple languages
+```
+
+Language names are case-insensitive and expand to their extensions automatically.
+A trailing integer sets the `ai_fix` issue number (default: 1).
+
+### Supported Languages
+
+| Name | Extensions |
+|------|------------|
+| `rust` | `.rs` |
+| `kotlin` | `.kt`, `.kts` |
+| `python` | `.py` |
+| `javascript` | `.js`, `.jsx` |
+| `typescript` | `.ts`, `.tsx` |
+| `java` | `.java` |
+| `c++` / `cpp` | `.cpp`, `.cc`, `.hpp`, `.hh` |
+| `c#` / `csharp` | `.cs` |
+| `go` | `.go` |
+| `html` | `.html`, `.htm` |
+| `css` | `.css` |
+
+### Prerequisites
+
+**Via MCP tool (preferred):** The `simplify` tool must be active — start Ahma with `--tools simplify`
+or `--tools rust,simplify`.
+
+**Via CLI:** `ahma-mcp simplify` is the subcommand. Run `ahma-mcp simplify --help` to verify.
+
+### Workflow — Follow This Sequence
+
+#### Step 1 — Run complexity analysis
+
+**Via MCP tool:**
+```
+simplify(directory="<project-root>", ai_fix=1)
+```
+
+**Via CLI:**
+```bash
+ahma-mcp simplify <project-root> --ai-fix 1
+```
+
+The output contains:
+1. Overall project simplicity score (0–100%)
+2. Ranked file list (worst first)
+3. Function-level hotspots for the top issue (top 5 by cognitive complexity)
+4. A structured fix prompt for that specific file
+
+#### Step 2 — Read and follow the structured fix prompt
+
+The `--ai-fix N` output ends with a structured prompt. It specifies:
+- The exact file path to edit
+- Hotspot functions (name, line range, metrics)
+- Constraints on what to change
+
+**Follow the prompt's constraints exactly:**
+- Edit **only** the listed hotspot functions
+- Do not refactor the whole file
+- Do not change function signatures, public APIs, or behavior
+
+#### Step 3 — Apply targeted changes
+
+Common complexity-reduction patterns:
+- Extract deeply nested logic into well-named helper functions
+- Replace complex boolean chains with named predicates
+- Replace long match/switch arms with lookup tables
+- Flatten early-return cascades (guard clauses)
+
+**For test files:** High test count is expected. Skip unless a single test function is individually complex.
+
+#### Step 4 — Verify improvement
+
+**Via MCP tool:**
+```
+simplify(directory="<project-root>", verify="<path-to-edited-file>")
+```
+
+**Via CLI:**
+```bash
+ahma-mcp simplify <project-root> --verify <path-to-edited-file>
+```
+
+| Verdict | Meaning |
+|---------|---------|
+| Significant improvement (≥10%) | Success — move to next issue |
+| Modest improvement (1–9%) | Acceptable |
+| No change | Hotspot functions may not have been modified |
+| Regression | Revert and try a different approach |
+
+#### Step 5 — Iterate
+
+```
+simplify(directory="<project-root>", ai_fix=2)
+```
+
+Continue until the project score is satisfactory.
+
+### Score Interpretation
+
+```
+Score = 0.4 × MI + 0.3 × Cognitive Density + 0.2 × Peak Cognitive + 0.1 × Length Score
+```
+
+| Score | Status | Action |
+|-------|--------|--------|
+| 85–100% | Excellent | No action needed |
+| 70–84% | Good | Fix only worst outliers |
+| 55–69% | Fair | Plan a simplification sprint |
+| 40–54% | Poor | Prioritize before new features |
+| 0–39% | Critical | Address now |
+
+### MCP Tool Reference (`simplify`)
+
+| Argument | Type | Default | Purpose |
+|----------|------|---------|---------|
+| `directory` | path (required) | — | Project root to analyze |
+| `ai_fix` | integer | — | Issue number for fix prompt (1 = worst file) |
+| `limit` | integer | 50 | Issues to include in report |
+| `verify` | path | — | Re-analyze a file vs. baseline |
+| `extensions` | array | all | Restrict to file types (e.g. `["rs","py"]`) |
+| `exclude` | array | — | Additional glob patterns to exclude |
+| `output_path` | path | — | Write report to directory instead of stdout |
+| `html` | boolean | false | Also generate HTML report |
+
+### CLI Quick Reference
+
+```bash
+# Analyze and get fix prompt for worst file
+ahma-mcp simplify . --ai-fix 1
+
+# Rust files only
+ahma-mcp simplify . --extensions rust --ai-fix 1
+
+# Multiple languages
+ahma-mcp simplify . --extensions rust,python --ai-fix 1
+
+# 2nd worst file
+ahma-mcp simplify . --ai-fix 2
+
+# Verify improvement after editing
+ahma-mcp simplify . --verify src/my_module.rs
+
+# Full report to file
+ahma-mcp simplify . --output-path ./reports
+
+# HTML report
+ahma-mcp simplify . --html
+
+# Exclude generated code
+ahma-mcp simplify . --exclude '**/generated/**,**/vendor/**' --ai-fix 1
+```
+
+### Anti-Patterns to Avoid
+
+1. **Do not refactor the whole file** — follow the hotspot list exactly.
+2. **Do not add comments to improve scores** — structural change is needed.
+3. **Do not inline complex logic** — fewer functions with more complexity each makes scores worse.
+4. **Do not run `--ai-fix` without reading the structured prompt.**
+5. **Do not skip Step 4 (verify)** — complexity improvements must be confirmed by metrics.
+
+---
+
 **See also**: [security-sandbox.md](https://github.com/paulirotta/ahma/blob/main/docs/security-sandbox.md) ·
 [live-log-monitoring.md](https://github.com/paulirotta/ahma/blob/main/docs/live-log-monitoring.md) ·
 [connection-modes.md](https://github.com/paulirotta/ahma/blob/main/docs/connection-modes.md) ·
 [environment-variables.md](https://github.com/paulirotta/ahma/blob/main/docs/environment-variables.md) ·
-[mtdf-schema.json](https://github.com/paulirotta/ahma/blob/main/docs/mtdf-schema.json)
+[mtdf-schema.json](https://github.com/paulirotta/ahma/blob/main/docs/mtdf-schema.json) ·
+[SIMPLIFY.md](https://github.com/paulirotta/ahma/blob/main/SIMPLIFY.md)

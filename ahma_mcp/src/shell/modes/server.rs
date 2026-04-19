@@ -93,10 +93,14 @@ pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) 
     let service_handler = service;
 
     // Hot-reload is opt-in because runtime writes can change tool behavior mid-session.
-    if config.hot_reload_tools
-        && let Some(tools_dir) = config.tools_dir.clone()
-    {
-        service_handler.start_config_watcher(tools_dir, config.clone());
+    if config.hot_reload_tools {
+        if let Some(tools_dir) = config.tools_dir.clone() {
+            service_handler.start_config_watcher(tools_dir, config.clone());
+        } else {
+            tracing::warn!(
+                "AHMA_HOT_RELOAD=1 but no tools directory is configured; hot-reload is disabled"
+            );
+        }
     }
 
     let sandbox_mode_label = if sandbox.is_test_mode() {

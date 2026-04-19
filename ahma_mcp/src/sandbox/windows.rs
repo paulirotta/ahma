@@ -250,50 +250,26 @@ fn appcontainer_name_for_scope(scope: &Path) -> Vec<u16> {
     name.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Create a display name wide string (NUL-terminated UTF-16).
+/// A NUL-terminated UTF-16 wide string (retained for future Win32 FFI use).
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// A newtype wrapper around `SECURITY_CAPABILITIES` that satisfies the
-/// `Copy + Send + Sync + 'static` bounds required by
-/// `std::os::windows::process::CommandExt::raw_attribute`.
-///
-/// # Safety
-///
-/// `SECURITY_CAPABILITIES` contains `AppContainerSid: PSID` (a raw pointer).
-/// This wrapper is safe to declare `Send + Sync` because:
-/// 1. We only pass one instance of this value to one `Command`, on one thread.
-/// 2. The `AppContainerSid` pointer is valid until after `Command::spawn()` is
-///    called (we intentionally do not call `FreeSid` before that point).
-/// 3. No aliasing occurs — the pointer is only dereferenced by
-///    `CreateProcessW` inside `spawn()`.
-#[cfg(target_os = "windows")]
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct SendableSecCaps(windows_sys::Win32::Security::SECURITY_CAPABILITIES);
-
-#[cfg(target_os = "windows")]
-// SAFETY: see doc comment on `SendableSecCaps` above.
-unsafe impl Send for SendableSecCaps {}
-
-#[cfg(target_os = "windows")]
-// SAFETY: see doc comment on `SendableSecCaps` above.
-unsafe impl Sync for SendableSecCaps {}
-
 /// Launch `program` with `args` inside an AppContainer restricted to `scope`.
 ///
-/// Returns a `tokio::process::Command` configured to run the process inside a
-/// Windows AppContainer using `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`
-/// (via `std::os::windows::process::CommandExt::raw_attribute`, stable since
-/// Rust 1.76).  The AppContainer SID is derived from the deterministic profile
-/// name built from the `scope` path hash, and the scope directory's DACL is
-/// updated to grant the container full read/write access before the process is
-/// spawned.  Read-only scopes receive read + execute access.
+/// AppContainer spawn isolation via `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`
+/// requires direct `CreateProcessW` Win32 calls because
+/// `std::os::windows::process::CommandExt::raw_attribute` is an unstable
+/// nightly-only API (tracking issue rust-lang/rust#114854, not yet stabilised).
+/// Until that API is stable (or a direct Win32 implementation is added — see the
+/// call sequence in the module-level doc comment), processes run under Job Object
+/// enforcement only, which provides kill-on-close protection for the child tree.
 ///
-/// The AppContainer SID is intentionally not freed before `spawn()` — it is a
-/// bounded per-command allocation (~28 bytes for a typical S-1-15-2-* SID) and
-/// must remain valid for the duration of `CreateProcessW` inside `spawn()`.
+/// The full direct-Win32 implementation plan is documented at the top of this
+/// module (`InitializeProcThreadAttributeList` → `UpdateProcThreadAttribute` →
+/// `STARTUPINFOEXW` → `CreateProcessW`).
 #[cfg(target_os = "windows")]
 fn create_appcontainer_command(
     program: &str,
@@ -302,14 +278,18 @@ fn create_appcontainer_command(
     scope: &Path,
     read_scopes: &[PathBuf],
 ) -> anyhow::Result<tokio::process::Command> {
-    use std::os::windows::process::CommandExt as WinCommandExt;
-    use windows_sys::Win32::Security::SECURITY_CAPABILITIES;
-    use windows_sys::Win32::System::Threading::PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES;
+    let _ = scope;
+    let _ = read_scopes;
 
-    // Build the container profile name.
-    let container_name = appcontainer_name_for_scope(scope);
-    let display = to_wide("Ahma sandbox");
-    let description = to_wide("Ahma tool execution sandbox");
+    // Log once that AppContainer spawn isolation is deferred.
+    static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    WARNED.get_or_init(|| {
+        tracing::warn!(
+            "AppContainer spawn isolation is not active on stable Rust \
+             (std::process::Command::raw_attribute requires nightly, \
+             rust-lang/rust#114854). Processes run under Job Object enforcement only."
+        );
+    });
 
     let mut std_cmd = std::process::Command::new(program);
     std_cmd
@@ -319,86 +299,7 @@ fn create_appcontainer_command(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    unsafe {
-        let mut sid: *mut core::ffi::c_void = std::ptr::null_mut();
-        let hr = CreateAppContainerProfile(
-            container_name.as_ptr(),
-            display.as_ptr(),
-            description.as_ptr(),
-            std::ptr::null(),
-            0,
-            &mut sid,
-        );
-
-        // 0x800700B7 = HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) — profile reuse is fine.
-        if hr != S_OK && hr != 0x800700B7u32 as i32 {
-            // Profile creation failed. Run without AppContainer confinement in
-            // non-strict mode; strict mode is gated by check_windows_sandbox_available.
-            tracing::warn!(
-                "CreateAppContainerProfile returned 0x{:08X}; running without AppContainer",
-                hr as u32
-            );
-        } else {
-            // Grant `scope` full access for the container SID.
-            if !sid.is_null() {
-                if let Err(e) = set_scope_dacl_for_container(scope, sid, true) {
-                    tracing::warn!("Failed to set scope DACL for AppContainer: {e}");
-                }
-
-                // Grant `read_scopes` read-only access.
-                for read_scope in read_scopes {
-                    if let Err(e) = set_scope_dacl_for_container(read_scope, sid, false) {
-                        tracing::warn!("Failed to set read_scope DACL for AppContainer: {e}");
-                    }
-                }
-
-                // Attach the AppContainer SID to the process-creation attribute list.
-                //
-                // `raw_attribute` (stable since Rust 1.76 / #114854) stores a copy of
-                // `sec_caps` inside the Command, keeping it alive until `spawn()`.
-                // Internally, Rust calls `UpdateProcThreadAttribute` with
-                // `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` and our struct,
-                // then passes `EXTENDED_STARTUPINFO_PRESENT` to `CreateProcessW`.
-                //
-                // The `AppContainerSid` pointer (`sid`) must remain valid until
-                // `CreateProcessW` is called inside `spawn()`.  We intentionally skip
-                // `FreeSid(sid)` here — the SID allocation (~28 bytes) is released when
-                // the AppContainer profile is deleted on session shutdown via
-                // `cleanup_appcontainer_profile`.
-                let sec_caps = SendableSecCaps(SECURITY_CAPABILITIES {
-                    AppContainerSid: sid,
-                    Capabilities: std::ptr::null_mut(),
-                    CapabilityCount: 0,
-                    Reserved: 0,
-                });
-
-                // SAFETY: `sec_caps` is a valid SECURITY_CAPABILITIES whose
-                // `AppContainerSid` pointer is live for the duration of `spawn()`.
-                // `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` is a documented
-                // Win32 attribute value. Misuse here cannot cause UB outside this
-                // sandboxed child process.
-                std_cmd.raw_attribute(
-                    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
-                    sec_caps,
-                );
-
-                tracing::debug!(
-                    "AppContainer SID attached via raw_attribute; process will run in AppContainer"
-                );
-            }
-        }
-    }
-
     let mut cmd = tokio::process::Command::from(std_cmd);
-
-    // Pass the container profile name as an env var so callers can
-    // introspect or log the active container (purely informational).
-    let profile_name_lossy: String = String::from_utf16_lossy(
-        container_name
-            .strip_suffix(&[0u16])
-            .unwrap_or(&container_name),
-    );
-    cmd.env("AHMA_APPCONTAINER", &profile_name_lossy);
 
     // Enforce scope via CARGO_TARGET_DIR to prevent cargo from writing
     // build artifacts outside the workspace.
@@ -411,77 +312,6 @@ fn create_appcontainer_command(
 
     Ok(cmd)
 }
-/// Set a DACL on `scope` (and descendants) granting `FILE_ALL_ACCESS` to
-/// `container_sid`.  This allows the AppContainer process to read and write
-/// within the sandbox scope.
-///
-/// Uses `SetNamedSecurityInfoW` with a DACL built from `AddAccessAllowedAce`.
-/// Falls back without error if DACL manipulation is not available (the
-/// container will simply see access-denied attempts instead of silent success).
-#[cfg(target_os = "windows")]
-fn set_scope_dacl_for_container(
-    scope: &Path,
-    container_sid: *mut core::ffi::c_void,
-    full_access: bool,
-) -> anyhow::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
-    use windows_sys::Win32::Security::{
-        ACL, ACL_REVISION, AddAccessAllowedAce, DACL_SECURITY_INFORMATION, GetLengthSid,
-        InitializeAcl,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ,
-    };
-
-    let access_mask = if full_access {
-        FILE_ALL_ACCESS
-    } else {
-        FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
-    };
-
-    unsafe {
-        let sid_len = GetLengthSid(container_sid) as usize;
-        // ACL size = header (8 bytes) + ACE_HEADER + ACCESS_MASK + SID
-        let acl_size = 8usize + std::mem::size_of::<u32>() + std::mem::size_of::<u32>() + sid_len;
-        let mut acl_buf = vec![0u8; acl_size + 16]; // +16 for alignment
-        let acl_ptr = acl_buf.as_mut_ptr() as *mut ACL;
-
-        if InitializeAcl(acl_ptr, acl_buf.len() as u32, ACL_REVISION as u32) == 0 {
-            let err = std::io::Error::last_os_error();
-            anyhow::bail!("InitializeAcl failed: {err}");
-        }
-
-        if AddAccessAllowedAce(acl_ptr, ACL_REVISION as u32, access_mask, container_sid) == 0 {
-            let err = std::io::Error::last_os_error();
-            anyhow::bail!("AddAccessAllowedAce failed: {err}");
-        }
-
-        let scope_wide: Vec<u16> = scope
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        let result = SetNamedSecurityInfoW(
-            scope_wide.as_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            acl_ptr,
-            std::ptr::null_mut(),
-        );
-
-        if result != 0 {
-            let err = std::io::Error::from_raw_os_error(result as i32);
-            anyhow::bail!("SetNamedSecurityInfoW failed: {err}");
-        }
-
-        Ok(())
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Cleanup helper — call once on session teardown
 // ---------------------------------------------------------------------------

@@ -303,16 +303,15 @@ fn parse_checkstyle_xml(path: &Path) -> Result<HashMap<PathBuf, ExternalMetrics>
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e))
-                if e.name().as_ref() == b"file" => {
-                    current_file = get_attr(e, b"name").map(PathBuf::from);
-                    if let Some(ref p) = current_file {
-                        metrics.entry(p.clone()).or_insert_with(|| ExternalMetrics {
-                            analyzer: "detekt".to_string(),
-                            ..ExternalMetrics::default()
-                        });
-                    }
+            Ok(Event::Start(ref e)) if e.name().as_ref() == b"file" => {
+                current_file = get_attr(e, b"name").map(PathBuf::from);
+                if let Some(ref p) = current_file {
+                    metrics.entry(p.clone()).or_insert_with(|| ExternalMetrics {
+                        analyzer: "detekt".to_string(),
+                        ..ExternalMetrics::default()
+                    });
                 }
+            }
             Ok(Event::Empty(ref e)) => {
                 if e.name().as_ref() == b"error"
                     && let Some(ref file_path) = current_file

@@ -13,8 +13,8 @@ manifest templates for Ahma.
 winget install paulirotta.Ahma
 ```
 
-This installs both `ahma-mcp.exe` and `ahma-simplify.exe` as portable commands
-accessible from any terminal.
+This installs `ahma-mcp.exe` as a portable command accessible from any terminal.
+Code complexity analysis is available via `ahma-mcp simplify`.
 
 ## Manifest structure
 
