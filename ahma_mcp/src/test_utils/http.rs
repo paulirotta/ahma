@@ -265,10 +265,13 @@ impl HttpMcpTestClient {
         // handshake is already in flight, avoiding a race where tools/call polls
         // that trigger the server's 45-second handshake timeout before the roots
         // exchange finishes (particularly on slow Linux CI with Landlock setup).
-        tokio::time::timeout(TestTimeouts::get(TimeoutCategory::SseStream), roots_ready_rx)
-            .await
-            .context("Timed out waiting for roots/list exchange to complete")?
-            .context("roots_ready channel closed before roots/list exchange completed")?;
+        tokio::time::timeout(
+            TestTimeouts::get(TimeoutCategory::SseStream),
+            roots_ready_rx,
+        )
+        .await
+        .context("Timed out waiting for roots/list exchange to complete")?
+        .context("roots_ready channel closed before roots/list exchange completed")?;
         Ok(rx)
     }
 
