@@ -80,7 +80,10 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
     let mcp = Arc::new(mcp);
     let start = Instant::now();
 
-    let mut requests = vec![
+    // Use platform-appropriate commands: Unix tools (ls -la, uname, cat|head)
+    // and file-tools_* don't work on Windows PowerShell.
+    #[cfg(not(windows))]
+    let mut requests: Vec<(&str, serde_json::Value)> = vec![
         ("file-tools_pwd", json!({})),
         ("file-tools_ls", json!({"path": "."})),
         ("file-tools_ls", json!({"path": "ahma_mcp"})),
@@ -98,6 +101,19 @@ async fn run_concurrent_tool_calls(transport: TransportMode) {
             "sandboxed_shell",
             json!({"command": "cat Cargo.toml | head -5"}),
         ),
+    ];
+    #[cfg(windows)]
+    let mut requests: Vec<(&str, serde_json::Value)> = vec![
+        ("sandboxed_shell", json!({"command": "echo test1"})),
+        ("sandboxed_shell", json!({"command": "echo test2"})),
+        ("sandboxed_shell", json!({"command": "echo test3"})),
+        ("sandboxed_shell", json!({"command": "echo test4"})),
+        ("sandboxed_shell", json!({"command": "echo test5"})),
+        ("sandboxed_shell", json!({"command": "pwd"})),
+        ("sandboxed_shell", json!({"command": "whoami"})),
+        ("sandboxed_shell", json!({"command": "Get-Date"})),
+        ("sandboxed_shell", json!({"command": "Get-ChildItem Cargo.toml"})),
+        ("sandboxed_shell", json!({"command": "echo done"})),
     ];
 
     if is_low_core_or_ci() {

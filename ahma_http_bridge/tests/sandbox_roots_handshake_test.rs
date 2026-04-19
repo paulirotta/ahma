@@ -40,7 +40,7 @@ use tempfile::TempDir;
 use tokio::time::sleep;
 
 fn roots_handshake_timeout() -> Duration {
-    TestTimeouts::get(TimeoutCategory::Handshake)
+    TestTimeouts::get(TimeoutCategory::SseStream)
 }
 
 // =============================================================================

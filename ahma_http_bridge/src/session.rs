@@ -1149,9 +1149,9 @@ impl SessionManager {
                             let timestamp = format!("[{}]", Local::now().format("%H:%M:%S%.3f"));
                             if let Ok(parsed) = serde_json::from_str::<Value>(&line) {
                                 let pretty = serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| line.clone());
-                                eprintln!("{} {} {}\n{}", timestamp, format!("[{}]", &session.id[..8]).red(), "WARNING STDERR:".red(), pretty.red());
+                                eprintln!("{} {} {}\n{}", timestamp, format!("[{}]", &session.id[..8]).red(), "STDERR:".yellow(), pretty.dimmed());
                             } else {
-                                eprintln!("{} {} {}\n{}", timestamp, format!("[{}]", &session.id[..8]).red(), "WARNING STDERR:".red(), line.red());
+                                eprintln!("{} {} {}\n{}", timestamp, format!("[{}]", &session.id[..8]).red(), "STDERR:".yellow(), line.dimmed());
                             }
                         }
                         Ok(Some(_)) => {} // Empty line
