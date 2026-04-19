@@ -392,11 +392,19 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
     let resp1 = client
         .post(format!("{}/mcp", server1.base_url()))
         .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json")
         .json(&init_req("server1-client"))
         .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("Initialize server1 failed");
+
+    assert!(
+        resp1.status().is_success(),
+        "Initialize server1 should succeed. status={}, body={}",
+        resp1.status(),
+        resp1.text().await.unwrap_or_default()
+    );
 
     let session_id1 = resp1
         .headers()
@@ -408,11 +416,19 @@ async fn test_handshake_timeout_is_per_server_via_cli() {
     let resp2 = client
         .post(format!("{}/mcp", server2.base_url()))
         .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json")
         .json(&init_req("server2-client"))
         .timeout(TestTimeouts::get(TimeoutCategory::HttpRequest))
         .send()
         .await
         .expect("Initialize server2 failed");
+
+    assert!(
+        resp2.status().is_success(),
+        "Initialize server2 should succeed. status={}, body={}",
+        resp2.status(),
+        resp2.text().await.unwrap_or_default()
+    );
 
     let session_id2 = resp2
         .headers()

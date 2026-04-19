@@ -184,10 +184,10 @@ fn build_server_spec(
 
     if let Some(timeout) = handshake_timeout_secs {
         env.push(("AHMA_HANDSHAKE_TIMEOUT".to_string(), timeout.to_string()));
-        env.push((
-            "AHMA_HTTP_BRIDGE_REQUEST_TIMEOUT_SECS".to_string(),
-            timeout.to_string(),
-        ));
+        // Keep bridge→subprocess request timeout independent from handshake timeout.
+        // Handshake timeout governs sandbox-lock gating, while request timeout also
+        // affects initialize forwarding. Coupling them (e.g. 2s) can make initialize
+        // flaky on slower Windows CI runners.
     }
 
     ServerSpec {
