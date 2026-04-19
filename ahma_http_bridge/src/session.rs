@@ -472,6 +472,45 @@ pub struct SessionManager {
     config: SessionManagerConfig,
 }
 
+/// Extract the request ID from a JSON-RPC request value.
+/// Returns `None` for absent or null IDs (notifications).
+fn extract_request_id(request: &Value) -> Option<String> {
+    request.get("id").and_then(|id| {
+        if id.is_null() {
+            None
+        } else if id.is_string() {
+            Some(id.as_str().unwrap().to_string())
+        } else {
+            Some(id.to_string())
+        }
+    })
+}
+
+/// Wait for a JSON-RPC response via a oneshot channel, or return immediately for notifications.
+async fn await_response(
+    response_rx: Option<oneshot::Receiver<Value>>,
+    timeout: Option<Duration>,
+    id_opt: &Option<String>,
+    pending: &DashMap<String, oneshot::Sender<Value>>,
+) -> Result<Value> {
+    let Some(rx) = response_rx else {
+        return Ok(serde_json::json!({"jsonrpc": "2.0", "result": null}));
+    };
+    let wait_timeout = timeout.unwrap_or_else(|| Duration::from_secs(request_timeout_secs()));
+    match tokio::time::timeout(wait_timeout, rx).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(_)) => Err(BridgeError::Communication(
+            "Response channel closed".to_string(),
+        )),
+        Err(_) => {
+            if let Some(id) = id_opt {
+                pending.remove(id);
+            }
+            Err(BridgeError::Communication("Request timed out".to_string()))
+        }
+    }
+}
+
 impl SessionManager {
     #[cfg(target_os = "windows")]
     fn is_windows_drive_path(path: &str) -> bool {
@@ -743,16 +782,7 @@ impl SessionManager {
             ));
         }
 
-        // Get request ID - treat null as absent (notification)
-        let id_opt = request.get("id").and_then(|id| {
-            if id.is_null() {
-                None
-            } else if id.is_string() {
-                Some(id.as_str().unwrap().to_string())
-            } else {
-                Some(id.to_string())
-            }
-        });
+        let id_opt = extract_request_id(request);
 
         let (response_tx, response_rx) = if id_opt.is_some() {
             let (tx, rx) = oneshot::channel();
@@ -783,26 +813,7 @@ impl SessionManager {
                 BridgeError::Communication(format!("Failed to send to subprocess: {}", e))
             })?;
 
-        // Wait for response if this is a request (has ID)
-        if let Some(rx) = response_rx {
-            let wait_timeout =
-                timeout.unwrap_or_else(|| Duration::from_secs(request_timeout_secs()));
-            match tokio::time::timeout(wait_timeout, rx).await {
-                Ok(Ok(response)) => Ok(response),
-                Ok(Err(_)) => Err(BridgeError::Communication(
-                    "Response channel closed".to_string(),
-                )),
-                Err(_) => {
-                    if let Some(id) = &id_opt {
-                        session.pending_requests.remove(id);
-                    }
-                    Err(BridgeError::Communication("Request timed out".to_string()))
-                }
-            }
-        } else {
-            // Notification, return success immediately
-            Ok(serde_json::json!({"jsonrpc": "2.0", "result": null}))
-        }
+        await_response(response_rx, timeout, &id_opt, &session.pending_requests).await
     }
 
     /// Lock sandbox scope for a session (called when observing first roots/list response).

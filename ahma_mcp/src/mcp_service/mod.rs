@@ -322,6 +322,170 @@ impl AhmaMcpService {
 
         parts.join("\n")
     }
+
+    fn determine_execution_mode(
+        &self,
+        subcommand_config: &crate::config::SubcommandConfig,
+        tool_config: &ToolConfig,
+        explicit_mode_str: Option<&str>,
+    ) -> crate::adapter::ExecutionMode {
+        let sync_override = subcommand_config.synchronous.or(tool_config.synchronous);
+        if sync_override == Some(true) {
+            crate::adapter::ExecutionMode::Synchronous
+        } else if sync_override == Some(false) {
+            crate::adapter::ExecutionMode::AsyncResultPush
+        } else if self.force_synchronous {
+            crate::adapter::ExecutionMode::Synchronous
+        } else if explicit_mode_str == Some("Synchronous") {
+            crate::adapter::ExecutionMode::Synchronous
+        } else {
+            crate::adapter::ExecutionMode::AsyncResultPush
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn call_sync_tool(
+        &self,
+        id: String,
+        base_command: &str,
+        working_directory: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+        timeout: Option<u64>,
+        subcommand_config: &crate::config::SubcommandConfig,
+        progress_token: Option<rmcp::model::ProgressToken>,
+        client_type: McpClientType,
+        peer: Peer<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(token) = progress_token.clone() {
+            let callback = McpCallbackSender::new(peer.clone(), id.clone(), Some(token), client_type);
+            let _ = callback
+                .send_progress(crate::callback_system::ProgressUpdate::Started {
+                    id: id.clone(),
+                    command: base_command.to_string(),
+                    description: format!("Execute {} in {}", base_command, working_directory),
+                })
+                .await;
+        }
+
+        let result = self
+            .adapter
+            .execute_sync_in_dir(
+                base_command,
+                Some(arguments),
+                working_directory,
+                timeout,
+                Some(subcommand_config),
+            )
+            .await;
+
+        if let Some(token) = progress_token {
+            let callback = McpCallbackSender::new(peer, id.clone(), Some(token), client_type);
+            let final_update = match &result {
+                Ok(output) => crate::callback_system::ProgressUpdate::FinalResult {
+                    id: id.clone(),
+                    command: base_command.to_string(),
+                    description: format!("Execute {} in {}", base_command, working_directory),
+                    working_directory: working_directory.to_string(),
+                    success: true,
+                    duration_ms: 0,
+                    full_output: output.clone(),
+                },
+                Err(e) => crate::callback_system::ProgressUpdate::FinalResult {
+                    id: id.clone(),
+                    command: base_command.to_string(),
+                    description: format!("Execute {} in {}", base_command, working_directory),
+                    working_directory: working_directory.to_string(),
+                    success: false,
+                    duration_ms: 0,
+                    full_output: format!("Error: {}", e),
+                },
+            };
+            let _ = callback.send_progress(final_update).await;
+        }
+
+        match result {
+            Ok(output) => Ok(handlers::common::text_result(output)),
+            Err(e) => {
+                let error_message = format!("Synchronous execution failed: {}", e);
+                tracing::error!("{}", error_message);
+                Err(handlers::common::mcp_internal(error_message))
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn call_async_tool(
+        &self,
+        tool_name: &str,
+        id: String,
+        base_command: &str,
+        working_directory: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+        timeout: Option<u64>,
+        subcommand_config: &crate::config::SubcommandConfig,
+        config: &ToolConfig,
+        progress_token: Option<rmcp::model::ProgressToken>,
+        client_type: McpClientType,
+        peer: Peer<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
+            Box::new(McpCallbackSender::new(peer, id.clone(), Some(token), client_type))
+                as Box<dyn CallbackSender>
+        });
+
+        let log_monitor_config = config.monitor_level.as_deref().map(|level_str| {
+            let level = level_str
+                .parse::<crate::log_monitor::LogLevel>()
+                .unwrap_or(crate::log_monitor::LogLevel::Error);
+            let stream = config
+                .monitor_stream
+                .as_deref()
+                .and_then(|s| s.parse::<crate::log_monitor::MonitorStream>().ok())
+                .unwrap_or(crate::log_monitor::MonitorStream::Stderr);
+            crate::log_monitor::LogMonitorConfig {
+                monitor_level: level,
+                monitor_stream: stream,
+                rate_limit_seconds: self.monitor_rate_limit_seconds,
+            }
+        });
+
+        let job_id = self
+            .adapter
+            .execute_async_in_dir_with_options(
+                tool_name,
+                base_command,
+                working_directory,
+                crate::adapter::AsyncExecOptions {
+                    id: Some(id),
+                    args: Some(arguments),
+                    timeout,
+                    callback,
+                    subcommand_config: Some(subcommand_config),
+                    log_monitor_config,
+                },
+            )
+            .await;
+
+        match job_id {
+            Ok(id) => {
+                if let Some(result) = handlers::common::try_automatic_async_completion(
+                    &self.operation_monitor,
+                    &id,
+                )
+                .await
+                {
+                    return Ok(result);
+                }
+                let hint = crate::tool_hints::preview(&id, tool_name);
+                Ok(handlers::common::text_result(format!("AHMA ID: {}{}", id, hint)))
+            }
+            Err(e) => {
+                let error_message = format!("Failed to start asynchronous operation: {}", e);
+                tracing::error!("{}", error_message);
+                Err(handlers::common::mcp_internal(error_message))
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -840,206 +1004,46 @@ impl ServerHandler for AhmaMcpService {
                 .unwrap_or_else(|| ".".to_string());
 
             let timeout = arguments.get("timeout_seconds").and_then(|v| v.as_u64());
+            let execution_mode = self.determine_execution_mode(
+                subcommand_config,
+                &config,
+                arguments.get("execution_mode").and_then(|v| v.as_str()),
+            );
 
-            // Determine execution mode (default is ASYNCHRONOUS):
-            // 1. If synchronous=true in config (subcommand or inherited from tool), ALWAYS use sync
-            // 2. If synchronous=false in config, ALWAYS use async (explicit async override)
-            // 3. If --sync CLI flag was used (force_synchronous=true), use sync mode
-            // 4. Check explicit execution_mode argument (for advanced use)
-            // 5. Default to ASYNCHRONOUS
-            //
-            // Inheritance: subcommand.synchronous overrides tool.synchronous
-            // If subcommand doesn't specify, inherit from tool level
-            let sync_override = subcommand_config.synchronous.or(config.synchronous);
-            let execution_mode = if sync_override == Some(true) {
-                // Config explicitly requires synchronous: FORCE sync mode
-                crate::adapter::ExecutionMode::Synchronous
-            } else if sync_override == Some(false) {
-                // Config explicitly requires async: FORCE async mode (ignores --sync flag)
-                crate::adapter::ExecutionMode::AsyncResultPush
-            } else if self.force_synchronous {
-                // --sync flag was used and not overridden by config: use sync mode
-                crate::adapter::ExecutionMode::Synchronous
-            } else if let Some(mode_str) = arguments.get("execution_mode").and_then(|v| v.as_str())
-            {
-                match mode_str {
-                    "Synchronous" => crate::adapter::ExecutionMode::Synchronous,
-                    "AsyncResultPush" => crate::adapter::ExecutionMode::AsyncResultPush,
-                    _ => crate::adapter::ExecutionMode::AsyncResultPush, // Default to async
-                }
-            } else {
-                // Default to ASYNCHRONOUS mode
-                crate::adapter::ExecutionMode::AsyncResultPush
-            };
+            let id = format!("op_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+            let progress_token = context.meta.get_progress_token();
+            let client_type = McpClientType::from_peer(&context.peer);
 
             match execution_mode {
                 crate::adapter::ExecutionMode::Synchronous => {
-                    let id = format!("op_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-                    let progress_token = context.meta.get_progress_token();
-                    let client_type = McpClientType::from_peer(&context.peer);
-
-                    // Send 'Started' notification if progress token is present
-                    if let Some(token) = progress_token.clone() {
-                        let callback = McpCallbackSender::new(
-                            context.peer.clone(),
-                            id.clone(),
-                            Some(token),
-                            client_type,
-                        );
-                        let _ = callback
-                            .send_progress(crate::callback_system::ProgressUpdate::Started {
-                                id: id.clone(),
-                                command: base_command.clone(),
-                                description: format!(
-                                    "Execute {} in {}",
-                                    base_command, working_directory
-                                ),
-                            })
-                            .await;
-                    }
-
-                    let result = self
-                        .adapter
-                        .execute_sync_in_dir(
-                            &base_command,
-                            Some(arguments),
-                            &working_directory,
-                            timeout,
-                            Some(subcommand_config),
-                        )
-                        .await;
-
-                    // Send completion notification if progress token is present
-                    if let Some(token) = progress_token {
-                        let callback = McpCallbackSender::new(
-                            context.peer.clone(),
-                            id.clone(),
-                            Some(token),
-                            client_type,
-                        );
-                        match &result {
-                            Ok(output) => {
-                                let _ = callback
-                                    .send_progress(
-                                        crate::callback_system::ProgressUpdate::FinalResult {
-                                            id: id.clone(),
-                                            command: base_command.clone(),
-                                            description: format!(
-                                                "Execute {} in {}",
-                                                base_command, working_directory
-                                            ),
-                                            working_directory: working_directory.clone(),
-                                            success: true,
-                                            duration_ms: 0,
-                                            full_output: output.clone(),
-                                        },
-                                    )
-                                    .await;
-                            }
-                            Err(e) => {
-                                let _ = callback
-                                    .send_progress(
-                                        crate::callback_system::ProgressUpdate::FinalResult {
-                                            id: id.clone(),
-                                            command: base_command.clone(),
-                                            description: format!(
-                                                "Execute {} in {}",
-                                                base_command, working_directory
-                                            ),
-                                            working_directory: working_directory.clone(),
-                                            success: false,
-                                            duration_ms: 0,
-                                            full_output: format!("Error: {}", e),
-                                        },
-                                    )
-                                    .await;
-                            }
-                        }
-                    }
-
-                    match result {
-                        Ok(output) => Ok(handlers::common::text_result(output)),
-                        Err(e) => {
-                            let error_message = format!("Synchronous execution failed: {}", e);
-                            tracing::error!("{}", error_message);
-                            Err(handlers::common::mcp_internal(error_message))
-                        }
-                    }
+                    self.call_sync_tool(
+                        id,
+                        &base_command,
+                        &working_directory,
+                        arguments,
+                        timeout,
+                        subcommand_config,
+                        progress_token,
+                        client_type,
+                        context.peer.clone(),
+                    )
+                    .await
                 }
                 crate::adapter::ExecutionMode::AsyncResultPush => {
-                    let id = format!("op_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-                    // Only send progress notifications when the client provided a progressToken
-                    // in request `_meta`. Additionally, skip progress for clients that don't
-                    // handle them well (e.g., Cursor logs errors for valid tokens).
-                    let progress_token = context.meta.get_progress_token();
-                    let client_type = McpClientType::from_peer(&context.peer);
-                    let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
-                        Box::new(McpCallbackSender::new(
-                            context.peer.clone(),
-                            id.clone(),
-                            Some(token),
-                            client_type,
-                        )) as Box<dyn CallbackSender>
-                    });
-
-                    // Build log monitor config from MTDF tool-level settings
-                    let log_monitor_config = config.monitor_level.as_deref().map(|level_str| {
-                        let level = level_str
-                            .parse::<crate::log_monitor::LogLevel>()
-                            .unwrap_or(crate::log_monitor::LogLevel::Error);
-                        let stream = config
-                            .monitor_stream
-                            .as_deref()
-                            .and_then(|s| s.parse::<crate::log_monitor::MonitorStream>().ok())
-                            .unwrap_or(crate::log_monitor::MonitorStream::Stderr);
-                        crate::log_monitor::LogMonitorConfig {
-                            monitor_level: level,
-                            monitor_stream: stream,
-                            rate_limit_seconds: self.monitor_rate_limit_seconds,
-                        }
-                    });
-
-                    let job_id = self
-                        .adapter
-                        .execute_async_in_dir_with_options(
-                            tool_name,
-                            &base_command,
-                            &working_directory,
-                            crate::adapter::AsyncExecOptions {
-                                id: Some(id),
-                                args: Some(arguments),
-                                timeout,
-                                callback,
-                                subcommand_config: Some(subcommand_config),
-                                log_monitor_config,
-                            },
-                        )
-                        .await;
-
-                    match job_id {
-                        Ok(id) => {
-                            // Automatic async: wait briefly for fast commands to complete
-                            if let Some(result) = handlers::common::try_automatic_async_completion(
-                                &self.operation_monitor,
-                                &id,
-                            )
-                            .await
-                            {
-                                return Ok(result);
-                            }
-
-                            // Include tool hints to guide AI on handling async operations
-                            let hint = crate::tool_hints::preview(&id, tool_name);
-                            let message = format!("AHMA ID: {}{}", id, hint);
-                            Ok(handlers::common::text_result(message))
-                        }
-                        Err(e) => {
-                            let error_message =
-                                format!("Failed to start asynchronous operation: {}", e);
-                            tracing::error!("{}", error_message);
-                            Err(handlers::common::mcp_internal(error_message))
-                        }
-                    }
+                    self.call_async_tool(
+                        tool_name,
+                        id,
+                        &base_command,
+                        &working_directory,
+                        arguments,
+                        timeout,
+                        subcommand_config,
+                        &config,
+                        progress_token,
+                        client_type,
+                        context.peer.clone(),
+                    )
+                    .await
                 }
             }
         }

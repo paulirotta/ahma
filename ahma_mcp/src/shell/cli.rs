@@ -1149,6 +1149,94 @@ async fn run_tool_info_mode(args: InfoArgs) -> Result<()> {
     Ok(())
 }
 
+fn print_command_arg_flag(opt: &crate::config::CommandOption) {
+    let req = if opt.required.unwrap_or(false) {
+        "required"
+    } else {
+        "optional"
+    };
+    print!("        --{} ({}, {})", opt.name, opt.option_type, req);
+    if let Some(ref desc) = opt.description {
+        print!(": {}", desc);
+    }
+    println!();
+}
+
+fn print_command_arg_positional(arg: &crate::config::CommandOption) {
+    let req = if arg.required.unwrap_or(false) {
+        "required"
+    } else {
+        "optional"
+    };
+    print!("        <{}> ({}, {})", arg.name, arg.option_type, req);
+    if let Some(ref desc) = arg.description {
+        print!(": {}", desc);
+    }
+    println!();
+}
+
+fn print_subcommands(subs: &[crate::config::SubcommandConfig]) {
+    println!("  Subcommands:");
+    for sub in subs {
+        let status = if sub.enabled { "" } else { " (disabled)" };
+        println!("    - {}{}: {}", sub.name, status, sub.description);
+        if let Some(ref opts) = sub.options {
+            for opt in opts {
+                print_command_arg_flag(opt);
+            }
+        }
+        if let Some(ref pos) = sub.positional_args {
+            for arg in pos {
+                print_command_arg_positional(arg);
+            }
+        }
+    }
+}
+
+fn print_hints(h: &crate::config::ToolHints) {
+    let has_hints = h.build.is_some()
+        || h.test.is_some()
+        || h.dependencies.is_some()
+        || h.clean.is_some()
+        || h.run.is_some()
+        || h.custom.as_ref().is_some_and(|c| !c.is_empty());
+    if !has_hints {
+        return;
+    }
+    println!("  Hints:");
+    if let Some(ref v) = h.build {
+        println!("    build: {}", v);
+    }
+    if let Some(ref v) = h.test {
+        println!("    test: {}", v);
+    }
+    if let Some(ref v) = h.dependencies {
+        println!("    dependencies: {}", v);
+    }
+    if let Some(ref v) = h.clean {
+        println!("    clean: {}", v);
+    }
+    if let Some(ref v) = h.run {
+        println!("    run: {}", v);
+    }
+    if let Some(ref custom) = h.custom {
+        for (k, v) in custom {
+            println!("    {}: {}", k, v);
+        }
+    }
+}
+
+fn print_availability_check(ac: &crate::config::AvailabilityCheck) {
+    print!("  Availability check:");
+    if let Some(ref cmd) = ac.command {
+        print!(" {}", cmd);
+    }
+    if !ac.args.is_empty() {
+        print!(" {}", ac.args.join(" "));
+    }
+    println!();
+}
+
 fn print_tool_info_text(tools: &[(&String, &crate::config::ToolConfig)]) {
     println!("Local Tool Configurations");
     println!("=========================");
@@ -1167,92 +1255,16 @@ fn print_tool_info_text(tools: &[(&String, &crate::config::ToolConfig)]) {
         if let Some(sync) = config.synchronous {
             println!("  Synchronous: {}", sync);
         }
-
-        // Subcommands
         if let Some(ref subs) = config.subcommand {
-            println!("  Subcommands:");
-            for sub in subs {
-                let status = if sub.enabled { "" } else { " (disabled)" };
-                println!("    - {}{}: {}", sub.name, status, sub.description);
-
-                if let Some(ref opts) = sub.options {
-                    for opt in opts {
-                        let req = if opt.required.unwrap_or(false) {
-                            "required"
-                        } else {
-                            "optional"
-                        };
-                        print!("        --{} ({}, {})", opt.name, opt.option_type, req);
-                        if let Some(ref desc) = opt.description {
-                            print!(": {}", desc);
-                        }
-                        println!();
-                    }
-                }
-                if let Some(ref pos) = sub.positional_args {
-                    for arg in pos {
-                        let req = if arg.required.unwrap_or(false) {
-                            "required"
-                        } else {
-                            "optional"
-                        };
-                        print!("        <{}> ({}, {})", arg.name, arg.option_type, req);
-                        if let Some(ref desc) = arg.description {
-                            print!(": {}", desc);
-                        }
-                        println!();
-                    }
-                }
-            }
+            print_subcommands(subs);
         }
-
-        // Hints
-        let h = &config.hints;
-        let has_hints = h.build.is_some()
-            || h.test.is_some()
-            || h.dependencies.is_some()
-            || h.clean.is_some()
-            || h.run.is_some()
-            || h.custom.as_ref().is_some_and(|c| !c.is_empty());
-        if has_hints {
-            println!("  Hints:");
-            if let Some(ref v) = h.build {
-                println!("    build: {}", v);
-            }
-            if let Some(ref v) = h.test {
-                println!("    test: {}", v);
-            }
-            if let Some(ref v) = h.dependencies {
-                println!("    dependencies: {}", v);
-            }
-            if let Some(ref v) = h.clean {
-                println!("    clean: {}", v);
-            }
-            if let Some(ref v) = h.run {
-                println!("    run: {}", v);
-            }
-            if let Some(ref custom) = h.custom {
-                for (k, v) in custom {
-                    println!("    {}: {}", k, v);
-                }
-            }
-        }
-
+        print_hints(&config.hints);
         if let Some(ref ac) = config.availability_check {
-            print!("  Availability check:");
-            if let Some(ref cmd) = ac.command {
-                print!(" {}", cmd);
-            }
-            if !ac.args.is_empty() {
-                print!(" {}", ac.args.join(" "));
-            }
-            println!();
+            print_availability_check(ac);
         }
-
         if let Some(ref inst) = config.install_instructions {
             println!("  Install: {}", inst);
         }
-
         println!();
     }
 }

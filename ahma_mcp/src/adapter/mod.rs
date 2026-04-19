@@ -938,19 +938,7 @@ async fn execute_with_streaming(
             result = stderr_reader.next_line() => {
                 match result {
                     Ok(Some(line)) => {
-                        let safe_line = crate::log_monitor::redact_sensitive_line(&line);
-                        collected_stderr.push(safe_line);
-                        if let Some(snapshot) = log_monitor.process_line(&line, true)
-                            && let Some(callback) = callback {
-                                let alert = crate::callback_system::ProgressUpdate::LogAlert {
-                                    id: op_id.to_string(),
-                                    trigger_level: snapshot.trigger_level.to_string(),
-                                    context_snapshot: snapshot.format_for_notification(),
-                                    llm_summary: None,
-                                    trigger_lines: None,
-                                };
-                                let _ = callback.send_progress(alert).await;
-                            }
+                        process_streaming_line(&line, true, &mut collected_stderr, &mut log_monitor, callback, op_id).await;
                     }
                     Ok(None) => {
                         // stderr stream closed — wait for process to exit
@@ -966,19 +954,7 @@ async fn execute_with_streaming(
             result = stdout_reader.next_line() => {
                 match result {
                     Ok(Some(line)) => {
-                        let safe_line = crate::log_monitor::redact_sensitive_line(&line);
-                        collected_stdout.push(safe_line);
-                        if let Some(snapshot) = log_monitor.process_line(&line, false)
-                            && let Some(callback) = callback {
-                                let alert = crate::callback_system::ProgressUpdate::LogAlert {
-                                    id: op_id.to_string(),
-                                    trigger_level: snapshot.trigger_level.to_string(),
-                                    context_snapshot: snapshot.format_for_notification(),
-                                    llm_summary: None,
-                                    trigger_lines: None,
-                                };
-                                let _ = callback.send_progress(alert).await;
-                            }
+                        process_streaming_line(&line, false, &mut collected_stdout, &mut log_monitor, callback, op_id).await;
                     }
                     Ok(None) => {
                         // stdout stream closed
@@ -997,36 +973,10 @@ async fn execute_with_streaming(
             Ok(Some(_status)) => {
                 // Process exited. Drain remaining lines from both streams.
                 while let Ok(Some(line)) = stderr_reader.next_line().await {
-                    let safe_line = crate::log_monitor::redact_sensitive_line(&line);
-                    collected_stderr.push(safe_line);
-                    if let Some(snapshot) = log_monitor.process_line(&line, true)
-                        && let Some(callback) = callback
-                    {
-                        let alert = crate::callback_system::ProgressUpdate::LogAlert {
-                            id: op_id.to_string(),
-                            trigger_level: snapshot.trigger_level.to_string(),
-                            context_snapshot: snapshot.format_for_notification(),
-                            llm_summary: None,
-                            trigger_lines: None,
-                        };
-                        let _ = callback.send_progress(alert).await;
-                    }
+                    process_streaming_line(&line, true, &mut collected_stderr, &mut log_monitor, callback, op_id).await;
                 }
                 while let Ok(Some(line)) = stdout_reader.next_line().await {
-                    let safe_line = crate::log_monitor::redact_sensitive_line(&line);
-                    collected_stdout.push(safe_line);
-                    if let Some(snapshot) = log_monitor.process_line(&line, false)
-                        && let Some(callback) = callback
-                    {
-                        let alert = crate::callback_system::ProgressUpdate::LogAlert {
-                            id: op_id.to_string(),
-                            trigger_level: snapshot.trigger_level.to_string(),
-                            context_snapshot: snapshot.format_for_notification(),
-                            llm_summary: None,
-                            trigger_lines: None,
-                        };
-                        let _ = callback.send_progress(alert).await;
-                    }
+                    process_streaming_line(&line, false, &mut collected_stdout, &mut log_monitor, callback, op_id).await;
                 }
                 break;
             }
@@ -1124,6 +1074,31 @@ async fn handle_cancellation(
                 duration_ms,
             })
             .await;
+    }
+}
+
+/// Redact, collect, and optionally send a log-monitor alert for a single streamed line.
+async fn process_streaming_line(
+    line: &str,
+    is_stderr: bool,
+    collector: &mut BoundedLineCollector,
+    log_monitor: &mut crate::log_monitor::LogMonitor,
+    callback: &Option<Box<dyn crate::callback_system::CallbackSender>>,
+    op_id: &str,
+) {
+    let safe_line = crate::log_monitor::redact_sensitive_line(line);
+    collector.push(safe_line);
+    if let Some(snapshot) = log_monitor.process_line(line, is_stderr) {
+        if let Some(callback) = callback {
+            let alert = crate::callback_system::ProgressUpdate::LogAlert {
+                id: op_id.to_string(),
+                trigger_level: snapshot.trigger_level.to_string(),
+                context_snapshot: snapshot.format_for_notification(),
+                llm_summary: None,
+                trigger_lines: None,
+            };
+            let _ = callback.send_progress(alert).await;
+        }
     }
 }
 

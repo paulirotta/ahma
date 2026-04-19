@@ -11,6 +11,50 @@ use crate::utils::stdio::emit_stdout_notification;
 use super::AhmaMcpService;
 use crate::config::{ToolConfig, load_tool_configs};
 
+/// Emit a sandbox JSON-RPC notification on stdout.
+/// `error` is `None` for `notifications/sandbox/configured`, `Some(msg)` for failed.
+fn emit_sandbox_notification(method: &str, error: Option<&str>) {
+    let payload = match error {
+        Some(err) => serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": { "error": err }
+        }),
+        None => serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+        }),
+    };
+    match serde_json::to_string(&payload) {
+        Ok(notification) => {
+            let _ = emit_stdout_notification(&notification);
+        }
+        Err(_) => {
+            tracing::warn!("Failed to serialize sandbox notification: {}", method);
+        }
+    }
+}
+
+/// Parse a single `file://` URI from a roots/list response into a `PathBuf`.
+/// Returns `None` and logs a warning for non-file or unparseable URIs.
+fn parse_root_uri_to_scope(uri: &str) -> Option<PathBuf> {
+    let url = url::Url::parse(uri).ok()?;
+    if url.scheme() != "file" {
+        tracing::warn!("Ignoring non-file URI: {}", uri);
+        return None;
+    }
+    match url.to_file_path() {
+        Ok(path) => {
+            tracing::info!("Parsed valid file URI: {} -> {:?}", uri, path);
+            Some(path)
+        }
+        Err(()) => {
+            tracing::warn!("Failed to convert file URI to path: {}", uri);
+            None
+        }
+    }
+}
+
 /// Snapshot of JSON files in a directory for polling-based change detection.
 /// Tracks file names and sizes to detect additions, removals, and modifications.
 async fn snapshot_json_files(dir: &Path) -> Vec<(String, u64)> {
@@ -175,12 +219,44 @@ impl AhmaMcpService {
     ///
     /// This implements the MCP roots protocol where the server requests the
     /// client's workspace roots to establish sandbox boundaries.
+    /// Update sandbox scopes and (on Linux) enforce Landlock restrictions.
+    /// Emits `notifications/sandbox/failed` and returns `false` on error.
+    async fn apply_and_enforce_scopes(&self, new_scopes: Vec<PathBuf>) -> bool {
+        match self.adapter.sandbox().update_scopes(new_scopes.clone()) {
+            Ok(()) => tracing::info!("Sandbox scopes updated successfully"),
+            Err(e) => {
+                tracing::error!("Failed to update sandbox from roots: {}", e);
+                emit_sandbox_notification("notifications/sandbox/failed", Some(&e.to_string()));
+                return false;
+            }
+        }
+
+        // On Linux, apply Landlock kernel-level restrictions now that we have scopes.
+        // SECURITY: exit if Landlock enforcement fails — cannot guarantee security without it.
+        #[cfg(target_os = "linux")]
+        if !self.adapter.sandbox().is_test_mode() {
+            if let Err(e) = crate::sandbox::enforce_landlock_sandbox(
+                &new_scopes,
+                self.adapter.sandbox().read_scopes(),
+                self.adapter.sandbox().is_no_temp_files(),
+            ) {
+                tracing::error!(
+                    "FATAL: Failed to enforce Landlock sandbox: {}. \
+                     Exiting to prevent running without kernel-level security.",
+                    e
+                );
+                emit_sandbox_notification("notifications/sandbox/failed", Some(&e.to_string()));
+                std::process::exit(1);
+            }
+            tracing::info!("Landlock sandbox enforced successfully");
+        }
+
+        true
+    }
+
     pub async fn configure_sandbox_from_roots(&self, peer: &Peer<RoleServer>) {
         let timeout_duration = TestTimeouts::get(TimeoutCategory::SseStream);
-        tracing::info!(
-            timeout = ?timeout_duration,
-            "Requesting roots/list from client..."
-        );
+        tracing::info!(timeout = ?timeout_duration, "Requesting roots/list from client...");
 
         let list_result = match tokio::time::timeout(timeout_duration, peer.list_roots()).await {
             Ok(result) => result,
@@ -190,153 +266,63 @@ impl AhmaMcpService {
                      This may indicate a stdio communication issue.",
                     timeout_duration
                 );
-                if let Ok(notification) = serde_json::to_string(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/sandbox/failed",
-                    "params": { "error": format!("Timeout waiting for roots/list response after {:?}", timeout_duration) }
-                })) {
-                    let _ = emit_stdout_notification(&notification);
-                }
+                emit_sandbox_notification(
+                    "notifications/sandbox/failed",
+                    Some(&format!(
+                        "Timeout waiting for roots/list response after {:?}",
+                        timeout_duration
+                    )),
+                );
                 return;
             }
         };
         tracing::debug!("peer.list_roots() returned: ok={}", list_result.is_ok());
 
-        match list_result {
-            Ok(result) => {
-                let roots = result.roots;
-                tracing::info!("Received {} roots from client: {:?}", roots.len(), roots);
-
-                // Convert McpRoot URIs to PathBufs
-                let mut new_scopes = Vec::new();
-                for root in roots.iter() {
-                    #[allow(clippy::collapsible_if)]
-                    if let Ok(url) = url::Url::parse(&root.uri) {
-                        if url.scheme() == "file" {
-                            match url.to_file_path() {
-                                Ok(path) => {
-                                    tracing::info!(
-                                        "Parsed valid file URI: {} -> {:?}",
-                                        root.uri,
-                                        path
-                                    );
-                                    new_scopes.push(path);
-                                }
-                                Err(()) => {
-                                    tracing::warn!(
-                                        "Failed to convert file URI to path: {}",
-                                        root.uri
-                                    );
-                                }
-                            }
-                        } else {
-                            tracing::warn!("Ignoring non-file URI: {}", root.uri);
-                        }
-                    } else {
-                        tracing::warn!("Failed to parse URI: {}", root.uri);
-                    }
-                }
-
-                tracing::info!(
-                    "Parsed {} valid scopes out of {} client roots",
-                    new_scopes.len(),
-                    roots.len()
-                );
-
-                if !new_scopes.is_empty() {
-                    tracing::debug!(
-                        "Attempting to update sandbox scopes with {} paths",
-                        new_scopes.len()
-                    );
-                    match self.adapter.sandbox().update_scopes(new_scopes.clone()) {
-                        Ok(()) => {
-                            tracing::info!("Sandbox scopes updated successfully");
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to update sandbox from roots: {}", e);
-                            if let Ok(notification) = serde_json::to_string(&serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "method": "notifications/sandbox/failed",
-                                "params": { "error": e.to_string() }
-                            })) {
-                                let _ = emit_stdout_notification(&notification);
-                            }
-                            return;
-                        }
-                    }
-
-                    // On Linux, apply Landlock kernel-level restrictions now that we have scopes.
-                    // This is critical for HTTP bridge deferred sandbox mode where Landlock
-                    // couldn't be applied at startup (scopes weren't known yet).
-                    // SECURITY: Fail the session if Landlock enforcement fails - we cannot
-                    // guarantee security without kernel-level restrictions.
-                    #[cfg(target_os = "linux")]
-                    {
-                        if !self.adapter.sandbox().is_test_mode() {
-                            if let Err(e) = crate::sandbox::enforce_landlock_sandbox(
-                                &new_scopes,
-                                self.adapter.sandbox().read_scopes(),
-                                self.adapter.sandbox().is_no_temp_files(),
-                            ) {
-                                tracing::error!(
-                                    "FATAL: Failed to enforce Landlock sandbox: {}. \
-                                     Exiting to prevent running without kernel-level security.",
-                                    e
-                                );
-                                if let Ok(notification) =
-                                    serde_json::to_string(&serde_json::json!({
-                                        "jsonrpc": "2.0",
-                                        "method": "notifications/sandbox/failed",
-                                        "params": { "error": e.to_string() }
-                                    }))
-                                {
-                                    let _ = emit_stdout_notification(&notification);
-                                }
-                                std::process::exit(1);
-                            }
-                            tracing::info!("Landlock sandbox enforced successfully");
-                        }
-                    }
-                } else if !self.adapter.sandbox().scopes().is_empty() {
-                    // Client provided no file:// roots but we have pre-configured scopes
-                    // from --working-directories. These are valid, so proceed.
-                    tracing::info!(
-                        "No new scopes from roots/list; using pre-configured scopes: {:?}",
-                        self.adapter.sandbox().scopes()
-                    );
-                } else {
-                    tracing::warn!("No scopes available from roots or pre-configuration");
-                    return;
-                }
-
-                // Notify bridge that sandbox has been configured so it can safely
-                // forward tools/call requests. We emit a JSON-RPC notification
-                // on stdout which the HTTP bridge listens for on the subprocess
-                // stdout stream.
-                // NOTE: we intentionally write the raw JSON to stdout instead of
-                // using rmcp Peer helpers here to avoid relying on generated
-                // methods for a new notification name.
-                tracing::debug!("About to send notifications/sandbox/configured");
-                if let Ok(notification) = serde_json::to_string(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/sandbox/configured"
-                })) {
-                    let _ = emit_stdout_notification(&notification);
-                    tracing::debug!("Sent notifications/sandbox/configured");
-                } else {
-                    tracing::warn!("Failed to serialize notifications/sandbox/configured");
-                }
-            }
+        let roots = match list_result {
+            Ok(result) => result.roots,
             Err(e) => {
                 tracing::error!("Failed to request roots/list: {}", e);
-                if let Ok(notification) = serde_json::to_string(&serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/sandbox/failed",
-                    "params": { "error": e.to_string() }
-                })) {
-                    let _ = emit_stdout_notification(&notification);
-                }
+                emit_sandbox_notification("notifications/sandbox/failed", Some(&e.to_string()));
+                return;
             }
+        };
+        tracing::info!("Received {} roots from client: {:?}", roots.len(), roots);
+
+        let new_scopes: Vec<PathBuf> = roots
+            .iter()
+            .filter_map(|r| parse_root_uri_to_scope(&r.uri))
+            .collect();
+        tracing::info!(
+            "Parsed {} valid scopes out of {} client roots",
+            new_scopes.len(),
+            roots.len()
+        );
+
+        if !new_scopes.is_empty() {
+            tracing::debug!(
+                "Attempting to update sandbox scopes with {} paths",
+                new_scopes.len()
+            );
+            if !self.apply_and_enforce_scopes(new_scopes).await {
+                return;
+            }
+        } else if !self.adapter.sandbox().scopes().is_empty() {
+            // Client provided no file:// roots but we have pre-configured scopes
+            // from --working-directories. These are valid, so proceed.
+            tracing::info!(
+                "No new scopes from roots/list; using pre-configured scopes: {:?}",
+                self.adapter.sandbox().scopes()
+            );
+        } else {
+            tracing::warn!("No scopes available from roots or pre-configuration");
+            return;
         }
+
+        // Notify bridge that sandbox has been configured so it can safely
+        // forward tools/call requests. NOTE: raw JSON on stdout — the HTTP bridge
+        // listens for this on the subprocess stdout stream.
+        tracing::debug!("About to send notifications/sandbox/configured");
+        emit_sandbox_notification("notifications/sandbox/configured", None);
+        tracing::debug!("Sent notifications/sandbox/configured");
     }
 }
