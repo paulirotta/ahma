@@ -314,6 +314,30 @@ fn write_emergencies(report: &mut String, files: &[FileSimplicity], limit: usize
                     ));
                 }
             }
+            // Show additional Detekt findings (style/other rules not in hotspots).
+            let other_issues: Vec<_> = f
+                .external_issues
+                .iter()
+                .filter(|i| {
+                    let r = i.rule.to_lowercase();
+                    !r.contains("cognitive") && !r.contains("cyclomatic")
+                })
+                .take(5)
+                .collect();
+            if !other_issues.is_empty() {
+                report.push_str("    - **Detekt Findings**:\n");
+                for issue in other_issues {
+                    let fn_ctx = issue
+                        .function_name
+                        .as_deref()
+                        .map(|n| format!(" in `{n}()`"))
+                        .unwrap_or_default();
+                    report.push_str(&format!(
+                        "      - [{}{}] {} (line {})\n",
+                        issue.rule, fn_ctx, issue.message, issue.start_line
+                    ));
+                }
+            }
         }
         report.push('\n');
     }
@@ -383,15 +407,47 @@ pub fn generate_ai_fix_prompt(
         ""
     };
 
+    // Build a hotspot section showing the worst functions so the AI knows where to focus.
+    let hotspot_section = if !file.hotspots.is_empty() {
+        let mut s = String::from("\nHOTSPOT FUNCTIONS (worst first — focus here):\n");
+        for h in &file.hotspots {
+            if h.cognitive > 0.0 || h.cyclomatic > 0.0 {
+                s.push_str(&format!(
+                    "  - `{}()` line {}: Cog={:.0}, Cyc={:.0}\n",
+                    h.name, h.start_line, h.cognitive, h.cyclomatic
+                ));
+            }
+        }
+        s
+    } else if !file.external_issues.is_empty() {
+        // Fallback for external-only analysis (e.g. Kotlin via Detekt) where
+        // hotspots were not populated — show raw tool findings instead.
+        let mut s = String::from("\nDETEKT FINDINGS (for context — fix the listed functions):\n");
+        for issue in file.external_issues.iter().take(10) {
+            let fn_ctx = issue
+                .function_name
+                .as_deref()
+                .map(|n| format!(" in `{n}()`"))
+                .unwrap_or_default();
+            s.push_str(&format!(
+                "  - [{}{}] line {}: {}\n",
+                issue.rule, fn_ctx, issue.start_line, issue.message
+            ));
+        }
+        s
+    } else {
+        String::new()
+    };
+
     Some(format!(
         "\
 === EVALUATE COMPLEXITY: ISSUE #{issue_number} ===
 
 TARGET: {rel_str}
 SIMPLICITY: {score:.0}% | FLAGGED REASON: {culprit}
-METRICS: Cognitive={cog:.0}, PeakCog={peak_cog:.0}, Cyclomatic={cyc:.0} (info only), SLOC={sloc:.0}, MI={mi:.1}{test_context}
+METRICS: Cognitive={cog:.0}, PeakCog={peak_cog:.0}, Cyclomatic={cyc:.0} (info only), SLOC={sloc:.0}, MI={mi:.1}{hotspot_section}{test_context}
 
-STEP 1 - READ the target file and the hotspot functions listed in the report above.
+STEP 1 - READ the target file and the hotspot functions listed above.
 
 STEP 2 - EVALUATE critically: Is this code genuinely hard to understand and maintain?
    Ask yourself:
@@ -424,6 +480,7 @@ STEP 5 - Report: either (a) the changes made and the measurable metric improveme
         cyc = file.cyclomatic,
         sloc = file.sloc,
         mi = file.mi,
+        hotspot_section = hotspot_section,
         test_context = test_context,
     ))
 }
@@ -475,6 +532,7 @@ mod tests {
             mi,
             peak_cognitive: 0.0,
             hotspots: vec![],
+            external_issues: vec![],
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
     }
@@ -501,6 +559,7 @@ mod tests {
             mi,
             peak_cognitive: 0.0,
             hotspots,
+            external_issues: vec![],
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
     }

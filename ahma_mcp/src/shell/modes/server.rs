@@ -31,8 +31,8 @@ async fn try_setup_mcp_client(config: &AppConfig) -> Result<()> {
                 && let MpcServerConfig::Http(http_config) = server_config
             {
                 tracing::info!("Initializing HTTP MCP Client for: {}", http_config.url);
-                let url = url::Url::parse(&http_config.url)
-                    .context("Failed to parse MCP server URL")?;
+                let url =
+                    url::Url::parse(&http_config.url).context("Failed to parse MCP server URL")?;
                 let transport = HttpMcpTransport::new(
                     url,
                     http_config.atlassian_client_id.clone(),
@@ -111,7 +111,9 @@ async fn wait_for_active_operations(
         for op in final_summary.operations.iter() {
             tracing::debug!(
                 "Attempting to cancel operation '{}' ({}) with reason: '{}'",
-                op.id, op.tool_name, shutdown_reason
+                op.id,
+                op.tool_name,
+                shutdown_reason
             );
             let cancelled = operation_monitor
                 .cancel_operation_with_reason(&op.id, Some(shutdown_reason.to_string()))
@@ -119,7 +121,11 @@ async fn wait_for_active_operations(
             if cancelled {
                 info!("   OK Cancelled operation '{}' ({})", op.id, op.tool_name);
             } else {
-                tracing::warn!("   WARNING Failed to cancel operation '{}' ({})", op.id, op.tool_name);
+                tracing::warn!(
+                    "   WARNING Failed to cancel operation '{}' ({})",
+                    op.id,
+                    op.tool_name
+                );
             }
         }
     }
@@ -240,7 +246,10 @@ pub async fn run_server_mode(config: AppConfig, sandbox: Arc<sandbox::Sandbox>) 
         sandbox_mode_name(&sandbox),
         sandbox_scopes,
         sandbox.is_no_temp_files(),
-        config.tools_dir.as_ref().map_or_else(|| "<none>".to_string(), |dir| dir.display().to_string()),
+        config
+            .tools_dir
+            .as_ref()
+            .map_or_else(|| "<none>".to_string(), |dir| dir.display().to_string()),
         loaded_tools_count,
     );
 

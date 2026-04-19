@@ -973,10 +973,26 @@ async fn execute_with_streaming(
             Ok(Some(_status)) => {
                 // Process exited. Drain remaining lines from both streams.
                 while let Ok(Some(line)) = stderr_reader.next_line().await {
-                    process_streaming_line(&line, true, &mut collected_stderr, &mut log_monitor, callback, op_id).await;
+                    process_streaming_line(
+                        &line,
+                        true,
+                        &mut collected_stderr,
+                        &mut log_monitor,
+                        callback,
+                        op_id,
+                    )
+                    .await;
                 }
                 while let Ok(Some(line)) = stdout_reader.next_line().await {
-                    process_streaming_line(&line, false, &mut collected_stdout, &mut log_monitor, callback, op_id).await;
+                    process_streaming_line(
+                        &line,
+                        false,
+                        &mut collected_stdout,
+                        &mut log_monitor,
+                        callback,
+                        op_id,
+                    )
+                    .await;
                 }
                 break;
             }

@@ -190,7 +190,8 @@ fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, Ex
     // Collect all XML reports produced across root and module directories,
     // then merge them into a single map.
     let xml_paths = collect_xml_reports(project_dir, task);
-    if xml_paths.is_empty() {
+    let sarif_paths = collect_sarif_reports(project_dir);
+    if xml_paths.is_empty() && sarif_paths.is_empty() {
         anyhow::bail!(
             "Detekt report directory '{}' not found. \
              Ensure the detekt Gradle plugin is applied and the task ran successfully.",
@@ -208,6 +209,22 @@ fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, Ex
             }
             Err(e) => {
                 eprintln!("  [detekt] failed to parse {}: {e:#}", xml_path.display());
+            }
+        }
+    }
+    // Also process SARIF reports — some projects configure SARIF for IDE integration.
+    for sarif_path in &sarif_paths {
+        match parse_sarif_report(sarif_path, project_dir) {
+            Ok(file_metrics) => {
+                for (path, m) in file_metrics {
+                    super::external::merge_into(all_metrics.entry(path).or_default(), m);
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "  [detekt] failed to parse SARIF {}: {e:#}",
+                    sarif_path.display()
+                );
             }
         }
     }
@@ -477,6 +494,158 @@ fn extract_complexity_value(message: &str) -> Option<f64> {
 }
 
 // ---------------------------------------------------------------------------
+// SARIF report support
+// ---------------------------------------------------------------------------
+
+/// Collect all Detekt SARIF reports under `project_dir`.
+///
+/// Looks in the same report directories as [`collect_xml_reports`].
+fn collect_sarif_reports(project_dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut candidate_dirs: Vec<PathBuf> = vec![project_dir.join("build/reports/detekt")];
+    if let Ok(entries) = std::fs::read_dir(project_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                candidate_dirs.push(path.join("build/reports/detekt"));
+            }
+        }
+    }
+    for reports_dir in candidate_dirs {
+        if !reports_dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("sarif"))
+                {
+                    found.push(p);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Parse a SARIF 2.1.0 report produced by Detekt into per-file metrics.
+///
+/// Uses `serde_json::Value` traversal to avoid a full schema struct, keeping
+/// the implementation compact and resilient to schema variations.
+fn parse_sarif_report(
+    path: &Path,
+    project_dir: &Path,
+) -> Result<HashMap<PathBuf, ExternalMetrics>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Cannot read SARIF report '{}'", path.display()))?;
+    let doc: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Cannot parse SARIF JSON from '{}'", path.display()))?;
+
+    let mut metrics: HashMap<PathBuf, ExternalMetrics> = HashMap::new();
+
+    let Some(runs) = doc.get("runs").and_then(|v| v.as_array()) else {
+        return Ok(metrics);
+    };
+
+    for run in runs {
+        // Build uriBaseId → base path map for resolving relative artifact URIs.
+        let base_paths: HashMap<String, PathBuf> = run
+            .get("originalUriBaseIds")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(key, val)| {
+                        let uri = val.get("uri")?.as_str()?;
+                        let path_str = uri.strip_prefix("file://").unwrap_or(uri);
+                        Some((key.clone(), PathBuf::from(path_str)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let Some(results) = run.get("results").and_then(|v| v.as_array()) else {
+            continue;
+        };
+
+        for result in results {
+            let rule_id = result.get("ruleId").and_then(|v| v.as_str()).unwrap_or("");
+            // "detekt.complexity/CyclomaticComplexMethod" → "CyclomaticComplexMethod"
+            let rule = rule_id.rsplit('/').next().unwrap_or(rule_id).to_string();
+
+            let message = result
+                .get("message")
+                .and_then(|m| m.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let level_str = result
+                .get("level")
+                .and_then(|v| v.as_str())
+                .unwrap_or("warning");
+            let severity = match level_str {
+                "error" => Severity::Error,
+                "note" => Severity::Info,
+                _ => Severity::Warning,
+            };
+
+            // Resolve file path from the first location entry.
+            let phys = result
+                .get("locations")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|l| l.get("physicalLocation"));
+            let Some(phys) = phys else { continue };
+
+            let artifact = phys.get("artifactLocation");
+            let uri = artifact
+                .and_then(|a| a.get("uri"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let uri_base_id = artifact
+                .and_then(|a| a.get("uriBaseId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("%SRCROOT%");
+            let start_line: u32 = phys
+                .get("region")
+                .and_then(|r| r.get("startLine"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+
+            let file_path = if let Some(base) = base_paths.get(uri_base_id) {
+                base.join(uri)
+            } else {
+                let raw = uri.strip_prefix("file://").unwrap_or(uri);
+                if Path::new(raw).is_absolute() {
+                    PathBuf::from(raw)
+                } else {
+                    project_dir.join(raw)
+                }
+            };
+
+            let issue = ExternalIssue {
+                rule: rule.clone(),
+                severity,
+                function_name: extract_function_name(&message),
+                complexity_value: extract_complexity_value(&message),
+                message,
+                start_line,
+            };
+
+            let entry = metrics.entry(file_path).or_insert_with(|| ExternalMetrics {
+                analyzer: "detekt".to_string(),
+                ..ExternalMetrics::default()
+            });
+            accumulate_issue(entry, &issue);
+            entry.issues.push(issue);
+        }
+    }
+
+    Ok(metrics)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -600,6 +769,95 @@ mod tests {
         assert!(analyzer.supports_language(Language::Kotlin));
         assert!(!analyzer.supports_language(Language::Rust));
         assert!(!analyzer.supports_language(Language::Java));
+    }
+
+    // --- SARIF parser tests ---
+
+    const SAMPLE_SARIF: &str = r#"{
+  "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json",
+  "version": "2.1.0",
+  "runs": [{
+    "tool": { "driver": { "name": "detekt", "version": "1.23.7", "rules": [] } },
+    "originalUriBaseIds": {
+      "%SRCROOT%": { "uri": "file:///project/" }
+    },
+    "results": [
+      {
+        "ruleId": "detekt.complexity/CyclomaticComplexMethod",
+        "level": "warning",
+        "message": { "text": "The function processData has a cyclomatic complexity of 12 (threshold = 10)." },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "src/main/kotlin/Manager.kt", "uriBaseId": "%SRCROOT%" },
+            "region": { "startLine": 15 }
+          }
+        }]
+      },
+      {
+        "ruleId": "detekt.complexity/CognitiveComplexMethod",
+        "level": "warning",
+        "message": { "text": "The function handleResult has a cognitive complexity of 8 (threshold = 5)." },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "src/main/kotlin/Manager.kt", "uriBaseId": "%SRCROOT%" },
+            "region": { "startLine": 50 }
+          }
+        }]
+      },
+      {
+        "ruleId": "detekt.style/LongMethod",
+        "level": "warning",
+        "message": { "text": "The function buildQuery is too long (85/40)." },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "src/main/kotlin/Manager.kt", "uriBaseId": "%SRCROOT%" },
+            "region": { "startLine": 80 }
+          }
+        }]
+      }
+    ]
+  }]
+}"#;
+
+    #[test]
+    fn test_sarif_parse_finds_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let sarif_path = tmp.path().join("detekt.sarif");
+        std::fs::write(&sarif_path, SAMPLE_SARIF).unwrap();
+        let project_dir = PathBuf::from("/project");
+        let result = parse_sarif_report(&sarif_path, &project_dir).unwrap();
+        assert_eq!(result.len(), 1, "should find 1 file from SARIF");
+    }
+
+    #[test]
+    fn test_sarif_parse_aggregates_complexity() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let sarif_path = tmp.path().join("detekt.sarif");
+        std::fs::write(&sarif_path, SAMPLE_SARIF).unwrap();
+        let project_dir = PathBuf::from("/project");
+        let result = parse_sarif_report(&sarif_path, &project_dir).unwrap();
+        let manager = result.values().next().expect("should have one file entry");
+        assert_eq!(manager.cyclomatic, Some(12.0), "cyclomatic from SARIF");
+        assert_eq!(manager.cognitive, Some(8.0), "cognitive from SARIF");
+        assert_eq!(manager.issues.len(), 3, "all 3 issues captured");
+    }
+
+    #[test]
+    fn test_sarif_parse_function_names() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let sarif_path = tmp.path().join("detekt.sarif");
+        std::fs::write(&sarif_path, SAMPLE_SARIF).unwrap();
+        let project_dir = PathBuf::from("/project");
+        let result = parse_sarif_report(&sarif_path, &project_dir).unwrap();
+        let manager = result.values().next().unwrap();
+        assert_eq!(
+            manager.issues[0].function_name.as_deref(),
+            Some("processData")
+        );
+        assert_eq!(
+            manager.issues[1].function_name.as_deref(),
+            Some("handleResult")
+        );
     }
 
     // --- setup_hint tests ---

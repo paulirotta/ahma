@@ -357,7 +357,8 @@ impl AhmaMcpService {
         peer: Peer<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         if let Some(token) = progress_token.clone() {
-            let callback = McpCallbackSender::new(peer.clone(), id.clone(), Some(token), client_type);
+            let callback =
+                McpCallbackSender::new(peer.clone(), id.clone(), Some(token), client_type);
             let _ = callback
                 .send_progress(crate::callback_system::ProgressUpdate::Started {
                     id: id.clone(),
@@ -429,8 +430,12 @@ impl AhmaMcpService {
         peer: Peer<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
-            Box::new(McpCallbackSender::new(peer, id.clone(), Some(token), client_type))
-                as Box<dyn CallbackSender>
+            Box::new(McpCallbackSender::new(
+                peer,
+                id.clone(),
+                Some(token),
+                client_type,
+            )) as Box<dyn CallbackSender>
         });
 
         let log_monitor_config = config.monitor_level.as_deref().map(|level_str| {
@@ -468,16 +473,17 @@ impl AhmaMcpService {
 
         match job_id {
             Ok(id) => {
-                if let Some(result) = handlers::common::try_automatic_async_completion(
-                    &self.operation_monitor,
-                    &id,
-                )
-                .await
+                if let Some(result) =
+                    handlers::common::try_automatic_async_completion(&self.operation_monitor, &id)
+                        .await
                 {
                     return Ok(result);
                 }
                 let hint = crate::tool_hints::preview(&id, tool_name);
-                Ok(handlers::common::text_result(format!("AHMA ID: {}{}", id, hint)))
+                Ok(handlers::common::text_result(format!(
+                    "AHMA ID: {}{}",
+                    id, hint
+                )))
             }
             Err(e) => {
                 let error_message = format!("Failed to start asynchronous operation: {}", e);

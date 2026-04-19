@@ -114,6 +114,55 @@ impl FunctionHotspot {
             && (entry.metrics.cognitive.sum >= 3.0 || entry.metrics.cyclomatic.sum >= 5.0)
             && entry.metrics.loc.sloc >= 4.0
     }
+
+    /// Build hotspots from external analyzer issues (e.g. Detekt for Kotlin).
+    ///
+    /// Groups issues by function name, accumulates cognitive and cyclomatic
+    /// complexity, sorts by cognitive complexity descending, and limits to
+    /// [`MAX_HOTSPOTS`]. Issues without a function name are grouped under
+    /// `"<line N>"` so they remain visible in the report.
+    pub fn from_external_issues(issues: &[super::analysis::external::ExternalIssue]) -> Vec<Self> {
+        use std::collections::HashMap;
+        let mut map: HashMap<String, FunctionHotspot> = HashMap::new();
+        for issue in issues {
+            let fn_name = issue
+                .function_name
+                .clone()
+                .unwrap_or_else(|| format!("<line {}>", issue.start_line));
+            let entry = map
+                .entry(fn_name.clone())
+                .or_insert_with(|| FunctionHotspot {
+                    name: fn_name,
+                    start_line: issue.start_line,
+                    end_line: issue.start_line,
+                    cognitive: 0.0,
+                    cyclomatic: 0.0,
+                    sloc: 0.0,
+                });
+            let rule_lower = issue.rule.to_lowercase();
+            let value = issue.complexity_value.unwrap_or(1.0);
+            if rule_lower.contains("cognitive") {
+                entry.cognitive += value;
+            } else if rule_lower.contains("cyclomatic") {
+                entry.cyclomatic += value;
+            }
+            // Maintain the earliest known line number for this function.
+            if issue.start_line > 0
+                && (entry.start_line == 0 || issue.start_line < entry.start_line)
+            {
+                entry.start_line = issue.start_line;
+                entry.end_line = issue.start_line;
+            }
+        }
+        let mut hotspots: Vec<FunctionHotspot> = map.into_values().collect();
+        hotspots.sort_by(|a, b| {
+            b.cognitive
+                .partial_cmp(&a.cognitive)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hotspots.truncate(Self::MAX_HOTSPOTS);
+        hotspots
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -251,6 +300,9 @@ pub struct FileSimplicity {
     /// that rewards decomposing the worst hotspot — the primary agentic refactoring op.
     pub peak_cognitive: f64,
     pub hotspots: Vec<FunctionHotspot>,
+    /// Raw issues from external analyzers (e.g. Detekt for Kotlin).
+    /// Preserved for rich AI prompt generation; empty when only rca was used.
+    pub external_issues: Vec<super::analysis::external::ExternalIssue>,
     /// Names of the analysis tools that contributed to this file's metrics.
     /// Always contains at least `"rust-code-analysis"`. May also contain
     /// `"detekt"`, `"swiftlint"`, etc. when external analyzers ran.
@@ -308,6 +360,7 @@ impl FileSimplicity {
             mi,
             peak_cognitive,
             hotspots,
+            external_issues: vec![],
             analysis_sources: vec!["rust-code-analysis".to_string()],
         }
     }
@@ -336,9 +389,16 @@ impl FileSimplicity {
 
         let sloc_factor = sloc;
         let cog_score = (100.0 - (cognitive / sloc_factor) * 100.0).max(0.0);
-        // Peak cognitive is unknown for external-only files (no space tree).
-        // Use file-level cognitive as a conservative proxy.
-        let peak_score = (100.0 - cognitive).max(0.0);
+        // Build per-function hotspots from the individual Detekt issues.
+        let hotspots = FunctionHotspot::from_external_issues(&external.issues);
+        // Use the per-function maximum when available; fall back to the file-level
+        // total so the score remains conservative when no function names were found.
+        let peak_cognitive = hotspots
+            .iter()
+            .map(|h| h.cognitive)
+            .fold(0.0_f64, f64::max)
+            .max(if hotspots.is_empty() { cognitive } else { 0.0 });
+        let peak_score = (100.0 - peak_cognitive).max(0.0);
         // MI unknown → treat as 50 (neutral midpoint) so the score stays
         // representative of the complexity components we do have.
         let mi_score = 50.0_f64;
@@ -360,8 +420,9 @@ impl FileSimplicity {
             cyclomatic,
             sloc,
             mi: 0.0,
-            peak_cognitive: cognitive, // no space tree — file-level as proxy
-            hotspots: vec![],
+            peak_cognitive,
+            hotspots,
+            external_issues: external.issues.clone(),
             analysis_sources: vec![analyzer],
         })
     }
@@ -411,6 +472,9 @@ impl FileSimplicity {
                 }
             }
         }
+
+        // Preserve external issue details for AI prompts and reports.
+        self.external_issues.extend(external.issues.iter().cloned());
 
         self
     }
