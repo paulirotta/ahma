@@ -334,9 +334,7 @@ impl AhmaMcpService {
             crate::adapter::ExecutionMode::Synchronous
         } else if sync_override == Some(false) {
             crate::adapter::ExecutionMode::AsyncResultPush
-        } else if self.force_synchronous {
-            crate::adapter::ExecutionMode::Synchronous
-        } else if explicit_mode_str == Some("Synchronous") {
+        } else if self.force_synchronous || explicit_mode_str == Some("Synchronous") {
             crate::adapter::ExecutionMode::Synchronous
         } else {
             crate::adapter::ExecutionMode::AsyncResultPush
@@ -662,33 +660,8 @@ impl ServerHandler for AhmaMcpService {
                         background_ops.len()
                     );
 
-                    if let Some(most_recent_bg_op) = background_ops.last() {
-                        let enhanced_reason = format!(
-                            "MCP protocol cancellation (request_id: {}, reason: '{}')",
-                            request_id, reason
-                        );
-
-                        let cancelled = self
-                            .operation_monitor
-                            .cancel_operation_with_reason(
-                                &most_recent_bg_op.id,
-                                Some(enhanced_reason.clone()),
-                            )
-                            .await;
-
-                        if cancelled {
-                            tracing::info!(
-                                "Successfully cancelled background operation '{}' due to MCP protocol cancellation: {}",
-                                most_recent_bg_op.id,
-                                enhanced_reason
-                            );
-                        } else {
-                            tracing::warn!(
-                                "Failed to cancel background operation '{}' for MCP protocol cancellation",
-                                most_recent_bg_op.id
-                            );
-                        }
-                    }
+                    self.cancel_most_recent_background_op(&background_ops, &request_id, reason)
+                        .await;
                 } else {
                     tracing::info!(
                         "Found {} operations during MCP cancellation, but none are background processes. No cancellation needed.",
@@ -898,38 +871,7 @@ impl ServerHandler for AhmaMcpService {
 
             // Check if this is a livelog tool (long-running LLM-monitored log source)
             if config.tool_type == Some(crate::config::ToolType::Livelog) {
-                let params_map = params.arguments.clone().unwrap_or_default();
-                let op_id = format!("livelog_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-                let progress_token = context.meta.get_progress_token();
-                let client_type = McpClientType::from_peer(&context.peer);
-                let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
-                    Box::new(McpCallbackSender::new(
-                        context.peer.clone(),
-                        op_id.clone(),
-                        Some(token),
-                        client_type,
-                    )) as Box<dyn CallbackSender>
-                });
-                return match handlers::livelog_tool::handle_livelog_start(
-                    op_id.clone(),
-                    &config,
-                    &params_map,
-                    self.operation_monitor.clone(),
-                    self.adapter.sandbox_arc(),
-                    callback,
-                )
-                .await
-                {
-                    Ok(started_id) => Ok(handlers::common::text_result(format!(
-                        "Live log monitoring started. Operation ID: {started_id}\n\
-                         Use `status` or `await` to check progress, `cancel` to stop."
-                    ))),
-                    Err(e) => {
-                        let msg = format!("Failed to start livelog '{}': {}", config.name, e);
-                        tracing::error!("{}", msg);
-                        Err(handlers::common::mcp_internal(msg))
-                    }
-                };
+                return self.handle_livelog_call(&config, &params, &context).await;
             }
 
             let mut arguments = params.arguments.clone().unwrap_or_default();
@@ -946,34 +888,10 @@ impl ServerHandler for AhmaMcpService {
                 {
                     Some(result) => result,
                     None => {
-                        let has_subcommands = config.subcommand.is_some();
-                        let num_subcommands =
-                            config.subcommand.as_ref().map(|s| s.len()).unwrap_or(0);
-                        let subcommand_names: Vec<String> = config
-                            .subcommand
-                            .as_ref()
-                            .map(|subs| {
-                                subs.iter()
-                                    .map(|s| format!("{} (enabled={})", s.name, s.enabled))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        let error_message = format!(
-                            "Subcommand '{:?}' for tool '{}' not found or invalid. Tool enabled={}, has_subcommands={}, num_subcommands={}, available_subcommands={:?}",
-                            subcommand_name,
+                        return Err(Self::subcommand_not_found_error(
                             tool_name,
-                            config.enabled,
-                            has_subcommands,
-                            num_subcommands,
-                            subcommand_names
-                        );
-                        tracing::error!("{}", error_message);
-                        return Err(McpError::invalid_params(
-                            error_message,
-                            Some(
-                                serde_json::json!({ "tool_name": tool_name, "subcommand": subcommand_name }),
-                            ),
+                            &config,
+                            subcommand_name,
                         ));
                     }
                 };
@@ -1058,6 +976,109 @@ impl ServerHandler for AhmaMcpService {
 }
 
 impl AhmaMcpService {
+    async fn handle_livelog_call(
+        &self,
+        config: &ToolConfig,
+        params: &CallToolRequestParams,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let params_map = params.arguments.clone().unwrap_or_default();
+        let op_id = format!("livelog_{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+        let progress_token = context.meta.get_progress_token();
+        let client_type = McpClientType::from_peer(&context.peer);
+        let callback: Option<Box<dyn CallbackSender>> = progress_token.map(|token| {
+            Box::new(McpCallbackSender::new(
+                context.peer.clone(),
+                op_id.clone(),
+                Some(token),
+                client_type,
+            )) as Box<dyn CallbackSender>
+        });
+        match handlers::livelog_tool::handle_livelog_start(
+            op_id.clone(),
+            config,
+            &params_map,
+            self.operation_monitor.clone(),
+            self.adapter.sandbox_arc(),
+            callback,
+        )
+        .await
+        {
+            Ok(started_id) => Ok(handlers::common::text_result(format!(
+                "Live log monitoring started. Operation ID: {started_id}\n\
+                 Use `status` or `await` to check progress, `cancel` to stop."
+            ))),
+            Err(e) => {
+                let msg = format!("Failed to start livelog '{}': {}", config.name, e);
+                tracing::error!("{}", msg);
+                Err(handlers::common::mcp_internal(msg))
+            }
+        }
+    }
+
+    fn subcommand_not_found_error(
+        tool_name: &str,
+        config: &ToolConfig,
+        subcommand_name: Option<String>,
+    ) -> McpError {
+        let has_subcommands = config.subcommand.is_some();
+        let num_subcommands = config.subcommand.as_ref().map(|s| s.len()).unwrap_or(0);
+        let subcommand_names: Vec<String> = config
+            .subcommand
+            .as_ref()
+            .map(|subs| {
+                subs.iter()
+                    .map(|s| format!("{} (enabled={})", s.name, s.enabled))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let error_message = format!(
+            "Subcommand '{:?}' for tool '{}' not found or invalid. Tool enabled={}, has_subcommands={}, num_subcommands={}, available_subcommands={:?}",
+            subcommand_name,
+            tool_name,
+            config.enabled,
+            has_subcommands,
+            num_subcommands,
+            subcommand_names
+        );
+        tracing::error!("{}", error_message);
+        McpError::invalid_params(
+            error_message,
+            Some(serde_json::json!({ "tool_name": tool_name, "subcommand": subcommand_name })),
+        )
+    }
+
+    async fn cancel_most_recent_background_op(
+        &self,
+        background_ops: &[&crate::operation_monitor::Operation],
+        request_id: &str,
+        reason: &str,
+    ) {
+        let Some(most_recent_bg_op) = background_ops.last() else {
+            return;
+        };
+        let enhanced_reason = format!(
+            "MCP protocol cancellation (request_id: {}, reason: '{}')",
+            request_id, reason
+        );
+        let cancelled = self
+            .operation_monitor
+            .cancel_operation_with_reason(&most_recent_bg_op.id, Some(enhanced_reason.clone()))
+            .await;
+        if cancelled {
+            tracing::info!(
+                "Successfully cancelled background operation '{}' due to MCP protocol cancellation: {}",
+                most_recent_bg_op.id,
+                enhanced_reason
+            );
+        } else {
+            tracing::warn!(
+                "Failed to cancel background operation '{}' for MCP protocol cancellation",
+                most_recent_bg_op.id
+            );
+        }
+    }
+
     /// Returns the list of tool names that `list_tools()` would return,
     /// without requiring a `RequestContext`.
     ///

@@ -93,89 +93,7 @@ pub fn init_logging_with_observability(
     observability: Option<ObservabilityConfig>,
 ) -> Result<TelemetryGuard> {
     INIT.call_once(|| {
-        let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(format!("{log_level},ahma_mcp=debug")));
-
-        // Build the OTEL layer (no-op when no endpoint is configured).
-        let (otel_layer, guard) = {
-            let config = observability
-                .clone()
-                .unwrap_or_else(|| ObservabilityConfig::from_env("ahma_mcp"));
-            ahma_common::observability::create_otel_layer(&config)
-        };
-        *PENDING_GUARD.lock().unwrap() = Some(guard);
-
-        // Attempt to log to a file, fall back to stderr.
-        if log_to_file {
-            let log_dir = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("log");
-
-            // Test if we can actually write to the log directory before calling
-            // tracing_appender::rolling::daily, which panics on permission errors
-            // in tracing-appender 0.2.4+.
-            let can_write = test_write_permission(&log_dir);
-
-            if can_write {
-                // Delete old standard `.log` files in `log/` to wipe previous logs.
-                // Do not delete directories or symlinks.
-                if let Ok(entries) = std::fs::read_dir(&log_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if let Ok(meta) = std::fs::symlink_metadata(&path)
-                            && meta.is_file()
-                            && path.extension().is_some_and(|e| e == "log")
-                        {
-                            let _ = std::fs::remove_file(path);
-                        }
-                    }
-                }
-            }
-
-            // Try to create the file appender, fall back to stderr if it fails
-            // Use catch_unwind to handle panics from tracing_appender
-            let file_appender_result = if can_write {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    tracing_appender::rolling::daily(&log_dir, "ahma_mcp.log")
-                }))
-            } else {
-                Err(Box::new("Cannot write to log directory") as Box<dyn std::any::Any + Send>)
-            };
-
-            if let Ok(file_appender) = file_appender_result {
-                // Successfully created file appender
-                let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-                let subscriber = tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(otel_layer)
-                    .with(layer().with_writer(non_blocking).with_ansi(false));
-
-                subscriber.init();
-                // The guard is intentionally leaked to ensure logs are flushed on exit.
-                Box::leak(Box::new(_guard));
-                // Log the parent trace context injected by the HTTP bridge (if any).
-                if let Some(tp) = ahma_common::observability::env_traceparent() {
-                    tracing::debug!(traceparent = %tp, "subprocess trace context from HTTP bridge");
-                }
-                return;
-            }
-        }
-
-        // Fallback or explicit stderr logging
-        let subscriber = tracing_subscriber::registry()
-            .with(env_filter)
-            .with(otel_layer)
-            .with(layer().with_writer(stderr).with_ansi(true));
-
-        subscriber.init();
-
-        // Log the parent trace context injected by the HTTP bridge (if any).
-        // This makes it easy to correlate subprocess and bridge traces even
-        // before full parent-child linking is wired up.
-        if let Some(tp) = ahma_common::observability::env_traceparent() {
-            tracing::debug!(traceparent = %tp, "subprocess trace context from HTTP bridge");
-        }
+        do_setup_logging(log_level, log_to_file, observability);
     });
 
     // Return the guard produced in this call (None on subsequent calls — guard already held).
@@ -184,6 +102,95 @@ pub fn init_logging_with_observability(
         .unwrap()
         .take()
         .unwrap_or_else(TelemetryGuard::none))
+}
+
+fn do_setup_logging(
+    log_level: &str,
+    log_to_file: bool,
+    observability: Option<ObservabilityConfig>,
+) {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(format!("{log_level},ahma_mcp=debug")));
+
+    // Build the OTEL layer (no-op when no endpoint is configured).
+    let (otel_layer, guard) = {
+        let config = observability.unwrap_or_else(|| ObservabilityConfig::from_env("ahma_mcp"));
+        ahma_common::observability::create_otel_layer(&config)
+    };
+    *PENDING_GUARD.lock().unwrap() = Some(guard);
+
+    // Attempt to log to a file, fall back to stderr.
+    let file_appender_opt = if log_to_file {
+        try_create_file_appender()
+    } else {
+        None
+    };
+    if let Some(file_appender) = file_appender_opt {
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(otel_layer)
+            .with(layer().with_writer(non_blocking).with_ansi(false))
+            .init();
+        // The guard is intentionally leaked to ensure logs are flushed on exit.
+        Box::leak(Box::new(_guard));
+        log_traceparent();
+        return;
+    }
+
+    // Fallback or explicit stderr logging
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(otel_layer)
+        .with(layer().with_writer(stderr).with_ansi(true))
+        .init();
+    log_traceparent();
+}
+
+fn try_create_file_appender() -> Option<tracing_appender::rolling::RollingFileAppender> {
+    let log_dir = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("log");
+
+    // Test if we can actually write to the log directory before calling
+    // tracing_appender::rolling::daily, which panics on permission errors
+    // in tracing-appender 0.2.4+.
+    if !test_write_permission(&log_dir) {
+        return None;
+    }
+
+    // Delete old standard `.log` files in `log/` to wipe previous logs.
+    // Do not delete directories or symlinks.
+    cleanup_old_logs(&log_dir);
+
+    // Use catch_unwind to handle panics from tracing_appender
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tracing_appender::rolling::daily(&log_dir, "ahma_mcp.log")
+    }))
+    .ok()
+}
+
+fn cleanup_old_logs(log_dir: &Path) {
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(meta) = std::fs::symlink_metadata(&path)
+                && meta.is_file()
+                && path.extension().is_some_and(|e| e == "log")
+            {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn log_traceparent() {
+    // Log the parent trace context injected by the HTTP bridge (if any).
+    // This makes it easy to correlate subprocess and bridge traces even
+    // before full parent-child linking is wired up.
+    if let Some(tp) = ahma_common::observability::env_traceparent() {
+        tracing::debug!(traceparent = %tp, "subprocess trace context from HTTP bridge");
+    }
 }
 
 /// Test if we can write to the given directory.

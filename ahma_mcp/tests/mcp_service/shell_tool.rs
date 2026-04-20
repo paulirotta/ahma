@@ -28,7 +28,7 @@ fn extract_shell_working_directory(output: &str) -> Result<PathBuf> {
                 // PowerShell dashed separator (e.g. "----")
                 && !line.chars().all(|c| c == '-')
         })
-        .last()
+        .next_back()
         .ok_or_else(|| anyhow!("no path line found in shell output: {:?}", output))?;
     Ok(PathBuf::from(path_line))
 }

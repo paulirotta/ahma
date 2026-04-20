@@ -211,11 +211,9 @@ impl Adapter {
         tracing::info!("Adapter shutdown initiated: cancelling operations and aborting tasks");
 
         // 1) Cancel all known operations tracked by this adapter (best-effort)
-        // We use the task handle keys which are the operation IDs
         {
             let handles = self.task_handles.lock().await;
             for op_id in handles.keys() {
-                // Provide a clear reason for downstream logs
                 let reason = Some("Adapter shutdown".to_string());
                 let _ = self
                     .monitor
@@ -224,52 +222,13 @@ impl Adapter {
             }
         }
 
-        // 2) Abort all running tasks and wait briefly for them to finish
-        // Drain handles to avoid races with task completion removing them concurrently
-        let mut drained: Vec<(String, JoinHandle<()>)> = Vec::new();
-        {
+        // 2) Drain handles then give each task a grace period before aborting
+        let drained: Vec<(String, JoinHandle<()>)> = {
             let mut handles = self.task_handles.lock().await;
-            for (id, handle) in handles.drain() {
-                drained.push((id, handle));
-            }
-        }
-
-        // First give a small grace period for tasks to finish naturally
-        for (id, handle) in drained.iter_mut() {
-            tracing::debug!("Waiting briefly for task {} to complete...", id);
-            match tokio::time::timeout(Duration::from_millis(250), handle).await {
-                Ok(res) => {
-                    if let Err(e) = res {
-                        tracing::debug!(
-                            "Task {} finished with join error before abort: {:?}",
-                            id,
-                            e
-                        );
-                    }
-                }
-                Err(_) => {
-                    tracing::debug!("Task {} did not complete in grace period", id);
-                }
-            }
-        }
-
-        // Abort any remaining tasks and await their termination with a bounded timeout
-        for (id, mut handle) in drained {
-            if !handle.is_finished() {
-                tracing::info!("Aborting task {} during shutdown", id);
-                handle.abort();
-                // Await aborted join to ensure cleanup
-                match tokio::time::timeout(Duration::from_secs(2), &mut handle).await {
-                    Ok(join_res) => {
-                        if let Err(e) = join_res {
-                            tracing::debug!("Task {} aborted with: {:?}", id, e);
-                        }
-                    }
-                    Err(_) => {
-                        tracing::warn!("Timed out waiting for aborted task {} to finish", id);
-                    }
-                }
-            }
+            handles.drain().collect()
+        };
+        for (id, handle) in drained {
+            drain_task_handle(&id, handle).await;
         }
 
         // 3) Shut down all shell pools (kills any lingering shell processes)
@@ -356,34 +315,30 @@ impl Adapter {
 
         let output_res = tokio::time::timeout(timeout, cmd.output()).await;
 
-        match output_res {
-            Err(_) => Err(anyhow::anyhow!(
-                "Operation timed out (exceeded timeout limit): {} seconds",
-                timeout.as_secs()
-            )),
-            Ok(Err(e)) => Err(anyhow::anyhow!("Command execution failed: {}", e)),
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                if output.status.success() {
-                    let result_content = if stdout.is_empty() && !stderr.is_empty() {
-                        stderr
-                    } else if !stdout.is_empty() && !stderr.is_empty() {
-                        format!("{}\n{}", stdout, stderr)
-                    } else {
-                        stdout
-                    };
-                    Ok(result_content)
-                } else {
-                    Err(anyhow::anyhow!(
-                        "Command failed with exit code {}: stderr: {}, stdout: {}",
-                        output.status.code().unwrap_or(-1),
-                        stderr,
-                        stdout
-                    ))
-                }
+        let output = match output_res {
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "Operation timed out (exceeded timeout limit): {} seconds",
+                    timeout.as_secs()
+                ));
             }
+            Ok(Err(e)) => return Err(anyhow::anyhow!("Command execution failed: {}", e)),
+            Ok(Ok(output)) => output,
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Command failed with exit code {}: stderr: {}, stdout: {}",
+                output.status.code().unwrap_or(-1),
+                stderr,
+                stdout
+            ));
         }
+
+        Ok(combine_stdout_stderr(stdout, stderr))
     }
 
     /// Synchronously executes a command with optional retry logic for transient errors.
@@ -557,33 +512,7 @@ impl Adapter {
             // Check for cancellation before starting
             if cancellation_token.is_cancelled() {
                 tracing::info!("Operation {} was cancelled before execution started", op_id);
-                monitor
-                    .update_status(
-                        &op_id,
-                        OperationStatus::Cancelled,
-                        Some(Value::String("Operation was cancelled".to_string())),
-                    )
-                    .await;
-                // Notify LLM about cancellation with reason if available
-                if let Some(callback) = &callback {
-                    // Best effort: retrieve reason string from current operation state
-                    let reason_owned = match monitor.get_operation(&op_id).await {
-                        Some(op) => {
-                            let val = op.result.clone();
-                            val.and_then(|v| v.get("reason").cloned())
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_else(|| "Operation was cancelled".to_string())
-                        }
-                        None => "Operation was cancelled".to_string(),
-                    };
-                    let _ = callback
-                        .send_progress(crate::callback_system::ProgressUpdate::Cancelled {
-                            id: op_id.clone(),
-                            message: reason_owned,
-                            duration_ms: 0,
-                        })
-                        .await;
-                }
+                handle_cancellation(&monitor, &callback, &op_id, 0).await;
                 return;
             }
 
@@ -711,6 +640,45 @@ impl Adapter {
 // ---------------------------------------------------------------------------
 // Extracted execution helpers (batch vs streaming)
 // ---------------------------------------------------------------------------
+
+/// Give a task a 250 ms grace period then abort it if still running,
+/// waiting up to 2 s for the abort to complete.
+async fn drain_task_handle(id: &str, mut handle: JoinHandle<()>) {
+    tracing::debug!("Waiting briefly for task {} to complete...", id);
+    match tokio::time::timeout(Duration::from_millis(250), &mut handle).await {
+        Ok(Ok(_)) => return,
+        Ok(Err(e)) => {
+            tracing::debug!("Task {} finished with join error before abort: {:?}", id, e);
+            return;
+        }
+        Err(_) => tracing::debug!("Task {} did not complete in grace period", id),
+    }
+    tracing::info!("Aborting task {} during shutdown", id);
+    handle.abort();
+    match tokio::time::timeout(Duration::from_secs(2), &mut handle).await {
+        Ok(join_res) => {
+            if let Err(e) = join_res {
+                tracing::debug!("Task {} aborted with: {:?}", id, e);
+            }
+        }
+        Err(_) => tracing::warn!("Timed out waiting for aborted task {} to finish", id),
+    }
+}
+
+/// Combine stdout and stderr into a single string, preferring stdout.
+fn combine_stdout_stderr(stdout: String, stderr: String) -> String {
+    if stdout.is_empty() && !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() && !stderr.is_empty() {
+        format!(
+            "{}
+{}",
+            stdout, stderr
+        )
+    } else {
+        stdout
+    }
+}
 
 /// Execute a command in batch mode (existing behavior): collect all output at once.
 #[allow(clippy::too_many_arguments)]
@@ -1104,8 +1072,8 @@ async fn process_streaming_line(
 ) {
     let safe_line = crate::log_monitor::redact_sensitive_line(line);
     collector.push(safe_line);
-    if let Some(snapshot) = log_monitor.process_line(line, is_stderr) {
-        if let Some(callback) = callback {
+    if let Some(snapshot) = log_monitor.process_line(line, is_stderr)
+        && let Some(callback) = callback {
             let alert = crate::callback_system::ProgressUpdate::LogAlert {
                 id: op_id.to_string(),
                 trigger_level: snapshot.trigger_level.to_string(),
@@ -1115,7 +1083,6 @@ async fn process_streaming_line(
             };
             let _ = callback.send_progress(alert).await;
         }
-    }
 }
 
 #[cfg(test)]

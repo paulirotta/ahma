@@ -241,6 +241,79 @@ pub async fn start_bridge(config: BridgeConfig) -> Result<()> {
     start_bridge_tcp(config).await
 }
 
+/// Create the shared bridge state (session manager + Arc wrapper) from a `BridgeConfig`.
+fn build_bridge_state(config: &BridgeConfig) -> Arc<BridgeState> {
+    let session_config = SessionManagerConfig {
+        server_command: config.server_command.clone(),
+        server_args: config.server_args.clone(),
+        default_scope: config.default_sandbox_scope.clone(),
+        enable_colored_output: config.enable_colored_output,
+        handshake_timeout_secs: config.handshake_timeout_secs,
+    };
+    let session_manager = Arc::new(SessionManager::new(session_config));
+    Arc::new(BridgeState { session_manager })
+}
+
+/// Build the axum router with optional QUIC `Alt-Svc` header injection.
+fn build_mcp_router(
+    state: Arc<BridgeState>,
+    cors: CorsLayer,
+    quic_info: Option<&QuicInfo>,
+) -> Router {
+    let base = Router::new()
+        .route("/health", get(health_check))
+        .route(
+            "/mcp",
+            post(handle_mcp_request)
+                .get(handle_sse_stream)
+                .delete(handle_session_delete),
+        )
+        .fallback(handle_not_found)
+        .layer(cors)
+        .with_state(state);
+
+    if let Some(qi) = quic_info {
+        let alt_svc = HeaderValue::from_str(&qi.alt_svc_header)
+            .unwrap_or_else(|_| HeaderValue::from_static(""));
+        base.layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::ALT_SVC,
+            alt_svc,
+        ))
+        .layer(TraceLayer::new_for_http())
+    } else {
+        base.layer(TraceLayer::new_for_http())
+    }
+}
+
+/// Serve a single accepted TCP stream over HTTP/2-only or auto HTTP/1.1+HTTP/2.
+async fn serve_tcp_connection(stream: tokio::net::TcpStream, app: Router, disable_http1_1: bool) {
+    let io = hyper_util::rt::TokioIo::new(stream);
+    let hyper_svc =
+        hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+            let mut svc = app.clone();
+            async move {
+                use tower::Service;
+                let req = req.map(axum::body::Body::new);
+                svc.call(req).await
+            }
+        });
+    if disable_http1_1 {
+        if let Err(e) =
+            hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                .serve_connection(io, hyper_svc)
+                .await
+        {
+            tracing::debug!("HTTP connection closed: {:#}", e);
+        }
+    } else if let Err(e) =
+        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+            .serve_connection(io, hyper_svc)
+            .await
+    {
+        tracing::debug!("HTTP connection closed: {:#}", e);
+    }
+}
+
 /// Serve MCP Streamable HTTP over a TCP socket.
 async fn start_bridge_tcp(config: BridgeConfig) -> Result<()> {
     info!("Starting HTTP bridge on {}", config.bind_addr);
@@ -256,18 +329,9 @@ async fn start_bridge_tcp(config: BridgeConfig) -> Result<()> {
     }
 
     info!("Session isolation: ENABLED (always-on)");
-    let session_config = SessionManagerConfig {
-        server_command: config.server_command.clone(),
-        server_args: config.server_args.clone(),
-        default_scope: config.default_sandbox_scope.clone(),
-        enable_colored_output: config.enable_colored_output,
-        handshake_timeout_secs: config.handshake_timeout_secs,
-    };
-    let session_manager = Arc::new(SessionManager::new(session_config));
-    let state = Arc::new(BridgeState { session_manager });
+    let state = build_bridge_state(&config);
 
-    // Build the CORS layer.
-    // MCP Streamable HTTP transport: single endpoint supporting POST (requests), GET (SSE), DELETE (terminate)
+    // MCP Streamable HTTP transport: single endpoint supporting POST, GET (SSE), DELETE.
     // See: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http
     let cors = build_cors_layer(&config.bind_addr);
 
@@ -291,33 +355,8 @@ async fn start_bridge_tcp(config: BridgeConfig) -> Result<()> {
         None
     };
 
-    // Build the axum router. When QUIC is active, inject an Alt-Svc header so
-    // HTTP/2 clients advertise HTTP/3 availability.
-    let app = {
-        let base = Router::new()
-            .route("/health", get(health_check))
-            .route(
-                "/mcp",
-                post(handle_mcp_request)
-                    .get(handle_sse_stream)
-                    .delete(handle_session_delete),
-            )
-            .fallback(handle_not_found)
-            .layer(cors)
-            .with_state(state);
-
-        if let Some(ref qi) = quic_info {
-            let alt_svc = HeaderValue::from_str(&qi.alt_svc_header)
-                .unwrap_or_else(|_| HeaderValue::from_static(""));
-            base.layer(SetResponseHeaderLayer::overriding(
-                axum::http::header::ALT_SVC,
-                alt_svc,
-            ))
-            .layer(TraceLayer::new_for_http())
-        } else {
-            base.layer(TraceLayer::new_for_http())
-        }
-    };
+    // Build the axum router; when QUIC is active Alt-Svc is injected automatically.
+    let app = build_mcp_router(state, cors, quic_info.as_ref());
 
     // Print QUIC startup markers *before* AHMA_BOUND_PORT so parsers see them in order.
     if let Some(ref qi) = quic_info {
@@ -360,34 +399,11 @@ async fn start_bridge_tcp(config: BridgeConfig) -> Result<()> {
             .accept()
             .await
             .map_err(|e| BridgeError::HttpServer(format!("Accept error: {}", e)))?;
-        let svc = app.clone();
-        tokio::spawn(async move {
-            let io = hyper_util::rt::TokioIo::new(stream);
-            let hyper_svc =
-                hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                    let mut svc = svc.clone();
-                    async move {
-                        use tower::Service;
-                        let req = req.map(axum::body::Body::new);
-                        svc.call(req).await
-                    }
-                });
-            if config.disable_http1_1 {
-                if let Err(e) =
-                    hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-                        .serve_connection(io, hyper_svc)
-                        .await
-                {
-                    tracing::debug!("HTTP connection closed: {:#}", e);
-                }
-            } else if let Err(e) =
-                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-                    .serve_connection(io, hyper_svc)
-                    .await
-            {
-                tracing::debug!("HTTP connection closed: {:#}", e);
-            }
-        });
+        tokio::spawn(serve_tcp_connection(
+            stream,
+            app.clone(),
+            config.disable_http1_1,
+        ));
     }
 }
 
@@ -486,6 +502,27 @@ struct QuicInfo {
     alt_svc_header: String,
 }
 
+/// Bind a Quinn QUIC endpoint on the TCP address port, falling back to an OS-assigned UDP port.
+fn bind_quic_endpoint(
+    quic_server_cfg: quinn::ServerConfig,
+    tcp_addr: SocketAddr,
+) -> Option<quinn::Endpoint> {
+    let primary = SocketAddr::new(tcp_addr.ip(), tcp_addr.port());
+    match quinn::Endpoint::server(quic_server_cfg.clone(), primary) {
+        Ok(e) => Some(e),
+        Err(_) => {
+            let fallback = SocketAddr::new(tcp_addr.ip(), 0);
+            match quinn::Endpoint::server(quic_server_cfg, fallback) {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    warn!("QUIC: failed to bind endpoint: {e}");
+                    None
+                }
+            }
+        }
+    }
+}
+
 /// Try to start a QUIC endpoint on the same IP as the TCP listener.
 ///
 /// Returns `None` non-fatally if QUIC is unavailable or the binding fails.
@@ -515,21 +552,7 @@ async fn try_start_quic_endpoint(tcp_addr: SocketAddr) -> Option<QuicInfo> {
     };
 
     // Try binding QUIC on the same port as TCP (UDP and TCP namespaces are independent).
-    let quic_bind = SocketAddr::new(tcp_addr.ip(), tcp_addr.port());
-    let endpoint = match quinn::Endpoint::server(quic_server_cfg.clone(), quic_bind) {
-        Ok(e) => e,
-        Err(_) => {
-            // Fallback: OS-assigned UDP port.
-            let fallback = SocketAddr::new(tcp_addr.ip(), 0);
-            match quinn::Endpoint::server(quic_server_cfg, fallback) {
-                Ok(e) => e,
-                Err(e) => {
-                    warn!("QUIC: failed to bind endpoint: {e}");
-                    return None;
-                }
-            }
-        }
-    };
+    let endpoint = bind_quic_endpoint(quic_server_cfg, tcp_addr)?;
 
     let quic_port = match endpoint.local_addr() {
         Ok(a) => a.port(),
@@ -823,6 +846,13 @@ mod tests {
     use tempfile::TempDir;
     use tower::ServiceExt;
 
+    fn is_uri_safe_byte(b: u8) -> bool {
+        matches!(
+            b,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':'
+        )
+    }
+
     /// Encode a filesystem path as a file:// URI.
     ///
     /// Windows: `C:\foo\bar` → `file:///C:/foo/bar`
@@ -854,21 +884,8 @@ mod tests {
             }
         }
 
-        for b in path_str.as_bytes() {
-            let b = *b;
-            let keep = matches!(
-                b,
-                b'a'..=b'z'
-                    | b'A'..=b'Z'
-                    | b'0'..=b'9'
-                    | b'-'
-                    | b'.'
-                    | b'_'
-                    | b'~'
-                    | b'/'
-                    | b':'
-            );
-            if keep {
+        for &b in path_str.as_bytes() {
+            if is_uri_safe_byte(b) {
                 out.push(b as char);
             } else {
                 out.push('%');

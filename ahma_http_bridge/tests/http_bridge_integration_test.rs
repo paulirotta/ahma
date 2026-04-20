@@ -224,6 +224,50 @@ async fn send_tool_call_with_retry(
     }
 }
 
+fn parse_sse_event_data(raw_event: &str) -> Option<Value> {
+    let data_lines: Vec<&str> = raw_event
+        .lines()
+        .filter_map(|line| {
+            line.trim_end_matches('\r')
+                .strip_prefix("data:")
+                .map(str::trim)
+        })
+        .collect();
+    if data_lines.is_empty() {
+        return None;
+    }
+    serde_json::from_str::<Value>(&data_lines.join("\n")).ok()
+}
+
+fn drain_sse_events(buffer: &mut String) -> Vec<Value> {
+    let mut events = Vec::new();
+    while let Some((idx, delimiter_len)) = first_sse_event_boundary(buffer) {
+        let raw_event = buffer[..idx].to_string();
+        buffer.drain(..idx + delimiter_len);
+        if let Some(value) = parse_sse_event_data(&raw_event) {
+            events.push(value);
+        }
+    }
+    events
+}
+
+async fn reply_roots_list(
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    request_id: Value,
+    roots_json: &[Value],
+) {
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": { "roots": roots_json }
+    });
+    let _ = send_mcp_request(client, base_url, &response, Some(session_id))
+        .await
+        .expect("Failed to send roots/list response");
+}
+
 /// Process an already-open SSE response to complete the MCP roots handshake.
 /// Reads `roots/list`, responds with `roots_json`, and prefers to observe
 /// `notifications/sandbox/configured` on the same GET SSE stream.
@@ -279,77 +323,46 @@ async fn process_sse_roots_handshake(
             .ok()
             .flatten();
 
-        if let Some(next) = chunk {
-            let bytes = next.expect("SSE stream read failed");
-            let text = String::from_utf8_lossy(&bytes);
-            buffer.push_str(&text);
+        let Some(next) = chunk else {
+            continue;
+        };
+        let bytes = next.expect("SSE stream read failed");
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
 
-            while let Some((idx, delimiter_len)) = first_sse_event_boundary(&buffer) {
-                let raw_event = buffer[..idx].to_string();
-                buffer.drain(..idx + delimiter_len);
+        for value in drain_sse_events(&mut buffer) {
+            let method = value.get("method").and_then(|m| m.as_str());
 
-                let mut data_lines: Vec<&str> = Vec::new();
-                for line in raw_event.lines() {
-                    let line = line.trim_end_matches('\r');
-                    if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim());
-                    }
-                }
+            if method == Some("notifications/sandbox/failed") {
+                let error = value
+                    .get("params")
+                    .and_then(|p| p.get("error"))
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("unknown");
+                panic!("Sandbox configuration failed: {}", error);
+            }
 
-                if data_lines.is_empty() {
-                    continue;
-                }
-
-                let data = data_lines.join("\n");
-                let Ok(value) = serde_json::from_str::<Value>(&data) else {
-                    continue;
-                };
-
-                let method = value.get("method").and_then(|m| m.as_str());
-
-                if method == Some("notifications/sandbox/failed") {
-                    let error = value
-                        .get("params")
-                        .and_then(|p| p.get("error"))
-                        .and_then(|e| e.as_str())
-                        .unwrap_or("unknown");
-                    panic!("Sandbox configuration failed: {}", error);
-                }
-
-                if method == Some("notifications/sandbox/configured") {
-                    configured_seen = true;
-                    if roots_answered {
-                        return;
-                    }
-                    continue;
-                }
-
-                if method != Some("roots/list") {
-                    continue;
-                }
-
-                let id = value
-                    .get("id")
-                    .cloned()
-                    .expect("roots/list must include id");
-
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "roots": roots_json
-                    }
-                });
-
-                let _ = send_mcp_request(client, base_url, &response, Some(session_id))
-                    .await
-                    .expect("Failed to send roots/list response");
-                roots_answered = true;
-                post_roots_deadline =
-                    Some(tokio::time::Instant::now() + post_roots_configured_grace_timeout());
-                if configured_seen {
+            if method == Some("notifications/sandbox/configured") {
+                configured_seen = true;
+                if roots_answered {
                     return;
                 }
+                continue;
+            }
+
+            if method != Some("roots/list") {
+                continue;
+            }
+
+            let id = value
+                .get("id")
+                .cloned()
+                .expect("roots/list must include id");
+            reply_roots_list(client, base_url, session_id, id, &roots_json).await;
+            roots_answered = true;
+            post_roots_deadline =
+                Some(tokio::time::Instant::now() + post_roots_configured_grace_timeout());
+            if configured_seen {
+                return;
             }
         }
     }
@@ -702,6 +715,52 @@ async fn test_tool_call_without_initialize_returns_proper_error() {
     );
 }
 
+fn configure_sandbox_disable_env(cmd: &mut Command) {
+    #[cfg(target_os = "macos")]
+    if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
+    }
+    #[cfg(target_os = "linux")]
+    if ahma_mcp::sandbox::check_sandbox_prerequisites().is_err() {
+        cmd.env("AHMA_DISABLE_SANDBOX", "1");
+    }
+    #[cfg(windows)]
+    cmd.env("AHMA_DISABLE_SANDBOX", "1");
+}
+
+fn spawn_stderr_port_reader(
+    stderr: std::process::ChildStderr,
+) -> (
+    std::sync::Arc<std::sync::Mutex<String>>,
+    std::sync::mpsc::Receiver<u16>,
+) {
+    let stderr_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let buffer_clone = stderr_buffer.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stderr);
+        let mut port_found = false;
+        for line in reader.lines() {
+            let line = line.unwrap_or_default();
+            {
+                let mut buf = buffer_clone.lock().unwrap();
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+            eprintln!("[server] {}", line);
+            if !port_found
+                && let Some(port_str) = line.trim().strip_prefix("AHMA_BOUND_PORT=")
+                && let Ok(port) = port_str.parse::<u16>()
+            {
+                let _ = tx.send(port);
+                port_found = true;
+            }
+        }
+    });
+    (stderr_buffer, rx)
+}
+
 /// Start HTTP bridge on random port (0) and parse the bound port from stderr.
 /// Returns (ServerGuard, stderr_receiver).
 /// Stderr is forwarded to test stderr and captured.
@@ -728,17 +787,7 @@ async fn start_http_bridge_dynamic(
         .env_remove("NEXTEST_EXECUTION_MODE")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("RUST_TEST_THREADS");
-
-    #[cfg(target_os = "macos")]
-    if ahma_mcp::sandbox::test_sandbox_exec_available().is_err() {
-        cmd.env("AHMA_DISABLE_SANDBOX", "1");
-    }
-    #[cfg(target_os = "linux")]
-    if ahma_mcp::sandbox::check_sandbox_prerequisites().is_err() {
-        cmd.env("AHMA_DISABLE_SANDBOX", "1");
-    }
-    #[cfg(windows)]
-    cmd.env("AHMA_DISABLE_SANDBOX", "1");
+    configure_sandbox_disable_env(&mut cmd);
 
     let mut child = cmd
         .stdout(Stdio::piped())
@@ -747,34 +796,8 @@ async fn start_http_bridge_dynamic(
         .expect("Failed to start HTTP bridge");
 
     let stderr = child.stderr.take().expect("Failed to capture stderr");
-    let stderr_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let buffer_clone = stderr_buffer.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (stderr_buffer, rx) = spawn_stderr_port_reader(stderr);
 
-    std::thread::spawn(move || {
-        use std::io::{BufRead, BufReader};
-        let reader = BufReader::new(stderr);
-        let mut port_found = false;
-        for line in reader.lines() {
-            let line = line.unwrap_or_default();
-            {
-                let mut buf = buffer_clone.lock().unwrap();
-                buf.push_str(&line);
-                buf.push('\n');
-            }
-            eprintln!("[server] {}", line); // Forward to test output
-
-            if !port_found
-                && let Some(port_str) = line.trim().strip_prefix("AHMA_BOUND_PORT=")
-                && let Ok(port) = port_str.parse::<u16>()
-            {
-                let _ = tx.send(port);
-                port_found = true;
-            }
-        }
-    });
-
-    // Wait for port with timeout
     let port = match rx.recv_timeout(TestTimeouts::get(TimeoutCategory::ProcessSpawn)) {
         Ok(p) => p,
         Err(_) => {
@@ -787,10 +810,8 @@ async fn start_http_bridge_dynamic(
         }
     };
 
-    // Wait for health check using the discovered port
     let client = common::make_h2_client();
     let health_url = format!("http://127.0.0.1:{}/health", port);
-
     let deadline = Instant::now() + TestTimeouts::get(TimeoutCategory::HealthCheck);
     loop {
         if Instant::now() > deadline {

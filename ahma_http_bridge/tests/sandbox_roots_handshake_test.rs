@@ -52,17 +52,15 @@ fn get_ahma_mcp_binary() -> PathBuf {
     ahma_mcp::test_utils::cli::build_binary_cached("ahma_mcp", "ahma-mcp")
 }
 
-/// Start an HTTP bridge server with deferred sandbox (for roots/list testing)
-async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGuard {
-    let binary = get_ahma_mcp_binary();
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("Failed to get workspace dir")
-        .to_path_buf();
-
-    let mut cmd = Command::new(&binary);
+/// Build the server Command with all required env vars for deferred-sandbox mode.
+fn build_deferred_sandbox_command(
+    binary: &std::path::Path,
+    workspace: &std::path::Path,
+    tools_dir: &std::path::Path,
+) -> Command {
+    let mut cmd = Command::new(binary);
     cmd.args(["serve", "http", "--port", "0"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .env("AHMA_SYNC", "1")
         .env("AHMA_TOOLS_DIR", &*tools_dir.to_string_lossy())
         .env("AHMA_SANDBOX_DEFER", "1") // Key: sandbox is deferred until roots/list
@@ -75,12 +73,49 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
                 .as_secs()
                 .to_string(),
         );
-
     // CRITICAL: Remove bypass env vars for real sandbox testing
     SandboxTestEnv::configure(&mut cmd);
     // Allow start inside nested sandboxes (app-level path security still active)
     SandboxTestEnv::apply_nested_sandbox_override(&mut cmd);
+    cmd
+}
 
+/// Consume the port-announcement channel and return the bound port.
+/// Panics on timeout or unexpected process death.
+fn wait_for_bound_port(
+    rx: &std::sync::mpsc::Receiver<String>,
+    child: &mut std::process::Child,
+) -> u16 {
+    let start = std::time::Instant::now();
+    let timeout = TestTimeouts::get(TimeoutCategory::ProcessSpawn);
+    let poll_interval = TestTimeouts::poll_interval();
+
+    while start.elapsed() < timeout {
+        if let Ok(line) = rx.recv_timeout(poll_interval)
+            && let Some(idx) = line.find("AHMA_BOUND_PORT=")
+        {
+            let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
+            if let Ok(p) = port_str.trim().parse::<u16>() {
+                return p;
+            }
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            panic!("Child process exited unexpectedly with status: {}", status);
+        }
+    }
+    let _ = child.kill();
+    panic!("Timed out waiting for server to bind port");
+}
+
+/// Start an HTTP bridge server with deferred sandbox (for roots/list testing)
+async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGuard {
+    let binary = get_ahma_mcp_binary();
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace dir")
+        .to_path_buf();
+
+    let mut cmd = build_deferred_sandbox_command(&binary, &workspace, tools_dir);
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -90,45 +125,18 @@ async fn start_deferred_sandbox_server(tools_dir: &std::path::Path) -> ServerGua
     // Capture stderr to find the bound port
     let stderr = child.stderr.take().expect("Failed to capture stderr");
     let (tx, rx) = std::sync::mpsc::channel();
-
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let reader = BufReader::new(stderr);
         for line in reader.lines().map_while(Result::ok) {
-            eprintln!("{}", line); // Pass through to test output
+            eprintln!("{}", line);
             if line.contains("AHMA_BOUND_PORT=") {
                 let _ = tx.send(line);
             }
         }
     });
 
-    // Wait for port
-    let start = std::time::Instant::now();
-    let timeout = TestTimeouts::get(TimeoutCategory::ProcessSpawn);
-    let poll_interval = TestTimeouts::poll_interval();
-    let mut port = 0;
-
-    while start.elapsed() < timeout {
-        if let Ok(line) = rx.recv_timeout(poll_interval)
-            && let Some(idx) = line.find("AHMA_BOUND_PORT=")
-        {
-            let port_str = &line[idx + "AHMA_BOUND_PORT=".len()..];
-            if let Ok(p) = port_str.trim().parse::<u16>() {
-                port = p;
-                break;
-            }
-        }
-
-        // check if child died
-        if let Ok(Some(status)) = child.try_wait() {
-            panic!("Child process exited unexpectedly with status: {}", status);
-        }
-    }
-
-    if port == 0 {
-        let _ = child.kill();
-        panic!("Timed out waiting for server to bind port");
-    }
+    let port = wait_for_bound_port(&rx, &mut child);
 
     // Wait for server to be ready (health check)
     let client = common::make_h2_client();
@@ -251,22 +259,16 @@ async fn wait_for_tool_ready(
         });
 
         match send_mcp_request(client, base_url, &tool_call, Some(session_id)).await {
+            Ok((response, _)) if response.get("error").is_none() => return Ok(()),
             Ok((response, _)) => {
-                if response.get("error").is_none() {
-                    return Ok(());
-                }
-
-                let msg = response
-                    .get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("tool call returned error")
-                    .to_string();
-                last_error = Some(msg);
+                last_error = Some(
+                    response["error"]["message"]
+                        .as_str()
+                        .unwrap_or("tool call returned error")
+                        .to_string(),
+                );
             }
-            Err(e) => {
-                last_error = Some(e);
-            }
+            Err(e) => last_error = Some(e),
         }
 
         sleep(TestTimeouts::poll_interval()).await;
@@ -276,6 +278,60 @@ async fn wait_for_tool_ready(
         "Timeout waiting for sandbox/tool readiness: {}",
         last_error.unwrap_or_else(|| "unknown error".to_string())
     ))
+}
+
+/// Parse the `data:` lines from a raw SSE event block and deserialize the JSON payload.
+fn parse_sse_event_data(raw_event: &str) -> Option<Value> {
+    let data: String = raw_event
+        .lines()
+        .map(|l| l.trim_end_matches('\r'))
+        .filter_map(|l| l.strip_prefix("data:").map(str::trim))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if data.is_empty() {
+        return None;
+    }
+    serde_json::from_str::<Value>(&data).ok()
+}
+
+/// Dispatch a parsed SSE event. Returns `Some(result)` when the exchange is
+/// complete (success or error) and `None` to keep reading the stream.
+async fn handle_sse_event(
+    value: Value,
+    client: &Client,
+    base_url: &str,
+    session_id: &str,
+    root_uris: &[String],
+) -> Option<Result<(), String>> {
+    let method = value.get("method").and_then(|m| m.as_str());
+
+    if method == Some("notifications/sandbox/failed") {
+        let error = value["params"]["error"].as_str().unwrap_or("unknown");
+        return Some(Err(format!("Sandbox configuration failed: {}", error)));
+    }
+
+    if method != Some("roots/list") {
+        return None;
+    }
+
+    let id = match value.get("id").cloned() {
+        Some(id) => id,
+        None => return Some(Err("roots/list must include id".to_string())),
+    };
+    let roots_json: Vec<Value> = root_uris
+        .iter()
+        .map(|uri| json!({"uri": uri, "name": "root"}))
+        .collect();
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {"roots": roots_json}
+    });
+    Some(
+        send_mcp_request(client, base_url, &response, Some(session_id))
+            .await
+            .map(|_| ()),
+    )
 }
 
 async fn process_roots_list_response(
@@ -301,63 +357,21 @@ async fn process_roots_list_response(
 
         if let Some(next) = chunk {
             let bytes = next.map_err(|e| format!("SSE read error: {}", e))?;
-            let text = String::from_utf8_lossy(&bytes);
-            buffer.push_str(&text);
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
 
             while let Some(idx) = buffer.find("\n\n") {
                 let raw_event = buffer[..idx].to_string();
                 buffer = buffer[idx + 2..].to_string();
 
-                let mut data_lines: Vec<&str> = Vec::new();
-                for line in raw_event.lines() {
-                    let line = line.trim_end_matches('\r');
-                    if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim());
-                    }
-                }
-
-                if data_lines.is_empty() {
-                    continue;
-                }
-
-                let data = data_lines.join("\n");
-                let Ok(value) = serde_json::from_str::<Value>(&data) else {
+                let Some(value) = parse_sse_event_data(&raw_event) else {
                     continue;
                 };
 
-                let method = value.get("method").and_then(|m| m.as_str());
-
-                if method == Some("notifications/sandbox/failed") {
-                    let error = value
-                        .get("params")
-                        .and_then(|p| p.get("error"))
-                        .and_then(|e| e.as_str())
-                        .unwrap_or("unknown");
-                    return Err(format!("Sandbox configuration failed: {}", error));
+                if let Some(result) =
+                    handle_sse_event(value, client, base_url, session_id, root_uris).await
+                {
+                    return result;
                 }
-
-                if method != Some("roots/list") {
-                    continue;
-                }
-
-                let id = value
-                    .get("id")
-                    .cloned()
-                    .ok_or_else(|| "roots/list must include id".to_string())?;
-
-                let roots_json: Vec<Value> = root_uris
-                    .iter()
-                    .map(|uri| json!({"uri": uri, "name": "root"}))
-                    .collect();
-
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {"roots": roots_json}
-                });
-
-                let _ = send_mcp_request(client, base_url, &response, Some(session_id)).await?;
-                return Ok(());
             }
         }
     }

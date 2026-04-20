@@ -12,6 +12,13 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use std::time::Duration;
 
+fn find_sse_event_id(buffer: &str) -> Option<u64> {
+    buffer.lines().find_map(|line| {
+        line.strip_prefix("id:")
+            .map(|s| s.trim().parse::<u64>().expect("Event ID should be numeric"))
+    })
+}
+
 /// Verify that POST with `Accept: application/json` returns JSON (backwards compat).
 /// Uses the `initialize` request which doesn't require prior session setup.
 #[tokio::test]
@@ -146,17 +153,12 @@ async fn test_post_sse_response_includes_event_id() {
         match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
             Ok(Some(Ok(bytes))) => {
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
-                // Check if we have a complete SSE event with id field
                 if buffer.contains("id:") && buffer.contains("data:") {
-                    // Verify the id field has a numeric value
-                    for line in buffer.lines() {
-                        if let Some(id_str) = line.strip_prefix("id:") {
-                            let id: u64 =
-                                id_str.trim().parse().expect("Event ID should be numeric");
-                            assert!(id > 0, "Event ID should be positive");
-                            return; // Test passes
-                        }
-                    }
+                    let Some(id) = find_sse_event_id(&buffer) else {
+                        continue;
+                    };
+                    assert!(id > 0, "Event ID should be positive");
+                    return;
                 }
             }
             Ok(Some(Err(e))) => panic!("Stream error: {}", e),
@@ -213,14 +215,9 @@ async fn test_get_sse_events_include_event_id() {
         match tokio::time::timeout(Duration::from_millis(2000), stream.next()).await {
             Ok(Some(Ok(bytes))) => {
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
-                // Look for SSE event with both id: and data: fields
-                // The "id:" line must be an SSE event ID (not JSON "id" in data)
-                for line in buffer.lines() {
-                    if let Some(id_str) = line.strip_prefix("id:") {
-                        let id: u64 = id_str.trim().parse().expect("Event ID should be numeric");
-                        assert!(id > 0, "Event ID should be positive");
-                        return; // Test passes
-                    }
+                if let Some(id) = find_sse_event_id(&buffer) {
+                    assert!(id > 0, "Event ID should be positive");
+                    return;
                 }
             }
             Ok(Some(Err(e))) => panic!("Stream error: {}", e),

@@ -108,6 +108,11 @@ fn gradlew_path(project_dir: &Path) -> PathBuf {
     }
 }
 
+/// Return `true` if the file at `path` exists and contains the word "detekt".
+fn file_contains_detekt(path: &Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|c| c.contains("detekt"))
+}
+
 /// Heuristic: scan root and module-level Gradle build files for the word "detekt".
 ///
 /// Checks root build files first, then all immediate subdirectory build files
@@ -125,9 +130,7 @@ fn project_has_detekt(project_dir: &Path) -> bool {
     ];
 
     for name in &root_candidates {
-        if let Ok(content) = std::fs::read_to_string(project_dir.join(name))
-            && content.contains("detekt")
-        {
+        if file_contains_detekt(&project_dir.join(name)) {
             return true;
         }
     }
@@ -142,15 +145,46 @@ fn project_has_detekt(project_dir: &Path) -> bool {
             continue;
         }
         for build_file in &["build.gradle.kts", "build.gradle"] {
-            if let Ok(content) = std::fs::read_to_string(path.join(build_file))
-                && content.contains("detekt")
-            {
+            if file_contains_detekt(&path.join(build_file)) {
                 return true;
             }
         }
     }
 
     false
+}
+
+/// Return `true` if `output` indicates that `task` was not found in the Gradle project.
+fn is_task_not_found_error(output: &std::process::Output, task: &str) -> bool {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    combined.contains(&format!("Task '{task}' not found"))
+        || combined.contains("Could not determine the dependencies")
+}
+
+/// Parse each path with `parse_fn`, merging results into `all_metrics`.
+///
+/// Errors are logged but do not abort the merge.
+fn merge_reports_into(
+    paths: &[PathBuf],
+    all_metrics: &mut HashMap<PathBuf, ExternalMetrics>,
+    label: &str,
+    mut parse_fn: impl FnMut(&Path) -> Result<HashMap<PathBuf, ExternalMetrics>>,
+) {
+    for path in paths {
+        match parse_fn(path) {
+            Ok(file_metrics) => {
+                for (p, m) in file_metrics {
+                    super::external::merge_into(all_metrics.entry(p).or_default(), m);
+                }
+            }
+            Err(e) => eprintln!(
+                "  [detekt] failed to parse {label}{}: {e:#}",
+                path.display()
+            ),
+        }
+    }
 }
 
 /// Run a Gradle Detekt task and return per-file metrics aggregated from all
@@ -169,15 +203,8 @@ fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, Ex
         .output()
         .with_context(|| format!("Failed to spawn {} {}", gradlew.display(), task))?;
 
-    // Distinguish "task not found" from "task ran but found violations".
     if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{stdout}{stderr}");
-        // Gradle reports missing tasks in both stdout and stderr.
-        if combined.contains(&format!("Task '{task}' not found"))
-            || combined.contains("Could not determine the dependencies")
-        {
+        if is_task_not_found_error(&output, task) {
             anyhow::bail!("Gradle task '{}' not found in project", task);
         }
         // Any other failure: try to parse whatever reports exist.
@@ -200,35 +227,46 @@ fn run_detekt_task(project_dir: &Path, task: &str) -> Result<HashMap<PathBuf, Ex
     }
 
     let mut all_metrics: HashMap<PathBuf, ExternalMetrics> = HashMap::new();
-    for xml_path in &xml_paths {
-        match parse_checkstyle_xml(xml_path) {
-            Ok(file_metrics) => {
-                for (path, m) in file_metrics {
-                    super::external::merge_into(all_metrics.entry(path).or_default(), m);
-                }
-            }
-            Err(e) => {
-                eprintln!("  [detekt] failed to parse {}: {e:#}", xml_path.display());
-            }
-        }
-    }
+    merge_reports_into(&xml_paths, &mut all_metrics, "", |p| {
+        parse_checkstyle_xml(p)
+    });
     // Also process SARIF reports — some projects configure SARIF for IDE integration.
-    for sarif_path in &sarif_paths {
-        match parse_sarif_report(sarif_path, project_dir) {
-            Ok(file_metrics) => {
-                for (path, m) in file_metrics {
-                    super::external::merge_into(all_metrics.entry(path).or_default(), m);
-                }
-            }
-            Err(e) => {
-                eprintln!(
-                    "  [detekt] failed to parse SARIF {}: {e:#}",
-                    sarif_path.display()
-                );
+    merge_reports_into(&sarif_paths, &mut all_metrics, "SARIF ", |p| {
+        parse_sarif_report(p, project_dir)
+    });
+    Ok(all_metrics)
+}
+
+/// Build the ordered list of candidate detekt report directories.
+///
+/// Includes the root-level directory first, followed by one per immediate
+/// subdirectory (standard Android multi-module layout).
+fn report_candidate_dirs(project_dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![project_dir.join("build/reports/detekt")];
+    if let Ok(entries) = std::fs::read_dir(project_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path.join("build/reports/detekt"));
             }
         }
     }
-    Ok(all_metrics)
+    dirs
+}
+
+/// Find the best XML report in `reports_dir` for `report_name`.
+///
+/// Tries `report_name` first; falls back to the first `.xml` file found.
+fn find_xml_in_reports_dir(reports_dir: &Path, report_name: &str) -> Option<PathBuf> {
+    let primary = reports_dir.join(report_name);
+    if primary.is_file() {
+        return Some(primary);
+    }
+    std::fs::read_dir(reports_dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")))
 }
 
 /// Collect all detekt Checkstyle XML reports for `task` under `project_dir`.
@@ -251,43 +289,11 @@ fn collect_xml_reports(project_dir: &Path, task: &str) -> Vec<PathBuf> {
         format!("{suffix}.xml")
     };
 
-    let mut found = Vec::new();
-
-    // Build the candidate report directory list: root first, then each module.
-    let mut candidate_dirs: Vec<PathBuf> = vec![project_dir.join("build/reports/detekt")];
-
-    if let Ok(entries) = std::fs::read_dir(project_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                candidate_dirs.push(path.join("build/reports/detekt"));
-            }
-        }
-    }
-
-    for reports_dir in candidate_dirs {
-        if !reports_dir.is_dir() {
-            continue;
-        }
-        // Try the conventional name first.
-        let primary = reports_dir.join(&report_name);
-        if primary.is_file() {
-            found.push(primary);
-            continue;
-        }
-        // Fallback: any .xml in the reports dir.
-        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")) {
-                    found.push(p);
-                    break;
-                }
-            }
-        }
-    }
-
-    found
+    report_candidate_dirs(project_dir)
+        .into_iter()
+        .filter(|d| d.is_dir())
+        .filter_map(|d| find_xml_in_reports_dir(&d, &report_name))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -497,36 +503,129 @@ fn extract_complexity_value(message: &str) -> Option<f64> {
 // SARIF report support
 // ---------------------------------------------------------------------------
 
+/// Return all SARIF files in `reports_dir`.
+fn sarif_files_in_dir(reports_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(reports_dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("sarif"))
+        })
+        .collect()
+}
+
 /// Collect all Detekt SARIF reports under `project_dir`.
 ///
 /// Looks in the same report directories as [`collect_xml_reports`].
 fn collect_sarif_reports(project_dir: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut candidate_dirs: Vec<PathBuf> = vec![project_dir.join("build/reports/detekt")];
-    if let Ok(entries) = std::fs::read_dir(project_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                candidate_dirs.push(path.join("build/reports/detekt"));
-            }
+    report_candidate_dirs(project_dir)
+        .into_iter()
+        .filter(|d| d.is_dir())
+        .flat_map(|d| sarif_files_in_dir(&d))
+        .collect()
+}
+
+/// Build the `uriBaseId → base path` map from a SARIF run object.
+fn sarif_base_paths(run: &serde_json::Value) -> HashMap<String, PathBuf> {
+    run.get("originalUriBaseIds")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(key, val)| {
+                    let uri = val.get("uri")?.as_str()?;
+                    let path_str = uri.strip_prefix("file://").unwrap_or(uri);
+                    Some((key.clone(), PathBuf::from(path_str)))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve the artifact file path from a SARIF `physicalLocation` object.
+fn resolve_sarif_path(
+    phys: &serde_json::Value,
+    base_paths: &HashMap<String, PathBuf>,
+    project_dir: &Path,
+) -> Option<PathBuf> {
+    let artifact = phys.get("artifactLocation");
+    let uri = artifact
+        .and_then(|a| a.get("uri"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let uri_base_id = artifact
+        .and_then(|a| a.get("uriBaseId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("%SRCROOT%");
+
+    let file_path = if let Some(base) = base_paths.get(uri_base_id) {
+        base.join(uri)
+    } else {
+        let raw = uri.strip_prefix("file://").unwrap_or(uri);
+        if Path::new(raw).is_absolute() {
+            PathBuf::from(raw)
+        } else {
+            project_dir.join(raw)
         }
-    }
-    for reports_dir in candidate_dirs {
-        if !reports_dir.is_dir() {
-            continue;
-        }
-        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("sarif"))
-                {
-                    found.push(p);
-                }
-            }
-        }
-    }
-    found
+    };
+    Some(file_path)
+}
+
+/// Extract a single SARIF result into a `(file_path, issue)` pair.
+fn parse_sarif_result(
+    result: &serde_json::Value,
+    base_paths: &HashMap<String, PathBuf>,
+    project_dir: &Path,
+) -> Option<(PathBuf, ExternalIssue)> {
+    let rule_id = result.get("ruleId").and_then(|v| v.as_str()).unwrap_or("");
+    // "detekt.complexity/CyclomaticComplexMethod" → "CyclomaticComplexMethod"
+    let rule = rule_id.rsplit('/').next().unwrap_or(rule_id).to_string();
+
+    let message = result
+        .get("message")
+        .and_then(|m| m.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let level_str = result
+        .get("level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("warning");
+    let severity = match level_str {
+        "error" => Severity::Error,
+        "note" => Severity::Info,
+        _ => Severity::Warning,
+    };
+
+    let phys = result
+        .get("locations")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|l| l.get("physicalLocation"))?;
+
+    let start_line: u32 = phys
+        .get("region")
+        .and_then(|r| r.get("startLine"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let file_path = resolve_sarif_path(phys, base_paths, project_dir)?;
+
+    Some((
+        file_path,
+        ExternalIssue {
+            rule,
+            severity,
+            function_name: extract_function_name(&message),
+            complexity_value: extract_complexity_value(&message),
+            message,
+            start_line,
+        },
+    ))
 }
 
 /// Parse a SARIF 2.1.0 report produced by Detekt into per-file metrics.
@@ -549,90 +648,15 @@ fn parse_sarif_report(
     };
 
     for run in runs {
-        // Build uriBaseId → base path map for resolving relative artifact URIs.
-        let base_paths: HashMap<String, PathBuf> = run
-            .get("originalUriBaseIds")
-            .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(key, val)| {
-                        let uri = val.get("uri")?.as_str()?;
-                        let path_str = uri.strip_prefix("file://").unwrap_or(uri);
-                        Some((key.clone(), PathBuf::from(path_str)))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
+        let base_paths = sarif_base_paths(run);
         let Some(results) = run.get("results").and_then(|v| v.as_array()) else {
             continue;
         };
-
         for result in results {
-            let rule_id = result.get("ruleId").and_then(|v| v.as_str()).unwrap_or("");
-            // "detekt.complexity/CyclomaticComplexMethod" → "CyclomaticComplexMethod"
-            let rule = rule_id.rsplit('/').next().unwrap_or(rule_id).to_string();
-
-            let message = result
-                .get("message")
-                .and_then(|m| m.get("text"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let level_str = result
-                .get("level")
-                .and_then(|v| v.as_str())
-                .unwrap_or("warning");
-            let severity = match level_str {
-                "error" => Severity::Error,
-                "note" => Severity::Info,
-                _ => Severity::Warning,
+            let Some((file_path, issue)) = parse_sarif_result(result, &base_paths, project_dir)
+            else {
+                continue;
             };
-
-            // Resolve file path from the first location entry.
-            let phys = result
-                .get("locations")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|l| l.get("physicalLocation"));
-            let Some(phys) = phys else { continue };
-
-            let artifact = phys.get("artifactLocation");
-            let uri = artifact
-                .and_then(|a| a.get("uri"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let uri_base_id = artifact
-                .and_then(|a| a.get("uriBaseId"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("%SRCROOT%");
-            let start_line: u32 = phys
-                .get("region")
-                .and_then(|r| r.get("startLine"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-
-            let file_path = if let Some(base) = base_paths.get(uri_base_id) {
-                base.join(uri)
-            } else {
-                let raw = uri.strip_prefix("file://").unwrap_or(uri);
-                if Path::new(raw).is_absolute() {
-                    PathBuf::from(raw)
-                } else {
-                    project_dir.join(raw)
-                }
-            };
-
-            let issue = ExternalIssue {
-                rule: rule.clone(),
-                severity,
-                function_name: extract_function_name(&message),
-                complexity_value: extract_complexity_value(&message),
-                message,
-                start_line,
-            };
-
             let entry = metrics.entry(file_path).or_insert_with(|| ExternalMetrics {
                 analyzer: "detekt".to_string(),
                 ..ExternalMetrics::default()
