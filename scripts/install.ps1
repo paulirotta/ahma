@@ -973,7 +973,7 @@ function Invoke-AhmaSkillSetup {
 
     Write-Host ""
     Write-Host "  Installing skills..."
-    Install-OneSkill -Name 'ahma' -Version '0.6.0' -ContentFn { Get-AhmaMainSkillContent }
+    Install-OneSkill -Name 'ahma' -Version '0.6.1' -ContentFn { Get-AhmaMainSkillContent }
 
     Write-Host ""
     Write-Host "  Skills are automatically available in:"
