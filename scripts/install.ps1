@@ -32,7 +32,7 @@ $installDir = if ($env:AHMA_INSTALL_DIR) {
 }
 
 # ── Fetch latest release metadata ─────────────────────────────────────────────
-$releasesUrl = "https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
+$releasesUrl = "https://api.github.com/repos/paulirotta/ahma/releases/latest"
 Write-Host "Fetching latest release info..."
 
 try {
