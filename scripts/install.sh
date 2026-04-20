@@ -108,7 +108,7 @@ fetch_release_json() {
     if [ -n "$RELEASE_JSON" ]; then
         return
     fi
-    RELEASES_URL="https://api.github.com/repos/paulirotta/ahma/releases/tags/latest"
+    RELEASES_URL="https://api.github.com/repos/paulirotta/ahma/releases/latest"
     if command -v curl >/dev/null 2>&1; then
         RELEASE_JSON=$(curl -s "$RELEASES_URL")
     elif command -v wget >/dev/null 2>&1; then

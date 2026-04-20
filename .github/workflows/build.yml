@@ -667,14 +667,33 @@ jobs:
           echo "SHA256SUMS contents:"
           cat SHA256SUMS
 
+      - name: Determine release tag
+        id: version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed -E 's/^version = "(.*)"/\1/')
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # Skip if this exact version was already published
+          if gh release view "${TAG}" --json tagName > /dev/null 2>&1; then
+            echo "already_released=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${TAG} already exists — skipping."
+          else
+            echo "already_released=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create Release
+        if: steps.version.outputs.already_released == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Release
-          body: "Automated release from main branch"
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body: "Release ${{ steps.version.outputs.tag }} from main branch"
           draft: false
           prerelease: false
+          make_latest: "true"
           files: |
             ahma-release-*.tar.gz
             ahma-release-*.zip
