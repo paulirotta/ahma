@@ -1,6 +1,6 @@
 ---
 name: ahma
-version: 0.6.0
+version: 0.6.1
 author: Paul Houghton
 description: >
   Comprehensive guide for using Ahma (ahma-mcp) as an AI agent. USE THIS SKILL when you need

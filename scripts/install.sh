@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Skill version — keep in sync with [workspace.package] version in Cargo.toml.
 # CI guardrails verify this matches. Bump alongside Cargo.toml on every release.
-AHMA_VERSION="0.6.0"
+AHMA_VERSION="0.6.1"
 
 # Detect OS and Architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
